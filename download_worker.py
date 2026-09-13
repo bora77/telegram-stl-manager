@@ -150,39 +150,48 @@ class Worker:
                         companions.append(row);names.add(row['filename'])
                 first=min(names,key=lambda name:key(name)[1])
             if key(first)[1]>1:raise ExtractionError('First archive volume is missing; all downloaded parts were kept locally.')
-            with tempfile.TemporaryDirectory(prefix='release-work-',dir=STATE/'staging') as temporary:
-                work=Path(temporary);inputs=work/'inputs';inputs.mkdir()
-                for record in records:
-                    os.link(record['staged'],inputs/record['filename'])
-                for companion in companions:self.stage_completed_part(companion,inputs,sub,month)
-                if key(first)[0].startswith('numbered-rar:'):
-                    header,_=listing(inputs/first,work,self.stopped)
-                    volumes=re.search(r'^Volumes = (\d+)$',header,re.M)
-                    indexes=sorted(key(name)[1] for name in names)
-                    if 'Multivolume = +' not in header or not volumes or int(volumes[1])!=len(names) or indexes!=list(range(1,len(names)+1)):
-                        raise ExtractionError('Numbered RAR files do not form one complete archive set; all parts were kept locally.')
-                started=time.monotonic();last_update=0;last_stage=None
-                def extraction_progress(stage,count,total,done,expected):
-                    nonlocal last_update,last_stage
-                    if self.stopped():raise ExtractionError('Stopped by request; staged release kept.')
-                    now=time.monotonic()
-                    if stage==last_stage and stage!='complete' and now-last_update<.8:return
-                    last_update=now;last_stage=stage
-                    label={'listing':'Reading archive contents','checking_parts':'Checking split archive integrity','extracting':'Extracting release images','complete':'Image extraction complete'}[stage]
-                    self.update('extracting',label+' · '+first,current_creator=sub['creator'],extraction_stage=stage,images_done=count,images_total=total,extraction_bytes=done,extraction_total=expected,extraction_seconds=now-started)
-                images=extract_images(inputs/first,work/'images',extraction_progress,self.stopped)
-                image_destination=Path(self.run['download_directory'])/sub['creator_folder']/month/'release_images'
-                manifest=[]
-                for image in images:
-                    relative=image.relative_to(work/'images'/'output')
-                    name=flat_image_name(first,relative)
-                    result=self.move_one(image,sub,month,name,('release_images',))
-                    manifest.append({'path':name,'source_path':str(relative),'size':result['size'],'sha256':result['sha256']})
-                delivered=[]
-                for record in records:
-                    result=self.move_one(record['staged'],sub,month,record['filename'])
-                    delivered.append(dict(result,id=record['id']))
-                self.history.complete_release(delivered,manifest,image_destination)
+            image_destination=Path(self.run['download_directory'])/sub['creator_folder']/month/'release_images'
+            archives=[{'filename':r['filename'],'size':r['staged'].stat().st_size} for r in records]
+            archives.extend({'filename':r['filename'],'size':r['bytes_total']} for r in companions)
+            saved=self.history.image_extraction(sub['topic_url'],archives,image_destination)
+            if saved:
+                manifest=saved['images']
+                self.update('extracting','Images already extracted; using saved status.',images_done=len(manifest),images_total=len(manifest))
+            else:
+                with tempfile.TemporaryDirectory(prefix='release-work-',dir=STATE/'staging') as temporary:
+                    work=Path(temporary);inputs=work/'inputs';inputs.mkdir()
+                    for record in records:
+                        os.link(record['staged'],inputs/record['filename'])
+                    for companion in companions:self.stage_completed_part(companion,inputs,sub,month)
+                    if key(first)[0].startswith('numbered-rar:'):
+                        header,_=listing(inputs/first,work,self.stopped)
+                        volumes=re.search(r'^Volumes = (\d+)$',header,re.M)
+                        indexes=sorted(key(name)[1] for name in names)
+                        if 'Multivolume = +' not in header or not volumes or int(volumes[1])!=len(names) or indexes!=list(range(1,len(names)+1)):
+                            raise ExtractionError('Numbered RAR files do not form one complete archive set; all parts were kept locally.')
+                    started=time.monotonic();last_update=0;last_stage=None
+                    def extraction_progress(stage,count,total,done,expected):
+                        nonlocal last_update,last_stage
+                        if self.stopped():raise ExtractionError('Stopped by request; staged release kept.')
+                        now=time.monotonic()
+                        if stage==last_stage and stage!='complete' and now-last_update<.8:return
+                        last_update=now;last_stage=stage
+                        label={'listing':'Reading archive contents','checking_parts':'Checking split archive integrity','extracting':'Extracting release images','complete':'Image extraction complete'}[stage]
+                        self.update('extracting',label+' · '+first,current_creator=sub['creator'],extraction_stage=stage,images_done=count,images_total=total,extraction_bytes=done,extraction_total=expected,extraction_seconds=now-started)
+                    images=extract_images(inputs/first,work/'images',extraction_progress,self.stopped)
+                    manifest=[]
+                    for image in images:
+                        relative=image.relative_to(work/'images'/'output')
+                        name=flat_image_name(first,relative)
+                        result=self.move_one(image,sub,month,name,('release_images',))
+                        manifest.append({'path':name,'source_path':str(relative),'size':result['size'],'sha256':result['sha256']})
+            self.history.record_image_extraction(sub['topic_url'],archives,manifest,image_destination,
+                                                 warnings=saved['warnings'] if saved else ())
+            delivered=[]
+            for record in records:
+                result=self.move_one(record['staged'],sub,month,record['filename'])
+                delivered.append(dict(result,id=record['id']))
+            self.history.complete_release(delivered,manifest,image_destination)
             # No volume is removed before the entire release commits together.
             for record in records:
                 record['staged'].unlink();record['receipt'].unlink();record['staged'].parent.rmdir()

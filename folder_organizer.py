@@ -150,6 +150,17 @@ class Organizer:
         if not self.path.exists():
             plan={'state': 'idle', 'dry_run': True, 'files': [], 'message': 'Choose an artist and folder to preview.'}
         else:plan = json.loads(self.path.read_text())
+        # Show durable extraction results even for a preview saved before this
+        # feature, without reading archives or their image directories again.
+        if plan.get('topic_url'):
+            with self.store.history.connect() as db:
+                images={(r['filename'],r['bytes_total'],r['images_destination']):dict(r) for r in db.execute(
+                    '''SELECT filename,bytes_total,images_destination,image_status,image_count,images_extracted_at
+                       FROM downloads WHERE topic_url=? AND images_extracted_at IS NOT NULL''',(plan['topic_url'],))}
+            for file in plan.get('files',[]):
+                destination=str(Path(plan.get('base',''))/plan.get('creator_folder','')/(file.get('month') or '')/'release_images')
+                row=images.get((file['filename'],file['size'],destination),{})
+                file.update({k:row.get(k) for k in ('image_status','image_count','images_extracted_at')})
         if plan['state'] in ACTIVE and time.time() - plan.get('heartbeat', 0) > 60:
             with (self.root / 'data/organizer-worker.lock').open('a') as lock:
                 try:

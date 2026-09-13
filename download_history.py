@@ -1,5 +1,7 @@
 """Durable Telegram attachment identities and transfer history, independent of paths."""
 import sqlite3
+import hashlib
+import json
 from pathlib import Path
 import re
 from contextlib import contextmanager
@@ -11,6 +13,8 @@ class DownloadHistory:
         self._source=source
         self.path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
         with self.connect() as db:
+            # Organizer and downloader may start together during an upgrade.
+            db.execute('BEGIN IMMEDIATE')
             db.execute('''CREATE TABLE IF NOT EXISTS downloads (
                 id INTEGER PRIMARY KEY, source_chat_id TEXT NOT NULL,
                 source_message_id INTEGER NOT NULL CHECK(source_message_id>0),
@@ -25,8 +29,16 @@ class DownloadHistory:
                 error TEXT, UNIQUE(source_chat_id,source_message_id,attachment_index))''')
 
             columns={row['name'] for row in db.execute('PRAGMA table_info(downloads)')}
-            for name,kind in {'download_started_at':'TEXT','download_finished_at':'TEXT','download_seconds':'REAL','download_speed_bps':'REAL','download_average_bps':'REAL','bytes_total_estimate':'INTEGER','move_seconds':'REAL','move_average_bps':'REAL','image_count':'INTEGER','images_destination':'TEXT','images_manifest':'TEXT','image_warnings':"TEXT NOT NULL DEFAULT '[]'",'origin':"TEXT NOT NULL DEFAULT 'download'"}.items():
+            for name,kind in {'download_started_at':'TEXT','download_finished_at':'TEXT','download_seconds':'REAL','download_speed_bps':'REAL','download_average_bps':'REAL','bytes_total_estimate':'INTEGER','move_seconds':'REAL','move_average_bps':'REAL','image_count':'INTEGER','images_destination':'TEXT','images_manifest':'TEXT','image_warnings':"TEXT NOT NULL DEFAULT '[]'",'image_status':'TEXT','images_extracted_at':'TEXT','origin':"TEXT NOT NULL DEFAULT 'download'"}.items():
                 if name not in columns:db.execute(f'ALTER TABLE downloads ADD COLUMN {name} {kind}')
+            if 'images_extracted_at' not in columns:
+                db.execute("""UPDATE downloads SET images_extracted_at=COALESCE(completed_at,CURRENT_TIMESTAMP),
+                    image_status=CASE WHEN image_warnings='[]' THEN 'complete' ELSE 'complete_with_warnings' END
+                    WHERE images_manifest IS NOT NULL""")
+            db.execute('''CREATE TABLE IF NOT EXISTS image_extractions (
+                identity TEXT PRIMARY KEY, topic_url TEXT NOT NULL, archives TEXT NOT NULL,
+                destination TEXT NOT NULL, manifest TEXT NOT NULL, warnings TEXT NOT NULL,
+                state TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
             db.execute('''CREATE TABLE IF NOT EXISTS organized_files (
                 operation_id TEXT NOT NULL, topic_url TEXT NOT NULL, source_path TEXT NOT NULL,
                 destination TEXT NOT NULL, filename TEXT NOT NULL, bytes_total INTEGER NOT NULL,
@@ -38,6 +50,58 @@ class DownloadHistory:
     def source(self):
         if self._source is None:self._source=load_source(self.path.parent.parent)
         return self._source
+
+    def image_identity(self, topic, records, destination):
+        if self.source.topic_id(topic) is None:raise ValueError('Extraction is outside the approved group.')
+        archives=sorted({(r['filename'],r['size']) for r in records})
+        if not archives or any(not isinstance(name,str) or type(size) is not int or size<0 for name,size in archives):
+            raise ValueError('Exact archive filenames and sizes are required.')
+        destination=str(destination)
+        if not Path(destination).is_absolute():raise ValueError('An absolute image destination is required.')
+        # Parts added later and changed sizes form a new extraction. Different
+        # destinations must receive their own images; no NAS reads are needed.
+        value=json.dumps([topic,archives,destination],ensure_ascii=False,separators=(',',':'))
+        return hashlib.sha256(value.encode()).hexdigest(),json.dumps(archives),destination
+
+    def image_extraction(self, topic, records, destination):
+        identity,archives,destination=self.image_identity(topic,records,destination)
+        with self.connect() as db:
+            row=db.execute('SELECT * FROM image_extractions WHERE identity=?',(identity,)).fetchone()
+            if row:
+                return {'images':json.loads(row['manifest']),'warnings':json.loads(row['warnings']),
+                        'state':row['state'],'completed_at':row['completed_at']}
+            # Existing installations already saved successful manifests. Reuse
+            # those too, but only when every archive has the same saved result.
+            saved=[]
+            for name,size in json.loads(archives):
+                row=db.execute('''SELECT * FROM downloads WHERE topic_url=? AND filename=? AND bytes_total=?
+                    AND images_destination=? AND images_manifest IS NOT NULL AND state='downloaded'
+                    ORDER BY images_extracted_at DESC LIMIT 1''',(topic,name,size,destination)).fetchone()
+                if not row:return None
+                saved.append(row)
+            images=json.loads(saved[0]['images_manifest'])
+            if not isinstance(images,list) or any(json.loads(r['images_manifest'])!=images for r in saved):return None
+            warnings=list(dict.fromkeys(w for r in saved for w in json.loads(r['image_warnings'])))
+            return {'images':images,'warnings':warnings,'state':'complete_with_warnings' if warnings else 'complete',
+                    'completed_at':saved[0]['images_extracted_at'] or saved[0]['completed_at']}
+
+    def record_image_extraction(self, topic, records, images, destination, *, warnings=()):
+        """Called only after every extracted image has been delivered and verified."""
+        identity,archives,destination=self.image_identity(topic,records,destination)
+        state='complete_with_warnings' if warnings else 'complete'
+        manifest=json.dumps(images);warning_json=json.dumps(list(warnings))
+        with self.connect() as db:
+            db.execute('''INSERT INTO image_extractions(identity,topic_url,archives,destination,manifest,warnings,state)
+                VALUES(?,?,?,?,?,?,?) ON CONFLICT(identity) DO NOTHING''',
+                (identity,topic,archives,destination,manifest,warning_json,state))
+            receipt=db.execute('SELECT * FROM image_extractions WHERE identity=?',(identity,)).fetchone()
+            if json.loads(receipt['manifest'])!=images or json.loads(receipt['warnings'])!=list(warnings):
+                raise ValueError('Extraction differs from the saved completed result.')
+            for name,size in json.loads(archives):
+                db.execute('''UPDATE downloads SET image_count=?,images_destination=?,images_manifest=?,image_warnings=?,
+                    image_status=?,images_extracted_at=? WHERE topic_url=? AND filename=? AND bytes_total=?''',
+                    (len(images),destination,manifest,warning_json,state,receipt['completed_at'],topic,name,size))
+        return {'images':images,'warnings':list(warnings),'state':state,'completed_at':receipt['completed_at']}
 
     def import_organized(self, job, records, images, images_destination, *, image_warnings=()):
         """Import exact CLI identities after NAS renames, without inventing transfer checksums."""
@@ -64,9 +128,11 @@ class DownloadHistory:
                         (record['size'],record['size'],record['month'],destination,
                          'download' if record.get('repair_download') else 'organizer',record.get('repair_download',{}).get('sha256'),chat,message))
                     if images is not None:
-                        db.execute('''UPDATE downloads SET image_count=?,images_destination=?,images_manifest=?,image_warnings=?
+                        db.execute('''UPDATE downloads SET image_count=?,images_destination=?,images_manifest=?,image_warnings=?,
+                            image_status=?,images_extracted_at=COALESCE(images_extracted_at,CURRENT_TIMESTAMP)
                             WHERE source_chat_id=? AND source_message_id=? AND attachment_index=0''',
-                            (len(images),str(images_destination),json.dumps(images),json.dumps(list(image_warnings)),chat,message))
+                            (len(images),str(images_destination),json.dumps(images),json.dumps(list(image_warnings)),
+                             'complete_with_warnings' if image_warnings else 'complete',chat,message))
                 db.execute('''INSERT INTO organized_files(operation_id,topic_url,source_path,destination,filename,bytes_total,
                     release_month,message_ids,images_manifest) VALUES(?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(operation_id,source_path) DO NOTHING''',
@@ -139,7 +205,8 @@ class DownloadHistory:
                     raise ValueError('Incomplete release file size.')
                 db.execute("""UPDATE downloads SET state='downloaded',bytes_downloaded=?,bytes_total=?,sha256=?,
                     original_destination=?,completed_at=CURRENT_TIMESTAMP,error=NULL,move_seconds=?,move_average_bps=?,
-                    image_count=?,images_destination=?,images_manifest=? WHERE id=? AND state!='downloaded'""",
+                    image_count=?,images_destination=?,images_manifest=?,image_status=COALESCE(image_status,'complete'),
+                    images_extracted_at=COALESCE(images_extracted_at,CURRENT_TIMESTAMP) WHERE id=? AND state!='downloaded'""",
                     (record['size'],record['size'],record['sha256'],record['destination'],record['move_seconds'],record['move_average_bps'],
                      len(images),str(images_destination),json.dumps(images),record['id']))
 

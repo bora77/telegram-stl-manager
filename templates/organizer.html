@@ -106,6 +106,8 @@ function renderTable(){
   const localSize=node('td',(f.size/1048576).toFixed(1)+' MiB');localSize.append(node('small',f.size.toLocaleString()+' bytes'));
   const telegramSize=node('td',f.telegram_size||'Not read');if(f.telegram_size)telegramSize.append(node('small','Exact Telegram metadata'));
   const record=node('td',f.outcome?.recorded?'Recorded':f.already_recorded?'Already recorded':skipped?'Not recorded; needs review':f.would_record?(f.outcome?'Pending recording':'Would record as downloaded'):'No history change proposed');
+  const imageStatus=f.outcome?.image_status||f.image_status,imageCount=f.outcome?.image_status?f.outcome.image_count:f.image_count;
+  if(imageStatus){const label=imageCount?`Images extracted (${imageCount})`:'Checked: no images found';record.append(node('small',label+(imageStatus==='complete_with_warnings'?' · warnings':'')))}
   row.append(name,destination,action,localSize,telegramSize,match,record);rows.append(row);
  }
  el('rows').replaceChildren(rows);

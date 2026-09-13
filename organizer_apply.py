@@ -67,6 +67,8 @@ def application_status(store):
                     state = 'paused'
             result['files'].append({'source': record['source'], 'destination': record['destination'],
                                     'moved': bool(record.get('moved')), 'recorded': recorded, 'state': state,
+                                    'image_status':group.get('image_status'), 'image_count':len(group.get('images') or []),
+                                    'images_extracted_at':group.get('images_extracted_at'),
                                     'error': group.get('error', '')})
     return result
 
@@ -349,6 +351,13 @@ class ApplyWorker:
 
     def images(self, group, pinned, work):
         if not self.job['extract_images']:return None
+        destination=pinned.path/group['month']/'release_images'
+        saved=self.store.history.image_extraction(self.job['topic_url'],group['records'],destination)
+        if saved:
+            group.update(images=saved['images'],image_warnings=saved['warnings'],image_status=saved['state'],
+                         images_extracted_at=saved['completed_at'],images_reused=True)
+            self.save(message='Images already extracted; using saved status.')
+            return saved['images']
         images_work=work/'images'
         if group.get('images') is None:
             if images_work.exists():shutil.rmtree(images_work)
@@ -398,6 +407,10 @@ class ApplyWorker:
             target,size,checksum=deliver(source,self.job['base'],self.job['creator_folder'],group['month'],entry['path'],progress,phase,subdirectories=('release_images',))
             if size!=entry['size'] or checksum!=entry['sha256']:raise ValueError('Delivered image differs from its saved manifest.')
             delivered+=entry['size']
+        saved=self.store.history.record_image_extraction(self.job['topic_url'],group['records'],images,destination,
+                                                        warnings=group.get('image_warnings',[]))
+        group.update(image_status=saved['state'],images_extracted_at=saved['completed_at'])
+        self.save()
         return images
 
     def execute(self):

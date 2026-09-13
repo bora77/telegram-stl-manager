@@ -293,6 +293,82 @@ class OrganizerApplyTests(unittest.TestCase):
                 self.assertEqual(after[key],before[key])
             self.assertEqual(after['image_count'],2)
 
+    def test_new_preview_reuses_extraction_even_after_images_move_away(self):
+        for empty,warnings in ((False,[]),(True,[]),(False,['Damaged member skipped'])):
+            with self.subTest(empty=empty,warnings=warnings),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);store,folder=self.setup_store(root);archive=folder/'Example 2026-01.zip'
+                with zipfile.ZipFile(archive,'w') as z:
+                    z.writestr('model.stl',b'model')
+                    if not empty:z.writestr('preview.jpg',b'image')
+                self.preview(store,folder)
+                from release_images import extract_images
+                def extract(*args,**kwargs):
+                    result=extract_images(*args,**kwargs);kwargs['warnings'].extend(warnings);return result
+                with patch('organizer_apply.extract_images',side_effect=extract):ApplyWorker(store,self.start(store)).execute()
+                self.assertEqual(self.job(store)['releases_review'],0)
+                destination=folder/'2026-01/release_images'
+                for image in destination.glob('*'):image.unlink()
+                store=SubscriptionStore(root) # Persistence across processes/jobs.
+                self.preview(store,folder)
+                status=Organizer(store).status()['files'][0]
+                self.assertEqual(status['image_count'],0 if empty else 1)
+                self.assertEqual(status['image_status'],'complete_with_warnings' if warnings else 'complete')
+                self.assertTrue(status['images_extracted_at'])
+                with patch('organizer_apply.extract_images',side_effect=AssertionError('must skip saved extraction')) as extraction,\
+                     patch('organizer_apply.deliver',side_effect=AssertionError('must not repeat image delivery')):
+                    ApplyWorker(store,self.start(store)).execute()
+                extraction.assert_not_called()
+                self.assertEqual(self.job(store)['releases_review'],0,self.job(store)['message'])
+                self.assertTrue(self.job(store)['groups'][0]['images_reused'])
+                self.assertEqual(self.job(store)['groups'][0]['image_warnings'],warnings)
+                self.assertEqual(list(destination.glob('*')),[])
+
+    def test_images_saved_before_archive_move_survive_a_new_job(self):
+        for failure in ('images','archives'):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);store,folder=self.setup_store(root);archive=folder/'Example 2026-01.zip';self.archive(archive)
+                self.preview(store,folder);job_id=self.start(store)
+                target='organizer_apply.deliver' if failure=='images' else 'organizer_apply.PinnedFolder.move'
+                with patch(target,side_effect=OSError('test interrupted move')):ApplyWorker(store,job_id).execute()
+                self.assertEqual(self.job(store)['releases_review'],1);self.assertFalse(store.history.was_downloaded(100))
+                records=self.job(store)['groups'][0]['records'];destination=folder/'2026-01/release_images'
+                saved=store.history.image_extraction(TOPIC,records,destination)
+                self.assertEqual(saved is not None,failure=='archives')
+                self.preview(store,folder)
+                from release_images import extract_images
+                with patch('organizer_apply.extract_images',wraps=extract_images) as extraction:
+                    ApplyWorker(store,self.start(store)).execute()
+                self.assertEqual(extraction.call_count,1 if failure=='images' else 0)
+                self.assertEqual(self.job(store)['releases_review'],0,self.job(store)['message'])
+                self.assertTrue(store.history.was_downloaded(100))
+
+    def test_extraction_receipt_requires_the_same_source_parts_sizes_and_destination(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);store,folder=self.setup_store(root);destination=folder/'2026-01/release_images'
+            first={'filename':'Example 2026-01.7z.001','size':100};second={'filename':'Example 2026-01.7z.002','size':20}
+            history=store.history
+            history.record_image_extraction(TOPIC,[first,second],[],destination)
+            self.assertIsNotNone(history.image_extraction(TOPIC,[second,first],destination))
+            self.assertIsNone(history.image_extraction(TOPIC,[first],destination))
+            self.assertIsNone(history.image_extraction(TOPIC,[first,dict(second,size=21)],destination))
+            self.assertIsNone(history.image_extraction(TOPIC+'0',[first,second],destination))
+            self.assertIsNone(history.image_extraction(TOPIC,[first,second],folder/'2026-02/release_images'))
+            with self.assertRaises(ValueError):history.image_extraction('https://t.me/c/987654321/200',[first],destination)
+
+    def test_legacy_manifests_are_migrated_and_reused(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);store,folder=self.setup_store(root);archive=folder/'Example 2026-01.zip';self.archive(archive)
+            self.preview(store,folder);ApplyWorker(store,self.start(store)).execute()
+            with store.history.connect() as db:
+                db.execute('DELETE FROM image_extractions')
+                db.execute('ALTER TABLE downloads DROP COLUMN image_status')
+                db.execute('ALTER TABLE downloads DROP COLUMN images_extracted_at')
+            store=SubscriptionStore(root);self.preview(store,folder)
+            self.assertEqual(Organizer(store).status()['files'][0]['image_status'],'complete')
+            with patch('organizer_apply.extract_images',side_effect=AssertionError('reuse legacy manifest')) as extraction:
+                ApplyWorker(store,self.start(store)).execute()
+            extraction.assert_not_called();self.assertEqual(self.job(store)['releases_review'],0)
+
     def test_changed_source_and_new_destination_skip_before_mutation_or_history(self):
         for changed in ('size','same_size','destination','symlink'):
             with self.subTest(changed=changed),tempfile.TemporaryDirectory() as temporary:

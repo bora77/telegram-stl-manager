@@ -126,7 +126,8 @@ class WorkerImageTests(unittest.TestCase):
                     if not release.wait(10):raise RuntimeError('Download test timed out')
                     source=state/item['filename'];source.write_bytes(original);progress(len(original),len(original));return source
                 def close(self):pass
-            with patch.object(download_worker,'TelegramCLI',CLI),patch.object(organizer,'progress',side_effect=observed_progress),ThreadPoolExecutor(2) as pool:
+            with patch.object(download_worker,'TelegramCLI',CLI),patch.object(organizer,'progress',side_effect=observed_progress),\
+                 patch('organizer_apply.extract_images',side_effect=AssertionError('download already extracted images')),ThreadPoolExecutor(2) as pool:
                 downloading=pool.submit(worker.execute)
                 try:
                     self.assertTrue(transferring.wait(5));applying=pool.submit(organizer.execute)
@@ -256,7 +257,34 @@ class WorkerImageTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(),second.read_bytes())
             self.assertEqual(list((base/'Example/2026-09/release_images').glob('preview__*.jpg'))[0].read_bytes(),image.read_bytes())
             self.assertEqual(list((state/'staging').iterdir()),[])
-            with store.history.connect() as db:self.assertEqual(dict(db.execute('SELECT * FROM downloads WHERE id=?',(old['id'],)).fetchone()),before)
+            with store.history.connect() as db:after=dict(db.execute('SELECT * FROM downloads WHERE id=?',(old['id'],)).fetchone())
+            image_fields={'image_count','images_destination','images_manifest','image_warnings','image_status','images_extracted_at'}
+            self.assertEqual({k:v for k,v in after.items() if k not in image_fields},{k:v for k,v in before.items() if k not in image_fields})
+            self.assertEqual(after['image_status'],'complete');self.assertEqual(after['image_count'],1)
+
+    def test_download_retry_reuses_images_only_after_verified_image_delivery(self):
+        for failure in ('image','archive'):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as temporary:
+                worker,store,sub,state,base=self.setup_worker(Path(temporary));name='Example 2026-09.zip'
+                class CLI:
+                    calls=0
+                    def download(self,item,progress,*args):
+                        self.calls+=1;source=state/name
+                        with zipfile.ZipFile(source,'w') as z:z.writestr('preview.jpg',b'image')
+                        progress(source.stat().st_size,source.stat().st_size);return source
+                worker.telegram=CLI();item={'filename':name,'source_message_id':100,'message_url':sub['topic_url']+'/100'}
+                move=worker.move_one
+                def fail(source,sub,month,filename,subdirectories=()):
+                    if bool(subdirectories)==(failure=='image'):raise OSError('test interrupted move')
+                    return move(source,sub,month,filename,subdirectories)
+                with patch.object(worker,'move_one',side_effect=fail),self.assertRaises(OSError):worker.transfer(sub,item,'2026-09')
+                self.assertFalse(store.history.was_downloaded(100))
+                with store.history.connect() as db:row=dict(db.execute('SELECT * FROM downloads').fetchone())
+                self.assertEqual(row['image_status'],'complete' if failure=='archive' else None)
+                with patch.object(download_worker,'extract_images',wraps=extract_images) as extraction:
+                    worker.transfer(sub,item,'2026-09')
+                self.assertEqual(extraction.call_count,1 if failure=='image' else 0)
+                self.assertEqual(worker.telegram.calls,1);self.assertTrue(store.history.was_downloaded(100))
 
     def test_split_downloads_wait_and_commit_only_after_images_and_all_volumes_arrive(self):
         with tempfile.TemporaryDirectory() as temp:

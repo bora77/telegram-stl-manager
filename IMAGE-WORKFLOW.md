@@ -10,6 +10,16 @@ The Collages page arranges extracted images and saves a full-resolution JPEG on 
 organizer also includes matched archives already in monthly folders so it can
 fill in missing images, without another Telegram download.
 
+Successful image delivery is saved separately in SQLite before the archive move.
+Later organizer and download runs skip extraction for the same archive filenames,
+sizes, full part set and image destination. Existing saved image manifests count
+too. A result with no images or with recovery warnings is also remembered; an
+interrupted extraction or incomplete image delivery is not marked finished.
+The organizer table shows **Images extracted** or **Checked: no images found**.
+Moving images away later does not erase this status or trigger extraction again.
+Changed archive sizes, additional parts or a different destination require a new
+extraction.
+
 When image data is damaged, the organizer keeps members that decode and pass
 their archive checksum, skips unreadable members, and continues organizing.
 It can rebuild a damaged ZIP index in a temporary copy using `zip -FF`; original

@@ -133,5 +133,5 @@ class SubscriptionStore:
         organizer_active=Organizer(self).status()['state'] in ACTIVE
         count=len(self.read()['subscriptions'])
         return {**self.history.queue(run.get('id')),'worker_state':run['state'],
-                'trigger_mode':'manual','can_start':not active and not organizer_active and count>0,'active':active,'organizer_active':organizer_active,
+                'trigger_mode':'manual','can_start':not active and count>0,'active':active,'organizer_active':organizer_active,
                 'run':run,'subscriptions_saved':count}

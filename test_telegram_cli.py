@@ -6,6 +6,9 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+import threading
+import fcntl
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 from telegram_cli import TelegramCLI, CLIError, ExportProgress, parse_export as parse_source_export, validate_servers
@@ -104,7 +107,7 @@ class ExportProgressTests(unittest.TestCase):
                 root=Path(temp);store=SubscriptionStore(configure_source(root))
                 store.atomic_write(root/'data/creators.json',{'creators':[{'topic_url':TOPIC,'within_approved_group':True}]})
                 client=TelegramCLI(root=root,state=root/'state',binary='/bin/true');received=[]
-                def run(args,work,stopped,tick,timeout):
+                def run(args,work,stopped,tick,timeout,**kwargs):
                     output=Path(args[args.index('--output')+1]);output.write_text(json.dumps(exported()))
                     tick()
                     if complete:Path(str(output)+'.complete').write_text(json.dumps({'complete':True,'topic':200}))
@@ -118,6 +121,39 @@ class ExportProgressTests(unittest.TestCase):
 
 
 class CLIProcessTests(unittest.TestCase):
+    def test_clients_share_login_between_commands_and_waiting_can_be_cancelled(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);configure_source(root)
+            first=TelegramCLI(root=root,state=root/'state',binary='/bin/true')
+            second=TelegramCLI(root=root,state=root/'state',binary='/bin/true')
+            self.addCleanup(first.close);self.addCleanup(second.close)
+            entered=threading.Event();release=threading.Event();waiting=threading.Event()
+            run=first._run_locked
+            one=root/'one';one.mkdir();two=root/'two';two.mkdir()
+            def held(*args):
+                entered.set()
+                if not release.wait(5):raise RuntimeError('CLI test timed out')
+                run(*args)
+            with patch.object(first,'_run_locked',side_effect=held),ThreadPoolExecutor(2) as pool:
+                a=pool.submit(first._run,[],one,lambda:False)
+                try:
+                    self.assertTrue(entered.wait(2))
+                    b=pool.submit(second._run,[],two,lambda:False,waiting=waiting.set)
+                    self.assertTrue(waiting.wait(2));self.assertIsNone(second.child)
+                finally:release.set()
+                a.result(timeout=3);b.result(timeout=3)
+            self.assertEqual(second.child.returncode,0)
+            self.assertFalse(first.lock.closed) # Idle clients hold no CLI lock.
+            cancelled=threading.Event();previous=second.child
+            fcntl.flock(first.lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            try:
+                with self.assertRaisesRegex(CLIError,'Stopped while waiting'):
+                    second._run([],two,cancelled.is_set,waiting=cancelled.set)
+                self.assertIs(second.child,previous)
+            finally:fcntl.flock(first.lock,fcntl.LOCK_UN)
+            second._run([],two,lambda:False)
+            self.assertEqual(second.child.returncode,0)
+
     def make_client(self,root,behavior):
         store=SubscriptionStore(configure_source(root))
         store.atomic_write(root/'data/creators.json',{'creators':[{'topic_url':TOPIC,'within_approved_group':True}]})
@@ -150,6 +186,24 @@ with events.open('w') as e:
             self.assertEqual(source.read_bytes(),b'0123456789')
             with patch.object(client,'_run',side_effect=AssertionError('must reuse verified completion')):
                 self.assertEqual(client.download(item,lambda *a:None,lambda:False),source)
+
+    def test_time_waiting_for_another_command_does_not_count_as_stalled_download(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            client=self.make_client(root,"""
+events.write_text('')
+time.sleep(.3)
+output.write_bytes(b'0123456789')
+events.write_text(json.dumps({'event':'complete','bytes':10,'message_id':100000,'filename':'Artist 2026-09.zip','sha256':hashlib.sha256(b'0123456789').hexdigest()})+'\\n')
+""")
+            run=client._run;later=time.monotonic()+1000
+            def delayed(args,work,stopped,tick,timeout,waiting):
+                with patch('telegram_cli.time.monotonic',return_value=later):
+                    waiting()
+                    return run(args,work,stopped,tick,timeout,waiting)
+            with patch.object(client,'_run',side_effect=delayed):
+                source=client.download(parse_export(exported(),TOPIC)[0],lambda *args:None,lambda:False)
+            self.assertEqual(source.read_bytes(),b'0123456789')
 
     def test_full_apparent_size_without_completion_receipt_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

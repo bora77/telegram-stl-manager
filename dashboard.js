@@ -53,10 +53,9 @@ async function refreshQueue(){
     renderRunActivity(queue);
     const checking=['starting','scanning'].includes(queue.worker_state),emptyFinished=['completed','needs_review'].includes(queue.worker_state)&&queue.total_files===0;
     const stopped=['failed','interrupted','stopped'].includes(queue.worker_state);
-    document.getElementById('queue-blocker').hidden=!queue.organizer_active;
     document.getElementById('worker-state').textContent=queue.worker_state.replaceAll('_',' ');
     document.getElementById('download-all').disabled=!queue.can_start||saving;document.getElementById('stop-downloads').disabled=!queue.active;
-    document.getElementById('download-start-help').textContent=queue.organizer_active?'A folder operation is active. Downloads can start when it finishes.':queue.active?'One manual run is active.':stopped?'Press Download all subscriptions to retry. Completed files are skipped and verified local downloads are reused.':queue.subscriptions_saved?'Runs all saved subscriptions; unsaved edits are excluded.':'Save at least one subscription to start.';
+    document.getElementById('download-start-help').textContent=queue.active?'One manual run is active.':stopped?'Press Download all subscriptions to retry. Completed files are skipped and verified local downloads are reused.':queue.subscriptions_saved?'Runs all saved subscriptions; unsaved edits are excluded.':'Save at least one subscription to start.';
     const total=queue.progress_total??queue.bytes_total;
     const percent=total>0?Math.min(100,100*queue.bytes_downloaded/total):null;
     document.getElementById('queue-percent').textContent=stopped?'Stopped'+(percent==null?'':' at '+Math.floor(percent)+'%'):checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'%';

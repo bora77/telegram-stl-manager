@@ -15,7 +15,7 @@ from subscription_store import SubscriptionStore
 from telegram_cli import TelegramCLI, CLIError as WorkerError, STATE, safe_filename
 from release_rules import release_month,in_scope
 from transfer_metrics import TransferMeter
-from file_delivery import deliver,mount_identity,digest
+from file_delivery import deliver,mount_identity,digest,release_lock
 from release_images import extract_images,ExtractionError,MissingVolumeError,volume_key,flat_image_name,listing
 
 ROOT=Path(__file__).resolve().parent
@@ -74,7 +74,9 @@ class Worker:
                 def cli_status(event):
                     nonlocal meter
                     kind=event.get('event')
-                    if kind=='download_start':meter=None
+                    if kind=='waiting_for_telegram':
+                        self.update('downloading','Waiting for the current Telegram scan to finish · '+filename)
+                    elif kind=='download_start':meter=None
                     if kind=='server_testing':
                         self.update('downloading',f"Comparing download servers · {event['index']} / {event['count']}",server_test=event,server_stage='testing')
                     elif kind=='server_selected':
@@ -274,14 +276,20 @@ class Worker:
             for sub in self.run['subscriptions']:
                 self.scan(sub)
             for sub in self.run['subscriptions']:
-                group=None
                 planned=sorted((p for p in self.planned if p[0]['topic_url']==sub['topic_url']),key=lambda p:(p[2],self.archive_key(p[1]['filename'],sub,p[2])))
-                for _,item,month in planned:
-                    next_group=(month,self.archive_key(item['filename'],sub,month)[0])
-                    if group is not None and group!=next_group:self.finish_pending(sub)
-                    self.transfer(sub,item,month)
-                    group=(month,self.archive_key(item['filename'],sub,month)[0])
-                self.finish_pending(sub)
+                from itertools import groupby
+                for month,monthly in groupby(planned,key=lambda p:p[2]):
+                    def waiting():self.update('downloading','Waiting for organization of '+sub['creator']+' · '+month,current_creator=sub['creator'])
+                    with release_lock(ROOT,self.run['download_directory'],sub['creator_folder'],month,self.stopped,waiting):
+                        group=None
+                        for _,item,_ in monthly:
+                            next_group=self.archive_key(item['filename'],sub,month)[0]
+                            if group is not None and group!=next_group:self.finish_pending(sub)
+                            # transfer checks history again after acquiring the
+                            # month: the organizer may have completed it meanwhile.
+                            self.transfer(sub,item,month)
+                            group=self.archive_key(item['filename'],sub,month)[0]
+                        self.finish_pending(sub)
                 self.run['creators_done']+=1
             self.update('needs_review' if self.run['warnings'] else 'completed', 'Manual run finished. '+('Some items need review; see details below.' if self.run['warnings'] else 'All eligible discovered files are handled.'),finished_at=datetime.now(timezone.utc).isoformat())
         except Exception as error:

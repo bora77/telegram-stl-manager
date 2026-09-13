@@ -8,10 +8,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import download_worker
 from file_delivery import digest
-from release_images import ExtractionError, MissingVolumeError
+from release_images import ExtractionError, MissingVolumeError, extract_images
+from folder_organizer import Organizer, inventory, match_files
+from organizer_apply import ApplyWorker, start_application
 from subscription_store import SubscriptionStore
 
 
@@ -26,6 +30,117 @@ class WorkerImageTests(unittest.TestCase):
         self.enterContext(patch.object(download_worker,'STATE',state))
         worker=download_worker.Worker('test')
         return worker,store,sub,state,base
+
+    def parallel_workers(self,root,download_month):
+        worker,store,sub,state,base=self.setup_worker(root)
+        folder=base/sub['creator_folder'];folder.mkdir()
+        archive=folder/'Example 2026-09.zip'
+        with zipfile.ZipFile(archive,'w') as z:
+            z.writestr('preview.jpg',b'image');z.writestr('model.stl',b'model')
+        original=archive.read_bytes()
+        store.atomic_write(store.config_path,{'revision':0,'download_directory':str(base)})
+        store.atomic_write(root/'data/creators.json',{'creators':[{'name':sub['creator'],'topic_url':sub['topic_url'],'within_approved_group':True}]})
+        attachment={'source_message_id':100,'filename':archive.name,'bytes_total':len(original),'message_url':sub['topic_url']+'/100'}
+        files=inventory(folder);match_files(files,[attachment],set())
+        plan={'id':'preview','state':'completed','dry_run':True,'backend':'cli','base':str(base),**sub,'files':files,'attachments':[attachment]}
+        store.atomic_write(Organizer(store).path,plan)
+        with patch('organizer_apply.Popen'):
+            job=start_application(store,{'plan_id':'preview','extract_images':True})['application']
+        organizer=ApplyWorker(store,job['id'])
+        item={**attachment,'filename':'Example '+download_month+'.zip',
+              'source_message_id':100 if download_month=='2026-09' else 200,
+              'message_url':sub['topic_url']+('/100' if download_month=='2026-09' else '/200')}
+        return worker,organizer,store,state,folder,item,original
+
+    def test_organizer_and_download_work_simultaneously_on_different_months(self):
+        with tempfile.TemporaryDirectory() as temp:
+            worker,organizer,store,state,folder,item,original=self.parallel_workers(Path(temp),'2026-10')
+            extracting=threading.Event();release=threading.Event();calls=[]
+            def held_extraction(*args):
+                extracting.set()
+                if not release.wait(10):raise RuntimeError('Organizer test timed out')
+                return extract_images(*args)
+            class CLI:
+                def __init__(self,**kwargs):pass
+                def list_files(self,*args):return [item]
+                def download(self,item,progress,*args):
+                    calls.append(item['source_message_id']);source=state/item['filename'];source.write_bytes(original)
+                    progress(len(original),len(original));return source
+                def close(self):pass
+            with patch('organizer_apply.extract_images',side_effect=held_extraction),patch.object(download_worker,'TelegramCLI',CLI),ThreadPoolExecutor(2) as pool:
+                applying=pool.submit(organizer.execute)
+                try:
+                    self.assertTrue(extracting.wait(5))
+                    downloading=pool.submit(worker.execute);downloading.result(timeout=5)
+                    self.assertFalse(applying.done())
+                    self.assertEqual(worker.run['state'],'completed',worker.run['message'])
+                    self.assertTrue(store.history.was_downloaded(200))
+                    self.assertFalse(store.history.was_downloaded(100))
+                finally:release.set()
+                applying.result(timeout=5)
+            self.assertEqual(organizer.job['state'],'completed',organizer.job['message'])
+            self.assertEqual(calls,[200]);self.assertTrue(store.history.was_downloaded(100))
+
+    def test_same_month_rechecks_history_when_organizer_finishes_first(self):
+        with tempfile.TemporaryDirectory() as temp:
+            worker,organizer,store,state,folder,item,original=self.parallel_workers(Path(temp),'2026-09')
+            extracting=threading.Event();release=threading.Event();waiting=threading.Event();calls=[]
+            def held_extraction(*args):
+                extracting.set()
+                if not release.wait(10):raise RuntimeError('Organizer test timed out')
+                return extract_images(*args)
+            update=worker.update
+            def observed_update(state,message,**extra):
+                if message.startswith('Waiting for organization'):waiting.set()
+                update(state,message,**extra)
+            class CLI:
+                def __init__(self,**kwargs):pass
+                def list_files(self,*args):return [item]
+                def download(self,*args):calls.append(True);raise AssertionError('Organizer already supplied the file')
+                def close(self):pass
+            with patch('organizer_apply.extract_images',side_effect=held_extraction),patch.object(download_worker,'TelegramCLI',CLI),patch.object(worker,'update',side_effect=observed_update),ThreadPoolExecutor(2) as pool:
+                applying=pool.submit(organizer.execute)
+                try:
+                    self.assertTrue(extracting.wait(5));downloading=pool.submit(worker.execute)
+                    self.assertTrue(waiting.wait(5));self.assertFalse(downloading.done())
+                finally:release.set()
+                applying.result(timeout=5);downloading.result(timeout=5)
+            self.assertEqual(worker.run['state'],'completed',worker.run['message'])
+            self.assertEqual(organizer.job['state'],'completed',organizer.job['message'])
+            self.assertEqual(calls,[]);self.assertTrue(store.history.was_downloaded(100))
+            self.assertEqual((folder/'2026-09'/item['filename']).read_bytes(),original)
+
+    def test_same_month_reuses_identical_destination_when_download_finishes_first(self):
+        with tempfile.TemporaryDirectory() as temp:
+            worker,organizer,store,state,folder,item,original=self.parallel_workers(Path(temp),'2026-09')
+            transferring=threading.Event();release=threading.Event();waiting=threading.Event()
+            progress=organizer.progress
+            def observed_progress(phase,*args,**kwargs):
+                if phase=='waiting':waiting.set()
+                progress(phase,*args,**kwargs)
+            class CLI:
+                def __init__(self,**kwargs):pass
+                def list_files(self,*args):return [item]
+                def download(self,item,progress,*args):
+                    transferring.set()
+                    if not release.wait(10):raise RuntimeError('Download test timed out')
+                    source=state/item['filename'];source.write_bytes(original);progress(len(original),len(original));return source
+                def close(self):pass
+            with patch.object(download_worker,'TelegramCLI',CLI),patch.object(organizer,'progress',side_effect=observed_progress),ThreadPoolExecutor(2) as pool:
+                downloading=pool.submit(worker.execute)
+                try:
+                    self.assertTrue(transferring.wait(5));applying=pool.submit(organizer.execute)
+                    self.assertTrue(waiting.wait(5));self.assertFalse(applying.done())
+                finally:release.set()
+                downloading.result(timeout=5);applying.result(timeout=5)
+            self.assertEqual(worker.run['state'],'completed',worker.run['message'])
+            self.assertEqual(organizer.job['state'],'completed',organizer.job['message'])
+            self.assertFalse((folder/item['filename']).exists())
+            self.assertEqual((folder/'2026-09'/item['filename']).read_bytes(),original)
+            self.assertEqual(len(list((folder/'2026-09/release_images').iterdir())),1)
+            with store.history.connect() as db:
+                record=dict(db.execute('SELECT * FROM downloads WHERE source_message_id=100').fetchone())
+            self.assertEqual(record['state'],'downloaded');self.assertEqual(record['sha256'],digest(folder/'2026-09'/item['filename']))
 
     def test_separately_posted_numbered_rars_reuse_verified_first_part_on_retry(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -18,7 +18,7 @@
 </main><script>
 __RULES__
 const el=id=>document.getElementById(id);
-let creators=[],subscriptions=[],current={files:[]},ready=false,downloadActive=false;
+let creators=[],subscriptions=[],current={files:[]},ready=false;
 let previewPlanId=null,previewChoice=null,previewPending=false,actionPending=false,refreshPending=false,revision=0,tableSignature=null;
 const active=()=>['starting','scanning','applying'].includes(current.state)||appRunning();
 const appRunning=()=>['starting','running'].includes(current.application?.state);
@@ -66,7 +66,7 @@ function render(){
  el('scope').textContent=!previewPending&&p.creator?`${p.creator} · ${p.creator_folder}`:'';
  el('stop').hidden=!running||previewPending;
  el('stop').disabled=actionPending;
- el('preview').disabled=!ready||actionPending||running||downloadActive||!el('artist').value||!el('folder').value;
+ el('preview').disabled=!ready||actionPending||running||!el('artist').value||!el('folder').value;
  for(const id of ['search','artist','folder'])el(id).disabled=!ready||running||actionPending||(id==='folder'&&!el('artist').value);
  el('scan').hidden=!scanning||previewPending;
  el('scan').removeAttribute('value');
@@ -96,7 +96,7 @@ function renderTable(){
   const row=node('tr',''),name=node('td',f.source),destination=node('td',f.destination||'Month needs review'),action=node('td','');
   const moved=f.action==='move'&&f.outcome?.moved;
   action.append(node('span',moved?'Moved':({move:'Would move',keep:'Keep in place',conflict:'Conflict',review:'Needs review'})[f.action],'badge '+(moved?'moved':f.action)));
-  const phase=({pending:'Waiting',preparing:'Preparing release',extracting:'Extracting images',images:'Moving release images',moving:'Moving archives',recording:'Recording in history',moved:'Waiting for history',paused:'Paused',completed:'Complete'})[f.outcome?.state];
+  const phase=({pending:'Waiting',waiting:'Waiting for download',preparing:'Preparing release',extracting:'Extracting images',images:'Moving release images',moving:'Moving archives',recording:'Recording in history',moved:'Waiting for history',paused:'Paused',completed:'Complete'})[f.outcome?.state];
   if(phase)action.append(node('small',phase));
   if(f.reason)action.append(node('small',f.reason));
   const match=node('td','');
@@ -114,7 +114,7 @@ function renderTable(){
 async function refresh(){
  if(refreshPending||actionPending)return;
  refreshPending=true;const started=revision;
- try{const [plan,queue]=await Promise.all([api('/api/organizer'),api('/api/queue')]);if(started!==revision)return;acceptPlan(plan);downloadActive=queue.active;render()}
+ try{const plan=await api('/api/organizer');if(started!==revision)return;acceptPlan(plan);render()}
  catch(e){if(started===revision)showError(e.message)}
  finally{refreshPending=false}
 }
@@ -124,12 +124,12 @@ function renderApplication(){
  const applied=planJob()?.state==='completed';
  el('apply-controls').hidden=el('preview-results').hidden||current.state!=='completed'||!available.length||!matchesChoice||!!pending||running||applied;
  el('apply').textContent=`Apply ${available.length} ready files`;
- el('apply').disabled=!ready||actionPending||active()||downloadActive||current.state!=='completed'||!available.length||!fresh||!matchesChoice||!!pending||applied;
+ el('apply').disabled=!ready||actionPending||active()||current.state!=='completed'||!available.length||!fresh||!matchesChoice||!!pending||applied;
  el('extract-images').disabled=running||actionPending;
- el('apply-summary').textContent=downloadActive?'A download is running. Apply will be available when it finishes.':!fresh?'Run a fresh preview before applying.':`${available.filter(f=>f.action==='move').length} files to move · ${available.filter(f=>f.action==='keep').length} already in monthly folders · ${files.length-available.length} skipped for review`;
+ el('apply-summary').textContent=!fresh?'Run a fresh preview before applying.':`${available.filter(f=>f.action==='move').length} files to move · ${available.filter(f=>f.action==='keep').length} already in monthly folders · ${files.length-available.length} skipped for review`;
  el('application').hidden=!running&&!pending;
  el('application-progress').hidden=!running;el('phase-progress').hidden=!running;el('phase-detail').hidden=!running;
- el('resume').hidden=!pending;el('resume').disabled=downloadActive||active()||actionPending;
+ el('resume').hidden=!pending;el('resume').disabled=active()||actionPending;
  if(!job)return;
  el('application-title').textContent=`${job.creator} · ${running?'Organizing folders':'Organization paused'}`;
  const message=jobMessage(job),details=cleanMessage(job.message);

@@ -26,8 +26,6 @@ class RunManager:
     def start(self,payload):
         with self.lock,(self.root/'data/operation.lock').open('a') as operation:
             fcntl.flock(operation,fcntl.LOCK_EX)
-            from folder_organizer import Organizer,ACTIVE
-            if Organizer(self.store).status()['state'] in ACTIVE:raise FileExistsError('A folder operation is active. Wait for it to finish.')
             current=self.status()
             if current['state'] in ('starting','scanning','downloading','extracting','copying','stopping'):raise FileExistsError('A download run is already active.')
             settings=self.store.read();config=self.store.config()

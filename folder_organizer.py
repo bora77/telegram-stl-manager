@@ -151,7 +151,7 @@ class Organizer:
             plan={'state': 'idle', 'dry_run': True, 'files': [], 'message': 'Choose an artist and folder to preview.'}
         else:plan = json.loads(self.path.read_text())
         if plan['state'] in ACTIVE and time.time() - plan.get('heartbeat', 0) > 60:
-            with (self.root / 'data/worker.lock').open('a') as lock:
+            with (self.root / 'data/organizer-worker.lock').open('a') as lock:
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
@@ -182,8 +182,8 @@ class Organizer:
             raise ValueError('Artist folder must exist inside the configured download directory.')
         with (self.root / 'data/operation.lock').open('a') as operation:
             fcntl.flock(operation, fcntl.LOCK_EX)
-            if self.status()['state'] in ACTIVE or self.store.runs.status()['state'] in ('starting', 'scanning', 'downloading', 'extracting', 'copying', 'stopping'):
-                raise FileExistsError('Another Telegram task is active. Wait for it to finish.')
+            if self.status()['state'] in ACTIVE:
+                raise FileExistsError('Another folder operation is active. Wait for it to finish.')
             plan = {'id': uuid.uuid4().hex, 'state': 'starting', 'dry_run': True,
                     'creator': creator['name'], 'topic_url': creator['topic_url'], 'creator_folder': folder,
                     'base': str(base), 'files': inventory(target), 'attachments': [], 'warnings': [], 'comparison_mode':'filename_and_size',
@@ -235,6 +235,6 @@ def scan_plan(store, plan_id):
 
 
 if __name__ == '__main__':
-    with (ROOT / 'data/worker.lock').open('a') as lock:
+    with (ROOT / 'data/organizer-worker.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         scan_plan(SubscriptionStore(ROOT), sys.argv[1])

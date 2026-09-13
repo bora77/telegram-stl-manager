@@ -4,12 +4,49 @@ from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+import fcntl
+import time
 from unittest.mock import patch
 from release_rules import release_month,in_scope,first_month,baseline_month
-from file_delivery import deliver,DeliveryError
+from file_delivery import deliver,DeliveryError,release_lock
 from subscription_store import SubscriptionStore
 
 class DownloaderTests(unittest.TestCase):
+    def test_worker_status_and_stop_controls_are_independent(self):
+        from folder_organizer import Organizer
+        from organizer_apply import application_status
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store=SubscriptionStore(configure_source(root))
+            store.atomic_write(store.runs.path,{'state':'downloading','message':'test'})
+            store.atomic_write(root/'data/organizer-plan.json',{'state':'scanning','heartbeat':time.time()-100})
+            store.atomic_write(root/'data/organizer-apply.json',{'state':'running','heartbeat':time.time()-100,'groups':[]})
+            with (root/'data/worker.lock').open('a') as download,(root/'data/organizer-worker.lock').open('a') as organizer:
+                fcntl.flock(download,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                self.assertEqual(store.runs.status()['state'],'downloading')
+                self.assertEqual(Organizer(store).status()['state'],'interrupted')
+                self.assertEqual(application_status(store)['state'],'interrupted')
+                fcntl.flock(download,fcntl.LOCK_UN);fcntl.flock(organizer,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                self.assertEqual(store.runs.status()['state'],'interrupted')
+                self.assertEqual(application_status(store)['state'],'running')
+            store.runs.stop()
+            self.assertTrue((root/'data/stop-request').exists());self.assertFalse((root/'data/organizer-stop').exists())
+            (root/'data/stop-request').unlink();Organizer(store).stop()
+            self.assertTrue((root/'data/organizer-stop').exists());self.assertFalse((root/'data/stop-request').exists())
+
+    def test_waiting_on_same_month_can_stop_without_releasing_other_worker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);cancelled=False
+            def waiting():
+                nonlocal cancelled
+                cancelled=True
+            with release_lock(root,root,'Example','2026-09'):
+                with release_lock(root,root,'Example','2026-10'):pass
+                with self.assertRaisesRegex(DeliveryError,'Stopped'):
+                    with release_lock(root,root,'example','2026-09',lambda:cancelled,waiting):self.fail('Concurrent owner entered')
+                with self.assertRaisesRegex(DeliveryError,'Stopped'):
+                    with release_lock(root,root,'Example','2026-09',lambda:cancelled):self.fail('Other owner lost its lock')
+            with release_lock(root,root,'Example','2026-09'):pass
+
     def test_release_month_not_posting_month_and_parts(self):
         self.assertEqual(release_month('Atlan Forge - 2026-07.7z.002'),'2026-07')
         self.assertEqual(release_month('Atlan Forge - 24-07 - Loyalty.7z.001'),'2024-07')

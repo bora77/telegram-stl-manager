@@ -161,11 +161,6 @@ class TelegramCLI:
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.child = None
         self.lock = (self.state / 'application.lock').open('a')
-        try:
-            fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            self.lock.close()
-            raise CLIError('Another Telegram CLI operation is active. Wait for it to finish.')
         if not self.binary.is_file() or not os.access(self.binary, os.X_OK):
             self.close()
             raise CLIError('The Telegram CLI binary is unavailable. Rebuild it with tools/build-tdl.sh.')
@@ -190,7 +185,22 @@ class TelegramCLI:
                 os.killpg(self.child.pid, signal.SIGKILL)
                 self.child.wait(timeout=5)
 
-    def _run(self, args, directory, stopped, tick=lambda: None, timeout=300):
+    def _run(self, args, directory, stopped, tick=lambda: None, timeout=300, waiting=lambda: None):
+        # The CLI's Bolt storage needs exclusive access only while its command
+        # runs. Release it during extraction/moves and between attachments so
+        # organizer scans can share the existing login without another session.
+        last=0
+        while True:
+            if stopped():raise CLIError('Stopped while waiting for the Telegram connection.')
+            try:fcntl.flock(self.lock,fcntl.LOCK_EX|fcntl.LOCK_NB);break
+            except BlockingIOError:
+                now=time.monotonic()
+                if now-last>=1:waiting();last=now
+                time.sleep(.2)
+        try:self._run_locked(args,directory,stopped,tick,timeout)
+        finally:fcntl.flock(self.lock,fcntl.LOCK_UN)
+
+    def _run_locked(self, args, directory, stopped, tick, timeout):
         started = time.monotonic()
         with (directory / 'command.log').open('w') as log:
             self.child = subprocess.Popen(self.command(*args), cwd=self.state, stdin=subprocess.DEVNULL,
@@ -235,7 +245,8 @@ class TelegramCLI:
                             on_files(files)
                             return
                     status('Reading exact attachment names and sizes…')
-            self._run(args, work, stopped, heartbeat, timeout=900)
+            self._run(args, work, stopped, heartbeat, timeout=900,
+                      waiting=lambda:status('Waiting for the current Telegram transfer to finish…'))
             if read_json(str(export)+'.complete',None)!={'complete':True,'topic':topic_id}:
                 raise CLIError('Telegram did not confirm a complete topic scan; no downloads were planned.')
             if not export.is_file() or export.stat().st_size > 128 * 1024**2:
@@ -335,7 +346,11 @@ class TelegramCLI:
                 raise CLIError('Telegram made no progress; retry to test the connection again.')
             if shutil.disk_usage(self.state).free < 256 * 1024**2:
                 raise CLIError('Local staging is nearly full; transfer stopped.')
-        self._run(args, directory, stopped, tick, timeout=24*60*60)
+        def waiting():
+            nonlocal last_change
+            last_change=time.monotonic()
+            status({'event':'waiting_for_telegram'})
+        self._run(args, directory, stopped, tick, timeout=24*60*60,waiting=waiting)
         if probe_only:
             if not probed: raise CLIError('Server comparison did not finish.')
             return None

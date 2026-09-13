@@ -182,14 +182,53 @@ class OrganizerApplyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):pinned.parent('../outside.zip')
             finally:pinned.close()
 
-    def test_active_download_and_replaced_preview_block_apply(self):
+    def test_active_download_allows_apply_but_replaced_preview_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);store,folder=self.setup_store(root);self.archive(folder/'Example 2026-01.zip');self.preview(store,folder)
             with patch('organizer_apply.Popen') as launch:
                 with self.assertRaises(ValueError):start_application(store,{'plan_id':'old','extract_images':True})
                 with patch.object(store,'queue',return_value={'active':True}):
-                    with self.assertRaises(FileExistsError):start_application(store,{'plan_id':'preview','extract_images':True})
-                launch.assert_not_called()
+                    start_application(store,{'plan_id':'preview','extract_images':True})
+                launch.assert_called_once()
+                with self.assertRaises(FileExistsError):start_application(store,{'plan_id':'preview','extract_images':True})
+
+    def test_preview_can_start_during_download_and_rejects_second_preview(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);store,folder=self.setup_store(root)
+            store.atomic_write(store.runs.path,{'state':'downloading'})
+            with (root/'data/worker.lock').open('a') as lock,patch('folder_organizer.subprocess') as process_module:
+                launch=process_module.Popen
+                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                payload={'dry_run':True,'topic_url':TOPIC,'creator_folder':'Example'}
+                self.assertEqual(Organizer(store).start(payload)['state'],'starting')
+                launch.assert_called_once()
+                with self.assertRaises(FileExistsError):Organizer(store).start(payload)
+
+    def test_downloaded_destination_reuse_survives_failed_history_commit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);store,folder=self.setup_store(root);source=folder/'Example 2026-01.zip';self.archive(source)
+            self.preview(store,folder);job_id=self.start(store,images=False)
+            target=folder/'2026-01'/source.name;target.parent.mkdir();target.write_bytes(source.read_bytes())
+            original=target.read_bytes();inode=target.stat().st_ino
+            with patch.object(store.history,'import_organized',side_effect=OSError('test database failure')):
+                ApplyWorker(store,job_id).execute()
+            self.assertEqual(self.job(store)['state'],'failed');self.assertFalse(source.exists())
+            self.assertFalse(store.history.was_downloaded(100))
+            with patch('organizer_apply.Popen'):start_application(store,{'job_id':job_id},resume=True)
+            ApplyWorker(store,job_id).execute()
+            self.assertEqual(self.job(store)['state'],'completed');self.assertTrue(store.history.was_downloaded(100))
+            self.assertEqual(target.read_bytes(),original);self.assertEqual(target.stat().st_ino,inode)
+
+    def test_different_destination_arriving_after_preview_preserves_both_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);store,folder=self.setup_store(root);source=folder/'Example 2026-01.zip';source.write_bytes(b'original')
+            self.preview(store,folder);job_id=self.start(store,images=False)
+            target=folder/'2026-01'/source.name;target.parent.mkdir();target.write_bytes(b'conflict')
+            ApplyWorker(store,job_id).execute()
+            self.assertEqual(self.job(store)['state'],'failed')
+            self.assertEqual(source.read_bytes(),b'original');self.assertEqual(target.read_bytes(),b'conflict')
+            self.assertFalse(store.history.was_downloaded(100))
 
     def legacy_parts_job(self, root):
         store,folder=self.setup_store(root)

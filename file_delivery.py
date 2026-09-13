@@ -6,8 +6,28 @@ from pathlib import Path
 import shutil
 import subprocess
 import uuid
+import fcntl
+import time
+from contextlib import contextmanager
 
 class DeliveryError(RuntimeError):pass
+
+@contextmanager
+def release_lock(root, base, folder, month, stopped=lambda:False, waiting=lambda:None):
+    """Serialize work on one destination month, across independent workers."""
+    identity=json.dumps([str(Path(base).resolve()).casefold(),folder.casefold(),month])
+    directory=Path(root)/'data/release-locks';directory.mkdir(parents=True,exist_ok=True)
+    with (directory/(hashlib.sha256(identity.encode()).hexdigest()+'.lock')).open('a') as lock:
+        last=0
+        while True:
+            if stopped():raise DeliveryError('Stopped while waiting for another operation on this release.')
+            try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);break
+            except BlockingIOError:
+                now=time.monotonic()
+                if now-last>=1:waiting();last=now
+                time.sleep(.2)
+        try:yield
+        finally:fcntl.flock(lock,fcntl.LOCK_UN)
 
 def digest(path):
     h=hashlib.sha256()

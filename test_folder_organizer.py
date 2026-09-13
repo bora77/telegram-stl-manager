@@ -91,13 +91,16 @@ class OrganizerTests(unittest.TestCase):
         item['filename']='Example 2026-01.72'
         match_files(files,[item],set());self.assertEqual(files[0]['telegram_status'],'unmatched')
 
-    def test_apply_is_unavailable_and_preview_blocks_download_start(self):
+    def test_preview_allows_download_start_but_still_requires_manual_apply(self):
         with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
             store=SubscriptionStore(configure_source(temp));organizer=Organizer(store)
             with self.assertRaises(ValueError):organizer.start({'dry_run':False})
             store.atomic_write(organizer.path,{'state':'scanning','heartbeat':__import__('time').time()})
+            store.atomic_write(store.path,{'version':2,'revision':0,'saved_at':'2026-09-12T12:00:00+00:00','subscriptions':[{'topic_url':'https://t.me/c/123456789/200','download_scope':'from_month'}]})
+            self.assertTrue(store.queue()['can_start'])
+            store.runs.start({'revision':0,'config_revision':0})
+            launch.assert_called_once()
             with self.assertRaises(FileExistsError):store.runs.start({'revision':0,'config_revision':0})
-            launch.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

@@ -12,7 +12,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from file_delivery import deliver, digest, mount_identity
+from file_delivery import deliver, digest, mount_identity, release_lock
 from release_images import extract_images, flat_image_name, volume_key
 from subscription_store import SubscriptionStore
 from telegram_cli import safe_filename
@@ -33,7 +33,7 @@ def application_status(store):
     if not path.exists():return None
     job = json.loads(path.read_text())
     if job['state'] in RUNNING and time.time() - job.get('heartbeat', 0) > 30:
-        with (store.root / 'data/worker.lock').open('a') as lock:
+        with (store.root / 'data/organizer-worker.lock').open('a') as lock:
             try:fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:pass
             else:job.update(state='interrupted', message='Organization interrupted. Resume to finish this saved plan.')
@@ -102,12 +102,24 @@ class PinnedFolder:
         source = self.info(record['source'])
         if source is not None:
             if source != record['identity']:raise ValueError('File changed since preview: ' + record['source'])
-            if record['source'] != record['destination'] and self.info(record['destination']) is not None:
-                raise FileExistsError('Destination now exists: ' + record['destination'])
+            if record['source'] != record['destination']:
+                target=self.info(record['destination'])
+                if target is not None and target != record.get('destination_identity'):
+                    # A concurrent downloader may have delivered this exact
+                    # archive since Preview. Reuse it only after byte validation.
+                    if target['size']!=source['size'] or digest(self.path/record['source'])!=digest(self.path/record['destination']):
+                        raise FileExistsError('A different file now exists: ' + record['destination'])
+                    if self.info(record['source'])!=source or self.info(record['destination'])!=target:
+                        raise ValueError('Files changed while checking the existing destination.')
+                    record['destination_identity']=target
             return record['source']
-        if record.get('move_started') and self.info(record['destination']) == record['identity']:
+        if record.get('move_started') and self.info(record['destination']) == self.destination_identity(record):
             return record['destination']
         raise ValueError('Planned source is missing: ' + record['source'])
+
+    @staticmethod
+    def destination_identity(record):
+        return record.get('destination_identity',record['identity'])
 
     def move(self, record):
         if mount_identity(self.base) != self.mount:raise ValueError('Destination mount changed.')
@@ -119,13 +131,18 @@ class PinnedFolder:
             try:
                 if identity(os.stat(name, dir_fd=sourcefd, follow_symlinks=False)) != record['identity']:
                     raise ValueError('Source changed before move: ' + source)
-                libc = ctypes.CDLL(None, use_errno=True)
-                if libc.renameat2(sourcefd, os.fsencode(name), targetfd, os.fsencode(target), 1):
-                    raise OSError(ctypes.get_errno(), 'Could not move without overwriting: ' + source)
+                if record.get('destination_identity'):
+                    if self.info(record['destination'])!=record['destination_identity']:
+                        raise ValueError('Verified destination changed before removing the duplicate source.')
+                    os.unlink(name,dir_fd=sourcefd)
+                else:
+                    libc = ctypes.CDLL(None, use_errno=True)
+                    if libc.renameat2(sourcefd, os.fsencode(name), targetfd, os.fsencode(target), 1):
+                        raise OSError(ctypes.get_errno(), 'Could not move without overwriting: ' + source)
                 os.fsync(targetfd);os.fsync(sourcefd)
             finally:os.close(targetfd)
         finally:os.close(sourcefd)
-        if self.info(record['destination']) != record['identity']:
+        if self.info(record['destination']) != self.destination_identity(record):
             raise ValueError('Moved file metadata changed; review required.')
 
 
@@ -203,8 +220,8 @@ def start_application(store, payload, resume=False):
         fcntl.flock(operation, fcntl.LOCK_EX)
         organizer = Organizer(store)
         plan = organizer.status()
-        if plan['state'] in ACTIVE or store.queue()['active']:
-            raise FileExistsError('Wait for the current download or folder operation to finish.')
+        if plan['state'] in ACTIVE:
+            raise FileExistsError('Wait for the current folder operation to finish.')
         path = store.root / 'data/organizer-apply.json'
         previous = application_status(store)
         if resume:
@@ -344,29 +361,32 @@ class ApplyWorker:
             for index,group in enumerate(self.job['groups']):
                 if group['state']=='completed':continue
                 self.check()
-                self.save(state='running',phase='preparing',message='Organizing '+group['key'],current_release=group['key'],progress_done=0,progress_total=None)
-                work=self.work/str(group.get('work_index',index));work.mkdir(exist_ok=True)
-                images=self.images(group,pinned,work)
-                for record in group['records']:
+                def waiting():self.progress('waiting','Waiting for download of '+self.job['creator']+' · '+group['month'],current_release=group['key'])
+                with release_lock(self.store.root,self.job['base'],self.job['creator_folder'],group['month'],self.stopped,waiting):
+                    self.save(state='running',phase='preparing',message='Organizing '+group['key'],current_release=group['key'],progress_done=0,progress_total=None)
+                    work=self.work/str(group.get('work_index',index));work.mkdir(exist_ok=True)
+                    images=self.images(group,pinned,work)
+                    for record in group['records']:
+                        self.check()
+                        self.progress('moving','Moving archives into '+group['month'],self.job['moves_done'],self.job['moves_total'],'files')
+                        pinned.locate(record)
+                        record['move_started']=True;self.save()
+                        pinned.move(record)
+                        if not record.get('moved'):
+                            record['moved']=True
+                            if record['action']=='move':self.job['moves_done']+=1
+                        self.save()
                     self.check()
-                    self.progress('moving','Moving archives into '+group['month'],self.job['moves_done'],self.job['moves_total'],'files')
-                    record['move_started']=True;self.save()
-                    pinned.move(record)
-                    if not record.get('moved'):
-                        record['moved']=True
-                        if record['action']=='move':self.job['moves_done']+=1
+                    for record in group['records']:
+                        if pinned.info(record['destination'])!=pinned.destination_identity(record):raise ValueError('Organized file changed before history recording.')
+                    self.progress('recording','Recording completed files in download history',self.job['files_done'],self.job['files_total'],'files')
+                    self.store.history.import_organized(self.job,group['records'],images,pinned.path/group['month']/'release_images')
+                    group['state']='completed'
+                    self.job['releases_done']+=1
+                    self.job['files_done']+=sum(not record.get('recorded') for record in group['records'])
+                    for record in group['records']:record['recorded']=True
                     self.save()
-                self.check()
-                for record in group['records']:
-                    if pinned.info(record['destination'])!=record['identity']:raise ValueError('Organized file changed before history recording.')
-                self.progress('recording','Recording completed files in download history',self.job['files_done'],self.job['files_total'],'files')
-                self.store.history.import_organized(self.job,group['records'],images,pinned.path/group['month']/'release_images')
-                group['state']='completed'
-                self.job['releases_done']+=1
-                self.job['files_done']+=sum(not record.get('recorded') for record in group['records'])
-                for record in group['records']:record['recorded']=True
-                self.save()
-                shutil.rmtree(work)
+                    shutil.rmtree(work)
             self.save(state='completed',phase='completed',message='Organization complete. Matched files are recorded as downloaded.',finished_at=datetime.now(timezone.utc).isoformat(),progress_done=self.job['files_done'],progress_total=self.job['files_total'],progress_unit='files')
             if self.work.exists():shutil.rmtree(self.work)
         except Exception as error:
@@ -377,6 +397,6 @@ class ApplyWorker:
 
 if __name__=='__main__':
     os.umask(0o077)
-    with (ROOT/'data/worker.lock').open('a') as lock:
+    with (ROOT/'data/organizer-worker.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         ApplyWorker(SubscriptionStore(ROOT),sys.argv[1]).execute()

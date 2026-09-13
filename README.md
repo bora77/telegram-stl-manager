@@ -5,6 +5,10 @@ folders, image extraction and durable download history. The folder organizer
 can match existing archives, move them into monthly folders and record them as
 already downloaded.
 
+Downloads and folder organization can run together, with independent Stop
+buttons. Work on the same artist/month is coordinated; other releases proceed
+in parallel. Telegram metadata scans share the login between file transfers.
+
 The application uses Python, JavaScript and a customized Go CLI. It runs without
 AI, OCR, Telegram Desktop or a VNC session.
 

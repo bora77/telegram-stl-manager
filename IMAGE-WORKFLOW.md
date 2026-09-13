@@ -25,6 +25,14 @@ verifies image delivery, renames original archives within the same share without
 overwriting, then records completion in SQLite. Split archives spanning flat and
 monthly folders use temporary local copies when required for extraction.
 
+Organization can run alongside downloads. Each worker has its own Stop control.
+Only work targeting the same artist/month waits for the other worker. Downloads
+recheck history after waiting and skip files the organizer has completed. If a
+download has already delivered an identical archive, the organizer verifies both
+checksums before removing the redundant flat copy and retains the completed
+download record. Different contents remain a conflict. Preview may wait for the
+current Telegram transfer; extraction and folder moves do not hold the CLI login.
+
 A durable journal supports stopping and resuming after partial moves, verified
 image delivery or a failed database commit. Current operation and per-release
 progress appear in the page. Renames show file counts, image transfers show

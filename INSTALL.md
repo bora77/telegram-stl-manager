@@ -172,6 +172,7 @@ repository before distributing it.
 | SQLite library | Supplied with Python's SQLite module and OS dependencies | Durable history and organization records; no database server. |
 | Git | Distribution `git` package | Clone the project, retrieve any submodules and identify the installed commit. |
 | `7zip` **and** `7zip-rar` | Tested Ubuntu packages: `23.01+dfsg-11` and `23.01-4` | Archive listing/extraction, including compressed RAR images. |
+| `zip` | Distribution package | Rebuild damaged ZIP indexes in temporary copies to recover readable images. |
 | glibc and C++ runtime | `libc6`, `libstdc++6`, installed through APT dependencies | Native archive executable/codecs and Linux rename operations. |
 | `util-linux` | Distribution package | `findmnt`, `mountpoint` and mount tools. |
 | `iproute2` | Distribution package | Local route detection for Auto server comparisons. |
@@ -198,7 +199,7 @@ sudo add-apt-repository -y universe
 sudo add-apt-repository -y multiverse
 sudo apt-get update
 sudo apt-get install -y python3 python3-pil fonts-dejavu-core git ca-certificates curl tar coreutils \
-  util-linux iproute2 tzdata cifs-utils 7zip 7zip-rar
+  util-linux iproute2 tzdata cifs-utils 7zip 7zip-rar zip
 ```
 
 Use a normal Linux account for the application, not root. `sudo` above is for

@@ -13,11 +13,33 @@ from organizer_apply import ApplyWorker, PinnedFolder, ready_groups, start_appli
 from release_images import flat_image_name
 from file_delivery import digest
 from subscription_store import SubscriptionStore
+from test_release_images import damaged_image_zip
 
 TOPIC='https://t.me/c/123456789/200'
 
 
 class OrganizerApplyTests(unittest.TestCase):
+    def test_damaged_images_warn_while_archives_move_and_history_commits(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);store,folder=self.setup_store(root)
+            damaged=folder/'Example 2026-01.zip';damaged_image_zip(damaged);original=damaged.read_bytes()
+            self.archive(folder/'Example 2026-02.zip')
+            self.preview(store,folder);job_id=self.start(store)
+            ApplyWorker(store,job_id).execute()
+            self.assertEqual(self.job(store)['state'],'completed',self.job(store)['message'])
+            self.assertEqual(self.job(store)['files_done'],2)
+            images=list((folder/'2026-01/release_images').iterdir())
+            self.assertEqual({p.read_bytes() for p in images},{b'good image',b'recovered image'})
+            target=folder/'2026-01'/damaged.name
+            self.assertEqual(target.read_bytes(),original);self.assertFalse(damaged.exists())
+            warnings=Organizer(store).status()['application']['warnings']
+            self.assertTrue(any('broken.jpg' in w and 'skipped' in w for w in warnings))
+            target.unlink() # Warnings and download history outlive NAS placement.
+            with store.history.connect() as db:
+                record=dict(db.execute('SELECT * FROM downloads WHERE filename=?',(damaged.name,)).fetchone())
+            self.assertEqual(record['state'],'downloaded');self.assertEqual(record['image_count'],2)
+            self.assertTrue(any('broken.jpg' in w for w in json.loads(record['image_warnings'])))
+
     def setup_store(self, root):
         store=SubscriptionStore(configure_source(root))
         base=root/'nas';base.mkdir();folder=base/'Example';folder.mkdir()
@@ -275,7 +297,7 @@ class OrganizerApplyTests(unittest.TestCase):
             self.assertEqual(len(job['groups'][0]['records']),2)
             backup=store.root/'data/organizer-jobs'/(job_id+'.before-volume-grouping.json')
             self.assertEqual(json.loads(backup.read_text()),old_job)
-            def extract(first,work,progress,stopped):
+            def extract(first,work,progress,stopped,**kwargs):
                 self.assertEqual(first.name,parts[0])
                 self.assertEqual({p.name for p in first.parent.iterdir()},set(parts))
                 for i,name in enumerate(parts):self.assertEqual((first.parent/name).read_bytes(),('archive part '+str(i+1)).encode())

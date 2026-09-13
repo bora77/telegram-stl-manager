@@ -56,10 +56,10 @@ class WorkerImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             worker,organizer,store,state,folder,item,original=self.parallel_workers(Path(temp),'2026-10')
             extracting=threading.Event();release=threading.Event();calls=[]
-            def held_extraction(*args):
+            def held_extraction(*args,**kwargs):
                 extracting.set()
                 if not release.wait(10):raise RuntimeError('Organizer test timed out')
-                return extract_images(*args)
+                return extract_images(*args,**kwargs)
             class CLI:
                 def __init__(self,**kwargs):pass
                 def list_files(self,*args):return [item]
@@ -85,10 +85,10 @@ class WorkerImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             worker,organizer,store,state,folder,item,original=self.parallel_workers(Path(temp),'2026-09')
             extracting=threading.Event();release=threading.Event();waiting=threading.Event();calls=[]
-            def held_extraction(*args):
+            def held_extraction(*args,**kwargs):
                 extracting.set()
                 if not release.wait(10):raise RuntimeError('Organizer test timed out')
-                return extract_images(*args)
+                return extract_images(*args,**kwargs)
             update=worker.update
             def observed_update(state,message,**extra):
                 if message.startswith('Waiting for organization'):waiting.set()

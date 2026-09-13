@@ -25,7 +25,7 @@ class DownloadHistory:
                 error TEXT, UNIQUE(source_chat_id,source_message_id,attachment_index))''')
 
             columns={row['name'] for row in db.execute('PRAGMA table_info(downloads)')}
-            for name,kind in {'download_started_at':'TEXT','download_finished_at':'TEXT','download_seconds':'REAL','download_speed_bps':'REAL','download_average_bps':'REAL','bytes_total_estimate':'INTEGER','move_seconds':'REAL','move_average_bps':'REAL','image_count':'INTEGER','images_destination':'TEXT','images_manifest':'TEXT','origin':"TEXT NOT NULL DEFAULT 'download'"}.items():
+            for name,kind in {'download_started_at':'TEXT','download_finished_at':'TEXT','download_seconds':'REAL','download_speed_bps':'REAL','download_average_bps':'REAL','bytes_total_estimate':'INTEGER','move_seconds':'REAL','move_average_bps':'REAL','image_count':'INTEGER','images_destination':'TEXT','images_manifest':'TEXT','image_warnings':"TEXT NOT NULL DEFAULT '[]'",'origin':"TEXT NOT NULL DEFAULT 'download'"}.items():
                 if name not in columns:db.execute(f'ALTER TABLE downloads ADD COLUMN {name} {kind}')
             db.execute('''CREATE TABLE IF NOT EXISTS organized_files (
                 operation_id TEXT NOT NULL, topic_url TEXT NOT NULL, source_path TEXT NOT NULL,
@@ -39,7 +39,7 @@ class DownloadHistory:
         if self._source is None:self._source=load_source(self.path.parent.parent)
         return self._source
 
-    def import_organized(self, job, records, images, images_destination):
+    def import_organized(self, job, records, images, images_destination, *, image_warnings=()):
         """Import exact CLI identities after NAS renames, without inventing transfer checksums."""
         import json
         chat=str(self.source.chat_id)
@@ -63,9 +63,9 @@ class DownloadHistory:
                         WHERE source_chat_id=? AND source_message_id=? AND attachment_index=0 AND state!='downloaded' ''',
                         (record['size'],record['size'],record['month'],destination,chat,message))
                     if images is not None:
-                        db.execute('''UPDATE downloads SET image_count=?,images_destination=?,images_manifest=?
+                        db.execute('''UPDATE downloads SET image_count=?,images_destination=?,images_manifest=?,image_warnings=?
                             WHERE source_chat_id=? AND source_message_id=? AND attachment_index=0''',
-                            (len(images),str(images_destination),json.dumps(images),chat,message))
+                            (len(images),str(images_destination),json.dumps(images),json.dumps(list(image_warnings)),chat,message))
                 db.execute('''INSERT INTO organized_files(operation_id,topic_url,source_path,destination,filename,bytes_total,
                     release_month,message_ids,images_manifest) VALUES(?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(operation_id,source_path) DO NOTHING''',

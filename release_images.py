@@ -9,6 +9,9 @@ import stat
 import subprocess
 import tempfile
 import time
+import zipfile
+import zlib
+import lzma
 
 IMAGES = {'.jpg', '.jpeg', '.jpe', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff',
           '.avif', '.heic', '.heif', '.svg', '.tga', '.dds', '.psd', '.ico', '.exr', '.hdr'}
@@ -22,6 +25,12 @@ class ExtractionError(RuntimeError):
     pass
 
 
+class ArchiveReadError(ExtractionError):
+    def __init__(self, archive, output):
+        self.archive=Path(archive);self.output=output
+        super().__init__('7-Zip could not read the complete archive (missing part, password, damage or unsupported format). Local files retained. '+output[-700:].strip())
+
+
 class MissingVolumeError(ExtractionError):
     def __init__(self, archive, missing):
         self.archive=Path(archive);self.missing=missing
@@ -33,7 +42,7 @@ def archive_error(text, archive):
     match=re.search(r'^ERROR = Missing volume : ([^\r\n]+)$',header,re.M)
     if match and match[1] not in ('.','..') and not re.search(r'[\\/<>:"|?*\x00-\x1f]',match[1]):
         return MissingVolumeError(archive,match[1])
-    return ExtractionError('7-Zip could not read the complete archive (missing part, password, damage or unsupported format). Local files retained. '+text[-700:].strip())
+    return ArchiveReadError(archive,text)
 
 
 def volume_key(name):
@@ -84,11 +93,11 @@ def _limits():
     os.nice(10)
 
 
-def command(args, work, stopped, tick=lambda: None, percent=None):
+def command(args, work, stopped, tick=lambda: None, percent=None, *, executable=None, timeout=3600):
     if stopped():raise ExtractionError('Stopped by request; downloaded archives kept locally.')
     # Ubuntu's base 7zip package can list RAR files but needs the separate
     # 7zip-rar codec to decompress them. Prefer our matched local package pair.
-    executable = str(BUNDLED_7ZIP) if BUNDLED_7ZIP.is_file() else shutil.which('7z') or shutil.which('7zz')
+    executable = executable or (str(BUNDLED_7ZIP) if BUNDLED_7ZIP.is_file() else shutil.which('7z') or shutil.which('7zz'))
     if not executable:raise ExtractionError('7-Zip is required for image extraction; archive kept locally.')
     with tempfile.TemporaryFile(dir=work) as log:
         child = subprocess.Popen([executable, *args], stdin=subprocess.DEVNULL, stdout=log,
@@ -109,7 +118,7 @@ def command(args, work, stopped, tick=lambda: None, percent=None):
         try:
             while child.poll() is None:
                 if stopped():raise ExtractionError('Stopped by request; downloaded archives kept locally.')
-                if time.monotonic() - started > 3600:raise ExtractionError('Image extraction exceeded one hour; archive kept locally.')
+                if time.monotonic() - started > timeout:raise ExtractionError('Image extraction exceeded its time limit; archive kept locally.')
                 if shutil.disk_usage(work).free < RESERVE:raise ExtractionError('Not enough local space for image extraction; archive kept locally.')
                 if log.tell() > MAX_LISTING:raise ExtractionError('Archive listing is too large to process safely.')
                 pulse()
@@ -199,16 +208,90 @@ def complete_split_7z(archive, header):
     return True
 
 
-def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: False):
+def recover_members(source, members, selected, work, stopped, progress, warn, error):
+    """Retry members independently; only publish ones whose decoding/CRC passes."""
+    shutil.rmtree(members);members.mkdir()
+    kept=[]
+    def check():
+        if stopped():raise ExtractionError('Stopped by request; originals retained.')
+        if shutil.disk_usage(work).free<RESERVE:raise ExtractionError('Not enough local space for image recovery.')
+        progress(len(kept),len(selected))
+    if zipfile.is_zipfile(source):
+        candidate=source
+        repair=shutil.which('zip')
+        if repair and re.search(r'^ERROR: Headers Error',error.output,re.M):
+            candidate=work/'repaired.zip'
+            if shutil.disk_usage(work).free<source.stat().st_size+RESERVE:
+                raise ExtractionError('Not enough local space to recover the ZIP index.')
+            try:
+                command(['-FF',str(source),'--out',str(candidate)],work,stopped,check,executable=repair,timeout=60)
+                warn(source.name+': recovered the damaged ZIP index in a temporary local copy.')
+            except ArchiveReadError:
+                candidate=source
+        try:archive=zipfile.ZipFile(candidate)
+        except (zipfile.BadZipFile,NotImplementedError):
+            warn(source.name+': image archive could not be read; its original was retained.')
+            return kept
+        with archive:
+            infos=archive.infolist();by_name={}
+            for info in infos:by_name.setdefault(info.filename,[]).append(info)
+            for entry in selected:
+                check();name=entry['name'];target=members/name
+                matches=by_name.get(name,[])
+                if len(matches)!=1:
+                    warn(source.name+' / '+name+': skipped; image entry is missing or ambiguous.')
+                    continue
+                info=matches[0];mode=(info.external_attr>>16)&0xffff
+                if info.orig_filename!=name or stat.S_IFMT(mode) not in (0,stat.S_IFREG) or info.is_dir():
+                    raise ExtractionError('Recovered archive contains a link or special entry.')
+                if info.file_size<0 or info.file_size>32*1024**3 or shutil.disk_usage(work).free<info.file_size+RESERVE:
+                    raise ExtractionError('Not enough local capacity for a recovered image.')
+                target.parent.mkdir(parents=True,exist_ok=True)
+                try:
+                    with archive.open(info) as incoming,target.open('xb') as out:
+                        done=0
+                        while block:=incoming.read(1024*1024):
+                            check();done+=len(block)
+                            if done>info.file_size:raise zipfile.BadZipFile('Member exceeds its declared size')
+                            out.write(block)
+                        if done!=info.file_size:raise zipfile.BadZipFile('Incomplete member')
+                    kept.append({'name':name,'size':done})
+                except (zipfile.BadZipFile,zlib.error,lzma.LZMAError,EOFError,NotImplementedError,RuntimeError) as problem:
+                    if isinstance(problem,ExtractionError):raise
+                    target.unlink(missing_ok=True)
+                    warn(source.name+' / '+name+': skipped; image data could not be decoded or failed its checksum.')
+    else:
+        include=work/'recover-include.txt'
+        for entry in selected:
+            check();include.write_text(entry['name']+'\n')
+            try:
+                command(['x','-bd','-bb0','-mmt=2','-y','-p-','-spd','-scsUTF-8',
+                         '-o'+str(members),'-i@'+str(include),'--',str(source)],work,stopped,check)
+                kept.append(entry)
+            except ArchiveReadError:
+                target=members/entry['name']
+                if target.is_file() and not target.is_symlink():target.unlink()
+                warn(source.name+' / '+entry['name']+': skipped; image data could not be decoded or failed its checksum.')
+    check()
+    return kept
+
+
+def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: False, *, warnings=None):
     """Return extracted image paths. Originals are never modified or deleted."""
     archive = Path(archive).resolve(strict=True);work = Path(work)
     output = work / 'output';output.mkdir(parents=True, exist_ok=True)
     results = []
+    def warn(message):
+        if message not in warnings:warnings.append(message)
 
     def unpack(source, prefix=Path(), depth=0):
         if depth > 6:raise ExtractionError('Nested archive depth needs review; local archive retained.')
         progress('listing', len(results), None, 0, None)
-        header, entries = listing(source, work, stopped, lambda: progress('listing', len(results), None, 0, None))
+        try:header, entries = listing(source, work, stopped, lambda: progress('listing', len(results), None, 0, None))
+        except ArchiveReadError:
+            if warnings is None:raise
+            warn((str(prefix) if prefix.parts else source.name)+': images could not be listed; original archive retained.')
+            return
         selected = [e for e in entries if Path(e['name']).suffix.lower() in IMAGES or is_archive(e['name'])]
         total = sum(e['size'] for e in selected)
         if len(selected) > 50000 or shutil.disk_usage(work).free < total + RESERVE:
@@ -222,7 +305,10 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
                 progress('checking_parts', len(results), None, checked or 0, 100 if checked is not None else None)
             checking()
             if not complete_split_7z(source, header):
-                command(['t', '-bsp1', '-bb0', '-mmt=2', '-p-', '--', str(source)], work, stopped, checking, percent)
+                try:command(['t', '-bsp1', '-bb0', '-mmt=2', '-p-', '--', str(source)], work, stopped, checking, percent)
+                except ArchiveReadError:
+                    if warnings is None:raise
+                    warn(source.name+': archive integrity check found damage; keeping only verifiable images.')
             progress('checking_parts', len(results), None, 100, 100)
         if not selected:return
         with tempfile.TemporaryDirectory(prefix='members-', dir=work) as temporary:
@@ -241,8 +327,14 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
                         done += size
                         if entry in image_entries and size == entry['size']:count += 1
                 progress('extracting', count, len(image_entries), done, total)
-            command(['x', '-bd', '-bb0', '-mmt=2', '-y', '-p-', '-spd', '-scsUTF-8',
-                     '-o' + str(members), '-i@' + str(include), '--', str(source)], work, stopped, tick)
+            try:
+                command(['x', '-bd', '-bb0', '-mmt=2', '-y', '-p-', '-spd', '-scsUTF-8',
+                         '-o' + str(members), '-i@' + str(include), '--', str(source)], work, stopped, tick)
+            except ArchiveReadError as error:
+                if warnings is None:raise
+                selected=recover_members(source,members,selected,temporary,stopped,
+                    lambda count,total:progress('recovering',count,total,0,None),warn,error)
+                image_entries=[e for e in selected if Path(e['name']).suffix.lower() in IMAGES]
             expected = {e['name']: e for e in selected}
             actual = {}
             for path in members.rglob('*'):

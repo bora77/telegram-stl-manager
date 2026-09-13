@@ -69,7 +69,7 @@ Follow these requirements:
    ignore rules or force-add private data.
 
 4. **Install every required dependency.** On the reference Ubuntu route this is
-   Python 3.12, `python3-pil` (Pillow), `fonts-dejavu-core`, `7zip` **and `7zip-rar`**, `util-linux`, `iproute2`, `tzdata`,
+   Python 3.12, `python3-pil` (Pillow), `fonts-dejavu-core`, `7zip` **and `7zip-rar`**, `zip` (damaged image ZIP recovery), `util-linux`, `iproute2`, `tzdata`,
    `git`, `ca-certificates`, `curl`, `tar`, `coreutils` and `cifs-utils` for SMB. APT
    resolves libraries such as SQLite, glibc and the C++ runtime. Python uses its standard library plus Pillow, installed through APT. Verify
    JPEG/WebP decoding and `ImageFont.truetype("DejaVuSans.ttf", 24)`.

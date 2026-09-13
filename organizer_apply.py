@@ -40,6 +40,7 @@ def application_status(store):
     # Publish only the per-file outcome needed by the live table. The recovery
     # identities and extraction manifests remain in the private journal.
     result = {k: v for k, v in job.items() if k not in ('groups', 'mount')}
+    result['warnings']=[group['key']+' · '+warning for group in job.get('groups',[]) for warning in group.get('image_warnings',[])]
     result['files'] = []
     for group in job.get('groups', []):
         current = group['key'] == job.get('current_release')
@@ -321,10 +322,11 @@ class ApplyWorker:
                 first=inputs/first.name
             started=time.monotonic()
             def progress(stage,count,total,done,expected):
-                label={'listing':'Reading archive contents','checking_parts':'Checking archive parts','extracting':'Extracting images','complete':'Images extracted'}[stage]
+                label={'listing':'Reading archive contents','checking_parts':'Checking archive parts','extracting':'Extracting images','recovering':'Recovering readable images','complete':'Images extracted'}[stage]
                 self.progress('extracting',label+' · '+first.name,done,expected,'percent' if stage=='checking_parts' else 'bytes',
                               images_done=count,images_total=total,elapsed_seconds=time.monotonic()-started)
-            extracted=extract_images(first,images_work,progress,self.stopped)
+            group['image_warnings']=[]
+            extracted=extract_images(first,images_work,progress,self.stopped,warnings=group['image_warnings'])
             manifest=[]
             for image in extracted:
                 relative=str(image.relative_to(images_work/'output'))
@@ -380,14 +382,17 @@ class ApplyWorker:
                     for record in group['records']:
                         if pinned.info(record['destination'])!=pinned.destination_identity(record):raise ValueError('Organized file changed before history recording.')
                     self.progress('recording','Recording completed files in download history',self.job['files_done'],self.job['files_total'],'files')
-                    self.store.history.import_organized(self.job,group['records'],images,pinned.path/group['month']/'release_images')
+                    self.store.history.import_organized(self.job,group['records'],images,pinned.path/group['month']/'release_images',image_warnings=group.get('image_warnings',[]))
                     group['state']='completed'
                     self.job['releases_done']+=1
                     self.job['files_done']+=sum(not record.get('recorded') for record in group['records'])
                     for record in group['records']:record['recorded']=True
                     self.save()
                     shutil.rmtree(work)
-            self.save(state='completed',phase='completed',message='Organization complete. Matched files are recorded as downloaded.',finished_at=datetime.now(timezone.utc).isoformat(),progress_done=self.job['files_done'],progress_total=self.job['files_total'],progress_unit='files')
+            warning_count=sum(len(g.get('image_warnings',[])) for g in self.job['groups'])
+            message='Organization complete. Matched files are recorded as downloaded.'
+            if warning_count:message+=' '+str(warning_count)+' image warning(s); recoverable images were kept and original archives remain intact.'
+            self.save(state='completed',phase='completed',message=message,finished_at=datetime.now(timezone.utc).isoformat(),progress_done=self.job['files_done'],progress_total=self.job['files_total'],progress_unit='files')
             if self.work.exists():shutil.rmtree(self.work)
         except Exception as error:
             self.save(state='stopped' if self.stopped() else 'failed',message=str(error))

@@ -7,12 +7,76 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+import struct
 
 from release_images import extract_images, ExtractionError, MissingVolumeError, archive_error, complete_split_7z, listing, volume_key, flat_image_name
 from file_delivery import deliver, DeliveryError
 
 
+def damaged_image_zip(path):
+    """One stale central-directory entry and one genuinely corrupt payload."""
+    with zipfile.ZipFile(path,'w') as archive:
+        for name,data in [('good.jpg',b'good image'),('reindexed.jpg',b'recovered image'),('broken.jpg',b'broken image')]:
+            archive.writestr(name,data)
+    with zipfile.ZipFile(path) as archive:
+        broken=archive.getinfo('broken.jpg');central=archive.start_dir
+    raw=bytearray(path.read_bytes());raw[broken.header_offset+30+len(broken.filename)]^=1
+    while raw[central:central+4]==b'PK\x01\x02':
+        nlen,xlen,clen=struct.unpack_from('<3H',raw,central+28)
+        name=raw[central+46:central+46+nlen]
+        if name==b'reindexed.jpg':
+            offset=struct.unpack_from('<I',raw,central+42)[0]
+            struct.pack_into('<I',raw,central+42,offset+1)
+            struct.pack_into('<I',raw,central+24,len(b'recovered image')+3)
+        central+=46+nlen+xlen+clen
+    path.write_bytes(raw)
+
+
 class ExtractionTests(unittest.TestCase):
+    def test_recovery_rebuilds_zip_index_skips_bad_crc_and_continues_nested_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);nested=root/'damaged.zip';damaged_image_zip(nested)
+            archive=root/'release.zip'
+            with zipfile.ZipFile(archive,'w') as z:
+                z.write(nested,'damaged.zip');z.writestr('last.jpg',b'last image');z.writestr('model.stl',b'model')
+            original=archive.read_bytes();warnings=[]
+            with self.assertRaises(ExtractionError):extract_images(archive,root/'strict')
+            images=extract_images(archive,root/'recover',warnings=warnings)
+            self.assertEqual({p.read_bytes() for p in images},{b'good image',b'recovered image',b'last image'})
+            self.assertTrue(any('recovered the damaged ZIP index' in w for w in warnings))
+            self.assertTrue(any('broken.jpg' in w and 'skipped' in w for w in warnings))
+            self.assertEqual(archive.read_bytes(),original)
+            self.assertFalse(list((root/'recover').rglob('model.stl')))
+            self.assertFalse(list((root/'recover/output').rglob('broken.jpg')))
+
+    def test_corrupt_7z_member_does_not_discard_other_verified_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);good=root/'good.jpg';good.write_bytes(b'good image payload')
+            bad=root/'bad.jpg';bad.write_bytes(b'unique bad image payload')
+            archive=root/'release.7z'
+            subprocess.run(['7z','a','-mx0',str(archive),str(good),str(bad)],stdout=subprocess.DEVNULL,check=True)
+            raw=bytearray(archive.read_bytes());position=raw.index(b'unique bad image payload');raw[position]^=1;archive.write_bytes(raw)
+            warnings=[];images=extract_images(archive,root/'recover',warnings=warnings)
+            self.assertEqual([p.read_bytes() for p in images],[good.read_bytes()])
+            self.assertTrue(any('bad.jpg' in w for w in warnings))
+
+    def test_unreadable_nested_image_archive_warns_but_cancellation_and_paths_still_stop(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);archive=root/'release.zip'
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('bad.zip',b'not an archive');z.writestr('good.jpg',b'good image')
+            warnings=[];images=extract_images(archive,root/'recover',warnings=warnings)
+            self.assertEqual([p.read_bytes() for p in images],[b'good image']);self.assertTrue(any('bad.zip' in w for w in warnings))
+            unsafe=root/'unsafe.zip'
+            with zipfile.ZipFile(unsafe,'w') as z:z.writestr('../outside.jpg',b'bad')
+            with self.assertRaises(ExtractionError):extract_images(unsafe,root/'unsafe-work',warnings=[])
+            damaged=root/'damaged.zip';damaged_image_zip(damaged);cancelled=False
+            def progress(stage,*args):
+                nonlocal cancelled
+                if stage=='recovering':cancelled=True
+            with self.assertRaisesRegex(ExtractionError,'Stopped'):
+                extract_images(damaged,root/'cancel',progress,lambda:cancelled,warnings=[])
+
     def test_nested_7z_with_zip_extension_extracts_despite_format_warning(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);image=root/'preview.jpg';image.write_bytes(b'original preview')

@@ -10,6 +10,15 @@ The Collages page arranges extracted images and saves a full-resolution JPEG on 
 organizer also includes matched archives already in monthly folders so it can
 fill in missing images, without another Telegram download.
 
+When image data is damaged, the organizer keeps members that decode and pass
+their archive checksum, skips unreadable members, and continues organizing.
+It can rebuild a damaged ZIP index in a temporary copy using `zip -FF`; original
+release archives are never repaired or modified. Warnings remain visible after
+completion and are saved with the release in the organizer journal and download
+database. Cancellation, insufficient space, unsafe paths, and missing archive
+volumes still stop the operation. Download extraction retains its existing
+strict behavior.
+
 All newly delivered images go directly into:
 
 `artist/YYYY-MM/release_images/<image name>__<stable suffix>.<extension>`

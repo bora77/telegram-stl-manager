@@ -124,7 +124,7 @@ class WorkerTests(unittest.TestCase):
                 archive.writestr('Model.stl',b'model bytes')
             class FakeUI:
                 def __init__(self):self.calls=[]
-                def list_files(self,topic,stopped,status):
+                def list_files(self,topic,stopped,status,**kwargs):
                     return [{'filename':'Example 2026-09 A.zip','source_message_id':1,'message_url':topic+'/1','bytes_total':1},
                             {'filename':'Example 2026-09 B.zip','source_message_id':2,'message_url':topic+'/2','bytes_total':fixture.stat().st_size}]
                 def download(self,item,progress,stopped,status=None):

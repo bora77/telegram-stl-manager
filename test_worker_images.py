@@ -62,7 +62,7 @@ class WorkerImageTests(unittest.TestCase):
                 return extract_images(*args,**kwargs)
             class CLI:
                 def __init__(self,**kwargs):pass
-                def list_files(self,*args):return [item]
+                def list_files(self,*args,**kwargs):return [item]
                 def download(self,item,progress,*args):
                     calls.append(item['source_message_id']);source=state/item['filename'];source.write_bytes(original)
                     progress(len(original),len(original));return source
@@ -95,7 +95,7 @@ class WorkerImageTests(unittest.TestCase):
                 update(state,message,**extra)
             class CLI:
                 def __init__(self,**kwargs):pass
-                def list_files(self,*args):return [item]
+                def list_files(self,*args,**kwargs):return [item]
                 def download(self,*args):calls.append(True);raise AssertionError('Organizer already supplied the file')
                 def close(self):pass
             with patch('organizer_apply.extract_images',side_effect=held_extraction),patch.object(download_worker,'TelegramCLI',CLI),patch.object(worker,'update',side_effect=observed_update),ThreadPoolExecutor(2) as pool:
@@ -120,7 +120,7 @@ class WorkerImageTests(unittest.TestCase):
                 progress(phase,*args,**kwargs)
             class CLI:
                 def __init__(self,**kwargs):pass
-                def list_files(self,*args):return [item]
+                def list_files(self,*args,**kwargs):return [item]
                 def download(self,item,progress,*args):
                     transferring.set()
                     if not release.wait(10):raise RuntimeError('Download test timed out')
@@ -162,7 +162,7 @@ class WorkerImageTests(unittest.TestCase):
             calls=[];extracted=[]
             class CLI:
                 def __init__(self,**kwargs):pass
-                def list_files(self,*args):return list(reversed(items))
+                def list_files(self,*args,**kwargs):return list(reversed(items))
                 def download(self,item,progress,stopped,status=None):
                     calls.append(item['source_message_id'])
                     source=state/item['filename'];source.write_bytes(contents[1])

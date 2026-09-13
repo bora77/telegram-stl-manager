@@ -9,7 +9,6 @@ import (
 	"github.com/iyear/tdl/core/stltransport"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/spf13/cobra"
-	"math"
 	"os"
 	"path/filepath"
 )
@@ -29,8 +28,9 @@ func NewSTL() *cobra.Command {
 	servers.MarkFlagRequired("output")
 	var filesOutput string
 	var filesTopic int
+	var filesAfter int
 	files := &cobra.Command{Use: "files", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		if filesTopic <= 0 {
+		if filesTopic <= 0 || filesAfter < 0 || filesAfter >= 2147483647 {
 			return fmt.Errorf("an explicit approved-group topic is required")
 		}
 		source, err := stl.LoadSource(sourcePath)
@@ -38,17 +38,22 @@ func NewSTL() *cobra.Command {
 			return err
 		}
 		return tRun(cmd.Context(), func(ctx context.Context, c *telegram.Client, kv storage.Storage) error {
-			err := chat.Export(ctx, c, kv, chat.ExportOptions{Type: chat.ExportTypeId, Chat: fmt.Sprint(source.ChatID), Thread: filesTopic, Input: []int{0, math.MaxInt}, Output: filesOutput, Filter: "true", Raw: true})
+			lastID := filesAfter
+			err := chat.Export(ctx, c, kv, chat.ExportOptions{Type: chat.ExportTypeId, Chat: fmt.Sprint(source.ChatID), Thread: filesTopic, Input: []int{filesAfter + 1, 2147483646}, Output: filesOutput, Filter: "true", Raw: true, AfterID: filesAfter, LastID: &lastID})
 			if err != nil {
 				return err
 			}
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			if err := stl.WriteJSON(filesOutput+".cursor", map[string]any{"after": filesAfter, "last_id": lastID, "topic": filesTopic}); err != nil {
+				return err
+			}
 			return stl.WriteJSON(filesOutput+".complete", map[string]any{"complete": true, "topic": filesTopic})
 		}, limiter)
 	}}
 	files.Flags().IntVar(&filesTopic, "topic", 0, "Approved group topic ID")
+	files.Flags().IntVar(&filesAfter, "after-id", 0, "Read only messages newer than the last successful check")
 	files.Flags().StringVar(&filesOutput, "output", "", "Exact metadata output")
 	files.MarkFlagRequired("topic")
 	files.MarkFlagRequired("output")

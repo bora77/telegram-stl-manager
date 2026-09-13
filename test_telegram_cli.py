@@ -120,6 +120,66 @@ class ExportProgressTests(unittest.TestCase):
                 finally:client.close()
 
 
+class IncrementalScanTests(unittest.TestCase):
+    def client(self, root):
+        store=SubscriptionStore(configure_source(root))
+        store.atomic_write(root/'data/creators.json',{'creators':[{'topic_url':TOPIC,'within_approved_group':True}]})
+        client=TelegramCLI(root=root,state=root/'state',binary='/bin/true');self.addCleanup(client.close)
+        return client
+
+    def scan(self, client, data, cursor, *, after=0, complete=True, stopped=False, incremental=True):
+        def run(args,work,stop,tick,timeout,**kwargs):
+            actual=args[args.index('--after-id')+1] if '--after-id' in args else 0
+            self.assertEqual(actual,after)
+            output=Path(args[args.index('--output')+1]);output.write_text(json.dumps(data));tick()
+            Path(str(output)+'.cursor').write_text(json.dumps({'topic':200,'after':after,'last_id':cursor}))
+            if complete:Path(str(output)+'.complete').write_text(json.dumps({'topic':200,'complete':True}))
+        with patch.object(client,'_run',side_effect=run):
+            return client.list_files(TOPIC,stopped=lambda:stopped,incremental=incremental)
+
+    def test_only_new_messages_are_requested_and_cached_pending_files_remain(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);client=self.client(root)
+            first=self.scan(client,exported(),100005) # Newest message can be text without an attachment.
+            newer=exported('Artist 2026-10.zip');newer['messages'][0]['id']=100010;newer['messages'][0]['raw']['ID']=100010
+            second=self.scan(client,newer,100011,after=100005)
+            self.assertEqual(second,first+parse_export(newer,TOPIC))
+            third=self.scan(client,{'id':123456789,'messages':[]},100011,after=100011)
+            self.assertEqual(third,second);self.assertEqual(client.last_scan['new_files'],0)
+            self.assertEqual(client.last_scan['mode'],'incremental')
+
+    def test_failed_or_stopped_scan_never_advances_the_cursor(self):
+        from topic_catalog import TopicCatalog
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);client=self.client(root);self.scan(client,exported(),100000)
+            before=TopicCatalog(root,TEST_SOURCE).load(TOPIC)
+            for failure in ('receipt','stop','scope','boundary'):
+                data={'id':123456789,'messages':[]}
+                if failure=='scope':data=exported();data['id']=999
+                if failure=='boundary':data=exported() # Old item must not appear in a delta.
+                with self.subTest(failure=failure),self.assertRaises(CLIError):
+                    self.scan(client,data,100100,after=100000,complete=failure!='receipt',stopped=failure=='stop')
+                self.assertEqual(TopicCatalog(root,TEST_SOURCE).load(TOPIC),before)
+
+    def test_complete_preview_refreshes_old_metadata_and_seeds_incremental_checks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);client=self.client(root)
+            self.scan(client,exported(),100000,incremental=False)
+            changed=exported(size=20)
+            self.scan(client,changed,100001,incremental=False)
+            result=self.scan(client,{'id':123456789,'messages':[]},100001,after=100001)
+            self.assertEqual(result[0]['bytes_total'],20)
+
+    def test_stale_scan_cannot_roll_back_a_newer_committed_cursor(self):
+        from topic_catalog import TopicCatalog
+        with tempfile.TemporaryDirectory() as temporary:
+            catalog=TopicCatalog(temporary,TEST_SOURCE);first=parse_export(exported(),TOPIC)
+            catalog.commit(TOPIC,0,100000,first)
+            catalog.commit(TOPIC,100000,100100,[])
+            catalog.commit(TOPIC,0,100000,first)
+            self.assertEqual(catalog.load(TOPIC)['last_id'],100100)
+
+
 class CLIProcessTests(unittest.TestCase):
     def test_clients_share_login_between_commands_and_waiting_can_be_cancelled(self):
         with tempfile.TemporaryDirectory() as temp:

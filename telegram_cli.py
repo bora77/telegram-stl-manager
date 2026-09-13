@@ -228,11 +228,18 @@ class TelegramCLI:
             raise CLIError('Choose a creator from the approved Table of Contents.')
         return topic_id
 
-    def list_files(self, topic, stopped=lambda: False, status=lambda message: None, on_files=None):
+    def list_files(self, topic, stopped=lambda: False, status=lambda message: None, on_files=None, *, incremental=False):
         topic_id = self._topic(topic)
+        from topic_catalog import TopicCatalog
+        catalog=TopicCatalog(self.root,self.source)
+        saved=catalog.load(topic) if incremental else None
+        after=saved['last_id'] if saved else 0
+        started=time.monotonic()
+        status('Checking messages since the last successful check…' if saved else 'Building the initial file catalog…' if incremental else 'Reading exact attachment names and sizes…')
         with tempfile.TemporaryDirectory(prefix='stl-scan-', dir=self.state) as temp:
             work = Path(temp); export = work / 'files.json'
             args = ['stl', 'files', '--topic', topic_id, '--output', export]
+            if after:args.extend(['--after-id',after])
             last = 0
             partial = ExportProgress(topic, self.source) if on_files else None
             def heartbeat():
@@ -244,7 +251,7 @@ class TelegramCLI:
                         if files:
                             on_files(files)
                             return
-                    status('Reading exact attachment names and sizes…')
+                    status('Checking new messages…' if saved else 'Reading exact attachment names and sizes…')
             self._run(args, work, stopped, heartbeat, timeout=900,
                       waiting=lambda:status('Waiting for the current Telegram transfer to finish…'))
             if read_json(str(export)+'.complete',None)!={'complete':True,'topic':topic_id}:
@@ -252,7 +259,20 @@ class TelegramCLI:
             if not export.is_file() or export.stat().st_size > 128 * 1024**2:
                 raise CLIError('Telegram metadata export is missing or too large; scan not accepted.')
             try:
-                return parse_export(json.loads(export.read_text()), topic, scope=self.source)
+                items=parse_export(json.loads(export.read_text()), topic, scope=self.source)
+                cursor=read_json(str(export)+'.cursor',None)
+                if cursor is None:
+                    if after:raise CLIError('Telegram did not confirm the incremental scan boundary.')
+                    # Older CLI binaries can still serve complete previews;
+                    # they cannot advance a persistent incremental cursor.
+                    self.last_scan={'mode':'full','seconds':time.monotonic()-started,'new_files':len(items)}
+                    return items
+                if (cursor.get('topic')!=topic_id or cursor.get('after')!=after or type(cursor.get('last_id')) is not int
+                        or cursor['last_id']<after):raise CLIError('Telegram returned an invalid incremental scan boundary.')
+                if stopped():raise CLIError('Stopped before the scan was committed; its previous cursor was kept.')
+                result=catalog.commit(topic,after,cursor['last_id'],items)
+                self.last_scan={'mode':'incremental' if saved else 'full','seconds':time.monotonic()-started,'new_files':len(items),'catalog_files':len(result)}
+                return result
             except (ValueError, KeyError, TypeError, AttributeError) as error:
                 raise CLIError('Telegram metadata could not be validated; no downloads were planned.') from error
 

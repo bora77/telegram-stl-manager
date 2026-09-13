@@ -522,7 +522,7 @@
 +}
 --- /dev/null
 +++ b/cmd/stl.go
-@@ -0,0 +1,97 @@
+@@ -0,0 +1,102 @@
 +package cmd
 +
 +import (
@@ -534,7 +534,6 @@
 +	"github.com/iyear/tdl/core/stltransport"
 +	"github.com/iyear/tdl/core/storage"
 +	"github.com/spf13/cobra"
-+	"math"
 +	"os"
 +	"path/filepath"
 +)
@@ -554,8 +553,9 @@
 +	servers.MarkFlagRequired("output")
 +	var filesOutput string
 +	var filesTopic int
++	var filesAfter int
 +	files := &cobra.Command{Use: "files", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-+		if filesTopic <= 0 {
++		if filesTopic <= 0 || filesAfter < 0 || filesAfter >= 2147483647 {
 +			return fmt.Errorf("an explicit approved-group topic is required")
 +		}
 +		source, err := stl.LoadSource(sourcePath)
@@ -563,17 +563,22 @@
 +			return err
 +		}
 +		return tRun(cmd.Context(), func(ctx context.Context, c *telegram.Client, kv storage.Storage) error {
-+			err := chat.Export(ctx, c, kv, chat.ExportOptions{Type: chat.ExportTypeId, Chat: fmt.Sprint(source.ChatID), Thread: filesTopic, Input: []int{0, math.MaxInt}, Output: filesOutput, Filter: "true", Raw: true})
++			lastID := filesAfter
++			err := chat.Export(ctx, c, kv, chat.ExportOptions{Type: chat.ExportTypeId, Chat: fmt.Sprint(source.ChatID), Thread: filesTopic, Input: []int{filesAfter + 1, 2147483646}, Output: filesOutput, Filter: "true", Raw: true, AfterID: filesAfter, LastID: &lastID})
 +			if err != nil {
 +				return err
 +			}
 +			if err := ctx.Err(); err != nil {
 +				return err
 +			}
++			if err := stl.WriteJSON(filesOutput+".cursor", map[string]any{"after": filesAfter, "last_id": lastID, "topic": filesTopic}); err != nil {
++				return err
++			}
 +			return stl.WriteJSON(filesOutput+".complete", map[string]any{"complete": true, "topic": filesTopic})
 +		}, limiter)
 +	}}
 +	files.Flags().IntVar(&filesTopic, "topic", 0, "Approved group topic ID")
++	files.Flags().IntVar(&filesAfter, "after-id", 0, "Read only messages newer than the last successful check")
 +	files.Flags().StringVar(&filesOutput, "output", "", "Exact metadata output")
 +	files.MarkFlagRequired("topic")
 +	files.MarkFlagRequired("output")
@@ -745,3 +750,24 @@
  	return telegram.NewClient(o.AppID, o.AppHash, opts), nil
  }
  
+
+diff --git a/app/chat/export.go b/app/chat/export.go
+index 59169590..510db82c 100644
+--- a/app/chat/export.go
++++ b/app/chat/export.go
+@@ -40,0 +41,2 @@ type ExportOptions struct {
++	AfterID     int  // Exclude older messages at the server for incremental topic scans.
++	LastID      *int // Highest message seen, including messages without attachments.
+@@ -106,0 +109,8 @@ func Export(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts E
++		if opts.AfterID > 0 {
++			q = messages.QueryFunc(func(ctx context.Context, req messages.Request) (tg.MessagesMessagesClass, error) {
++				return c.API().MessagesGetReplies(ctx, &tg.MessagesGetRepliesRequest{
++					Peer: peer.InputPeer(), MsgID: opts.Thread, MinID: opts.AfterID,
++					OffsetID: req.OffsetID, OffsetDate: req.OffsetDate, AddOffset: req.AddOffset, Limit: req.Limit,
++				})
++			})
++		}
+@@ -171,0 +182,3 @@ loop:
++		if opts.LastID != nil && msg.Msg.GetID() > *opts.LastID {
++			*opts.LastID = msg.Msg.GetID()
++		}

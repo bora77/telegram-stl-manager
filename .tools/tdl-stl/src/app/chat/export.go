@@ -38,6 +38,8 @@ type ExportOptions struct {
 	WithContent bool
 	Raw         bool
 	All         bool
+	AfterID     int  // Exclude older messages at the server for incremental topic scans.
+	LastID      *int // Highest message seen, including messages without attachments.
 }
 
 type Message struct {
@@ -104,6 +106,14 @@ func Export(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts E
 	switch {
 	case opts.Thread != 0: // topic messages, reply messages
 		q = query.NewQuery(c.API()).Messages().GetReplies(peer.InputPeer()).MsgID(opts.Thread)
+		if opts.AfterID > 0 {
+			q = messages.QueryFunc(func(ctx context.Context, req messages.Request) (tg.MessagesMessagesClass, error) {
+				return c.API().MessagesGetReplies(ctx, &tg.MessagesGetRepliesRequest{
+					Peer: peer.InputPeer(), MsgID: opts.Thread, MinID: opts.AfterID,
+					OffsetID: req.OffsetID, OffsetDate: req.OffsetDate, AddOffset: req.AddOffset, Limit: req.Limit,
+				})
+			})
+		}
 	default: // history
 		q = query.NewQuery(c.API()).Messages().GetHistory(peer.InputPeer())
 	}
@@ -169,6 +179,9 @@ loop:
 			}
 		}
 
+		if opts.LastID != nil && msg.Msg.GetID() > *opts.LastID {
+			*opts.LastID = msg.Msg.GetID()
+		}
 		m, ok := msg.Msg.(*tg.Message)
 		if !ok {
 			continue

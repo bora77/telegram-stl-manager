@@ -227,24 +227,31 @@ class Worker:
         for records in groups.values():self.finish_release(records)
         self.pending=[r for r in self.pending if r['sub']['topic_url']!=sub['topic_url']]
     def scan(self,sub):
-        topic=sub['topic_url']
+        topic=sub['topic_url'];received=0;started=time.monotonic()
         def status(message):
-            self.update('scanning',sub['creator']+' · '+message,current_creator=sub['creator'],files_listed=0,scan_page=None)
-        status('Reading exact attachment names and sizes…')
-        items=self.telegram.list_files(topic,self.stopped,status)
+            self.update('scanning',sub['creator']+' · '+message,current_creator=sub['creator'],files_listed=received,scan_page=None,creators_checked=len(self.run.get('creator_results',[])))
+        def on_files(files):
+            nonlocal received
+            received+=len(files);status('Reading new attachment metadata…')
+        status('Checking for new releases…')
+        items=self.telegram.list_files(topic,self.stopped,status,on_files=on_files,incremental=True)
         result={'creator':sub['creator'],'latest_release_month':None,'eligible_files':0,'already_downloaded':0,'outside_scope':0}
+        result.update(scan_seconds=time.monotonic()-started,**{k:v for k,v in getattr(self.telegram,'last_scan',{}).items() if k in ('mode','new_files','catalog_files')})
         self.run.setdefault('creator_results',[]).append(result)
+        with self.history.connect() as db:
+            downloaded={r['source_message_id'] for r in db.execute("SELECT source_message_id FROM downloads WHERE topic_url=? AND state='downloaded'",(topic,))}
+        warnings=[]
         for item in items:
             if self.stopped():raise WorkerError('Stopped by request.')
             if not safe_filename(item['filename']):
-                self.warn(sub['creator']+': unsafe attachment filename needs review.');continue
+                warnings.append(sub['creator']+': unsafe attachment filename needs review.');continue
             month=release_month(item['filename'])
             if month is None:
-                self.warn(sub['creator']+': release month needs review for '+item['filename']);continue
+                warnings.append(sub['creator']+': release month needs review for '+item['filename']);continue
             result['latest_release_month']=max(result['latest_release_month'] or month,month)
             if not in_scope(sub,month):result['outside_scope']+=1;continue
             result['eligible_files']+=1
-            if self.history.was_downloaded(item['source_message_id']):
+            if item['source_message_id'] in downloaded:
                 result['already_downloaded']+=1;continue
             row=self.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=topic,
                                       filename=item['filename'],bytes_total=item['bytes_total'],release_month=month,batch_id=self.batch)
@@ -257,7 +264,8 @@ class Worker:
                 reset='' if reuse else ',bytes_downloaded=0,download_started_at=NULL,download_finished_at=NULL,download_seconds=NULL,download_speed_bps=NULL,download_average_bps=NULL'
                 db.execute("UPDATE downloads SET batch_id=?,state='queued',error=NULL,bytes_total=?"+reset+" WHERE id=? AND state!='downloaded'",(self.batch,item['bytes_total'],row['id']))
             self.planned.append((sub,item,month))
-        self.update('scanning',f"{sub['creator']} · {len(items)} exact file records checked",files_listed=len(items),telegram_file_count=len(items))
+        self.run['warnings']=list(dict.fromkeys(self.run['warnings']+warnings))
+        self.update('scanning',f"{sub['creator']} · check complete",files_listed=received,telegram_file_count=len(items),creators_checked=len(self.run['creator_results']))
     def cleanup_completed(self):
         # Only the worker owns these scratch directories. Download receipts and
         # source volumes live separately and survive an interrupted extraction.

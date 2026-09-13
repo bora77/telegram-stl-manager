@@ -9,6 +9,12 @@ Downloads and folder organization can run together, with independent Stop
 buttons. Work on the same artist/month is coordinated; other releases proceed
 in parallel. Telegram metadata scans share the login between file transfers.
 
+After each artist's initial scan, Download all checks only messages newer than
+its last successful check. The private `data/telegram-catalog.sqlite3` retains
+older file metadata for pending downloads and changes to the selected starting
+month. Interrupted scans do not advance the cursor. An organizer preview reads
+the full topic and refreshes older metadata, including edited posts.
+
 The application uses Python, JavaScript and a customized Go CLI. It runs without
 AI, OCR, Telegram Desktop or a VNC session.
 

@@ -44,7 +44,7 @@ function renderRunActivity(queue){
   const seconds=run.started_at?(Date.parse(run.finished_at||new Date().toISOString())-Date.parse(run.started_at))/1000:null;
   document.getElementById('run-elapsed').textContent=seconds==null?'':(queue.active?'Elapsed: ':'Run duration: ')+duration(seconds);
   const scanning=state==='scanning';
-  document.getElementById('run-detail').textContent=scanning?`${run.current_creator||'Creator'} · ${run.files_listed||0} exact file records read. Checking release months and download history.`:ended&&queue.total_files===0?'No matching releases were queued for download.'+(run.warnings?.length?' Some entries could not be classified; review them below.':''):runMessage(run);
+  document.getElementById('run-detail').textContent=scanning?`${run.creators_checked||0} / ${run.creators_total||0} artists checked · ${run.message||'Checking new messages…'}${run.files_listed?' · '+run.files_listed+' new file records':''}`:ended&&queue.total_files===0?'No matching releases were queued for download.'+(run.warnings?.length?' Some entries could not be classified; review them below.':''):runMessage(run);
   document.getElementById('review-summary').textContent=`Items needing review (${run.warnings?.length||0})`;
 }
 async function refreshQueue(){

@@ -29,6 +29,7 @@
     "subscription_store.py",
     "tabs.js",
     "telegram_cli.py",
+    "topic_catalog.py",
     "telegram_ui.py",
     "transfer_metrics.py",
     "test_downloader.py",

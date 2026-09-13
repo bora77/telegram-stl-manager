@@ -9,7 +9,7 @@ from unittest.mock import patch
 import zipfile
 
 from folder_organizer import inventory, match_files, Organizer
-from organizer_apply import ApplyWorker, PinnedFolder, ready_groups, start_application
+from organizer_apply import ApplyWorker, PinnedFolder, ready_groups, start_application, check_parts
 from release_images import flat_image_name
 from file_delivery import digest
 from subscription_store import SubscriptionStore
@@ -19,6 +19,85 @@ TOPIC='https://t.me/c/123456789/200'
 
 
 class OrganizerApplyTests(unittest.TestCase):
+    def test_incomplete_volume_set_is_skipped_before_moves_even_without_images(self):
+        for images in (True,False):
+            with self.subTest(images=images),tempfile.TemporaryDirectory() as temporary:
+                store,folder=self.setup_store(Path(temporary))
+                first=folder/'Example 2026-01.7z.001';first.write_bytes(b'truncated')
+                second=folder/'Example 2026-01.7z.002';second.write_bytes(b'complete second part')
+                self.archive(folder/'Example 2026-02.zip')
+                plan=self.preview(store,folder)
+                plan['attachments'][0]['bytes_total']=2000
+                match_files(plan['files'],plan['attachments'],set())
+                store.atomic_write(Organizer(store).path,plan)
+                job_id=self.start(store,images=images);ApplyWorker(store,job_id).execute()
+                job=self.job(store)
+                self.assertEqual((job['state'],job['files_done'],job['files_review']),('completed',1,1))
+                self.assertEqual(job['releases_review'],1)
+                self.assertIn('local: 9; Telegram: 2,000 bytes',job['groups'][0]['error'])
+                self.assertEqual(first.read_bytes(),b'truncated');self.assertEqual(second.read_bytes(),b'complete second part')
+                self.assertFalse((folder/'2026-01').exists())
+                self.assertTrue((folder/'2026-02/Example 2026-02.zip').exists())
+                self.assertFalse(store.history.was_downloaded(100));self.assertFalse(store.history.was_downloaded(101))
+                self.assertTrue(store.history.was_downloaded(102))
+
+    def test_release_failures_continue_and_retry_preserves_completed_work_and_images(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store,folder=self.setup_store(Path(temporary))
+            bad=folder/'Example 2026-01.zip'
+            with zipfile.ZipFile(bad,'w') as z:z.writestr('../escape.jpg',b'unsafe image')
+            original=bad.read_bytes()
+            for month in ('02','03'):self.archive(folder/('Example 2026-'+month+'.zip'))
+            self.preview(store,folder);job_id=self.start(store)
+            record=store.history.import_organized
+            def fail_one(job,records,*args,**kwargs):
+                if records[0]['month']=='2026-02':raise OSError('temporary database failure')
+                return record(job,records,*args,**kwargs)
+            with patch.object(store.history,'import_organized',side_effect=fail_one):ApplyWorker(store,job_id).execute()
+            job=self.job(store)
+            self.assertEqual((job['files_done'],job['files_review'],job['releases_review']),(1,2,2))
+            self.assertEqual(bad.read_bytes(),original);self.assertFalse((Path(temporary)/'escape.jpg').exists())
+            self.assertFalse(store.history.was_downloaded(100));self.assertFalse(store.history.was_downloaded(101));self.assertTrue(store.history.was_downloaded(102))
+            status=Organizer(store).status()['application']
+            self.assertEqual([f['state'] for f in status['files']],['needs_review','needs_review','completed'])
+            self.assertTrue(status['files'][1]['moved']);self.assertIn('database',status['files'][1]['error'])
+            target=folder/'2026-03/Example 2026-03.zip';inode=target.stat().st_ino
+            with patch('organizer_apply.Popen'):start_application(store,{'job_id':job_id},resume=True)
+            from release_images import extract_images
+            with patch('organizer_apply.extract_images',wraps=extract_images) as extraction:
+                ApplyWorker(store,job_id).execute()
+            self.assertEqual(extraction.call_count,1) # Only unsafe release; moved release reuses verified images.
+            self.assertEqual(self.job(store)['files_done'],2);self.assertEqual(self.job(store)['files_review'],1)
+            self.assertTrue(store.history.was_downloaded(101));self.assertEqual(target.stat().st_ino,inode)
+            self.archive(bad);self.preview(store,folder)
+            self.start(store) # A fresh preview is allowed after replacing a skipped original.
+
+    def test_cancel_and_mount_loss_still_stop_the_whole_operation(self):
+        for mode in ('stop','mount'):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temporary:
+                store,folder=self.setup_store(Path(temporary))
+                for month in ('01','02'):self.archive(folder/('Example 2026-'+month+'.zip'))
+                self.preview(store,folder);job_id=self.start(store);worker=ApplyWorker(store,job_id)
+                def fail(*args,**kwargs):
+                    if mode=='stop':(store.root/'data/organizer-stop').touch()
+                    else:worker.job['mount']=['disconnected']
+                    raise ValueError('release failure')
+                with patch('organizer_apply.extract_images',side_effect=fail) as extraction:worker.execute()
+                self.assertEqual(extraction.call_count,1)
+                self.assertEqual(self.job(store)['state'],'stopped' if mode=='stop' else 'failed')
+                self.assertEqual(self.job(store)['files_done'],0)
+                self.assertEqual(len(list(folder.glob('*.zip'))),2)
+
+    def test_part_checks_handle_gaps_and_old_rar_zip_numbering(self):
+        for names,valid in [(['Release.7z.001','Release.7z.003'],False),
+                            (['Release.7z.002'],False),(['Release.rar','Release.r00','Release.r01'],True),
+                            (['Release.r00'],False),(['Release.zip','Release.z01','Release.z02'],True)]:
+            group={'records':[{'filename':name} for name in names]}
+            with self.subTest(names=names):
+                if valid:check_parts(group)
+                else:
+                    with self.assertRaisesRegex(ValueError,'Incomplete archive set'):check_parts(group)
+
     def test_damaged_images_warn_while_archives_move_and_history_commits(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);store,folder=self.setup_store(root)
@@ -113,21 +192,22 @@ class OrganizerApplyTests(unittest.TestCase):
                 self.assertEqual(after[key],before[key])
             self.assertEqual(after['image_count'],2)
 
-    def test_changed_source_and_new_destination_reject_before_launch_or_history(self):
+    def test_changed_source_and_new_destination_skip_before_mutation_or_history(self):
         for changed in ('size','same_size','destination','symlink'):
             with self.subTest(changed=changed),tempfile.TemporaryDirectory() as temporary:
                 root=Path(temporary);store,folder=self.setup_store(root);source=folder/'Example 2026-01.zip'
-                source.write_bytes(b'original');self.preview(store,folder)
+                source.write_bytes(b'original');self.archive(folder/'Example 2026-02.zip');self.preview(store,folder)
                 if changed=='size':source.write_bytes(b'changed')
                 if changed=='same_size':source.write_bytes(b'changed!');os.utime(source,ns=(1,1))
                 if changed=='destination':
                     (folder/'2026-01').mkdir();(folder/'2026-01'/source.name).write_bytes(b'existing')
                 if changed=='symlink':
                     source.unlink();source.symlink_to(root/'outside')
-                with patch('organizer_apply.Popen') as launch:
-                    with self.assertRaises((OSError,ValueError)):start_application(store,{'plan_id':'preview','extract_images':True})
-                    launch.assert_not_called()
+                ApplyWorker(store,self.start(store)).execute()
+                self.assertEqual(self.job(store)['state'],'completed')
+                self.assertEqual(self.job(store)['releases_review'],1)
                 self.assertFalse(store.history.was_downloaded(100))
+                self.assertTrue(store.history.was_downloaded(101))
 
     def test_resume_after_rename_and_failed_history_commit_uses_saved_images(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -135,12 +215,12 @@ class OrganizerApplyTests(unittest.TestCase):
             self.preview(store,folder);job_id=self.start(store)
             with patch.object(store.history,'import_organized',side_effect=OSError('database unavailable')):
                 ApplyWorker(store,job_id).execute()
-            self.assertEqual(self.job(store)['state'],'failed');self.assertFalse(store.history.was_downloaded(100))
+            self.assertEqual(self.job(store)['state'],'completed');self.assertGreater(self.job(store)['releases_review'],0);self.assertFalse(store.history.was_downloaded(100))
             self.assertFalse(source.exists());self.assertTrue((folder/'2026-01'/source.name).exists())
             status=Organizer(store).status()['application']
             self.assertNotIn('groups',status);self.assertNotIn('mount',status)
             self.assertTrue(status['files'][0]['moved']);self.assertFalse(status['files'][0]['recorded'])
-            self.assertEqual(status['files'][0]['state'],'paused')
+            self.assertEqual(status['files'][0]['state'],'needs_review')
             with patch('organizer_apply.extract_images',side_effect=AssertionError('must reuse saved extraction')):
                 ApplyWorker(store,job_id).execute()
             self.assertEqual(self.job(store)['state'],'completed');self.assertTrue(store.history.was_downloaded(100))
@@ -235,7 +315,7 @@ class OrganizerApplyTests(unittest.TestCase):
             original=target.read_bytes();inode=target.stat().st_ino
             with patch.object(store.history,'import_organized',side_effect=OSError('test database failure')):
                 ApplyWorker(store,job_id).execute()
-            self.assertEqual(self.job(store)['state'],'failed');self.assertFalse(source.exists())
+            self.assertEqual(self.job(store)['state'],'completed');self.assertGreater(self.job(store)['releases_review'],0);self.assertFalse(source.exists())
             self.assertFalse(store.history.was_downloaded(100))
             with patch('organizer_apply.Popen'):start_application(store,{'job_id':job_id},resume=True)
             ApplyWorker(store,job_id).execute()
@@ -248,7 +328,7 @@ class OrganizerApplyTests(unittest.TestCase):
             self.preview(store,folder);job_id=self.start(store,images=False)
             target=folder/'2026-01'/source.name;target.parent.mkdir();target.write_bytes(b'conflict')
             ApplyWorker(store,job_id).execute()
-            self.assertEqual(self.job(store)['state'],'failed')
+            self.assertEqual(self.job(store)['state'],'completed');self.assertGreater(self.job(store)['releases_review'],0)
             self.assertEqual(source.read_bytes(),b'original');self.assertEqual(target.read_bytes(),b'conflict')
             self.assertFalse(store.history.was_downloaded(100))
 
@@ -307,12 +387,13 @@ class OrganizerApplyTests(unittest.TestCase):
                 ApplyWorker(store,job_id).execute()
             self.assertEqual(extraction.call_count,1)
             failed=self.job(store)
-            self.assertEqual((failed['state'],failed['files_done'],failed['moves_done']),('failed',1,2))
+            self.assertEqual((failed['state'],failed['files_done'],failed['moves_done']),('completed',1,3))
             self.assertTrue(Organizer(store).status()['application']['files'][0]['recorded'])
             self.assertFalse(Organizer(store).status()['application']['files'][1]['recorded'])
             with patch('organizer_apply.Popen'):
                 start_application(store,{'job_id':job_id},resume=True)
-            self.assertEqual(self.job(store)['groups'],failed['groups']) # Migration is idempotent.
+            self.assertEqual([g.get('images') for g in self.job(store)['groups']],[g.get('images') for g in failed['groups']]) # Retry preserves cached images.
+            self.assertEqual([g.get('work_index') for g in self.job(store)['groups']],[g.get('work_index') for g in failed['groups']])
             with patch('organizer_apply.extract_images',side_effect=AssertionError('must reuse both cached extractions')):
                 ApplyWorker(store,job_id).execute()
             done=self.job(store)
@@ -337,9 +418,9 @@ class OrganizerApplyTests(unittest.TestCase):
                     start_application(store,{'job_id':job_id},resume=True)
                 with patch('organizer_apply.extract_images') as extraction:ApplyWorker(store,job_id).execute()
                 extraction.assert_not_called()
-                self.assertEqual(self.job(store)['state'],'failed')
+                self.assertEqual(self.job(store)['state'],'completed');self.assertGreater(self.job(store)['releases_review'],0)
                 self.assertTrue((folder/parts[1]).is_file());self.assertFalse((folder/'2026-01'/parts[1]).exists())
-                with store.history.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM downloads').fetchone()[0],1)
+                with store.history.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM downloads').fetchone()[0],2)
 
     def test_fresh_preview_groups_underscore_parts_and_rejects_competing_part_numbers(self):
         with tempfile.TemporaryDirectory() as temp:

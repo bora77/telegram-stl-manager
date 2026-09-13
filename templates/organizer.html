@@ -3,12 +3,12 @@
 <title>Telegram STL · Organize folders</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f6f5f9;color:#272332;font:15px system-ui,sans-serif}main{max-width:1440px;margin:48px auto;padding:0 24px}nav{display:flex;gap:24px;margin:24px 0;flex-wrap:wrap}a{color:#754aaf}h1{font-size:32px;margin:10px 0}.eyebrow{font-size:12px;color:#7651a6;letter-spacing:.08em;font-weight:700}p{line-height:1.6;color:#65606e}.panel{background:white;border:1px solid #e3dfe9;border-radius:16px;padding:24px;margin:24px 0}.notice{background:#eee8f6;border-left:4px solid #8962b6;padding:14px 18px}.controls{display:flex;gap:16px;flex-wrap:wrap;align-items:end}label{display:grid;gap:8px;color:#655f70;font-size:13px}input,select,button{font:inherit;padding:11px 14px;border:1px solid #d8d3e0;border-radius:8px;background:white}select,input{max-width:100%;min-width:240px}button{cursor:pointer}button.primary{background:#7651a6;color:white;border-color:#7651a6}button:disabled{opacity:.5;cursor:default}.metrics{display:flex;flex-wrap:wrap;gap:28px;margin:22px 0}.metric strong{display:block;font-size:28px;color:#654091}.metric span,small{color:#807787;font-size:12px}small{display:block;margin-top:6px}progress{width:100%;height:12px;accent-color:#8053c0}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:14px;border-bottom:1px solid #eeeaf2;vertical-align:top}th{font-size:12px;color:#706879;background:#fbfaff}td{font-size:13px;overflow-wrap:anywhere}td:first-child{min-width:240px;max-width:380px}.table{overflow:auto;margin-top:20px;border:1px solid #e3dfe9;border-radius:10px}.badge{display:inline-block;border-radius:20px;padding:5px 9px;font-size:12px;background:#eee8f5;color:#69418d;white-space:nowrap}.review,.conflict{background:#fff0d7;color:#8a5b15}.matched{background:#e4f3eb;color:#296c49}.apply-controls{border:1px solid #e3dfe9;border-radius:12px;padding:20px;margin:20px 0}.image-choice{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}.image-choice input{min-width:0;width:18px;height:18px;accent-color:#7651a6}#page-error{color:#943d40}.status-controls{display:flex;align-items:start;justify-content:space-between;gap:16px}#scope{margin-bottom:0}.application-heading{font-size:18px}#phase-progress{margin-top:16px}#status{font-weight:600;color:#654091}.path{font-size:12px;overflow-wrap:anywhere;color:#807787}[hidden]{display:none!important}
-.selection-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}.selection-fields label{min-width:0}.selection-fields input,.selection-fields select{width:100%;min-width:0;height:44px;font-size:14px}.selection-fields small{margin:0;line-height:1.5}.action-buttons{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:20px}.action-buttons button{height:44px}.completed,.moved{background:#e4f3eb;color:#296c49}#live-note{color:#7651a6}#application-message,#status,#image-warnings{overflow-wrap:anywhere}#error-details{margin:16px 0;color:#706879;font-size:13px}#error-details summary{cursor:pointer}#error-text{max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f5fa;border:1px solid #e3dfe9;border-radius:8px;padding:12px;font:12px/1.6 ui-monospace,monospace}#resume{margin-top:16px}@media(max-width:850px){.selection-fields{grid-template-columns:1fr}.panel{padding:20px}input,select{min-width:0;width:100%}}
+.selection-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}.selection-fields label{min-width:0}.selection-fields input,.selection-fields select{width:100%;min-width:0;height:44px;font-size:14px}.selection-fields small{margin:0;line-height:1.5}.action-buttons{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:20px}.action-buttons button{height:44px}.completed,.moved{background:#e4f3eb;color:#296c49}#live-note{color:#7651a6}#application-message,#status,#image-warnings{overflow-wrap:anywhere}#error-details{margin:16px 0;color:#706879;font-size:13px}#error-details summary{cursor:pointer}#image-warnings{max-height:260px;overflow:auto}td pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:160px;overflow:auto;font:12px/1.5 ui-monospace,monospace}#error-text{max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f5fa;border:1px solid #e3dfe9;border-radius:8px;padding:12px;font:12px/1.6 ui-monospace,monospace}#resume{margin-top:16px}@media(max-width:850px){.selection-fields{grid-template-columns:1fr}.panel{padding:20px}input,select{min-width:0;width:100%}}
 </style>
 <main class="app-main">__APP_LAYOUT__
 <p>Choose an artist and its existing folder, then preview the monthly structure before applying changes.</p>
 <section class="panel"><div class="selection-fields"><label>Find artist<input id="search" type="search" placeholder="Search the approved Table of Contents"></label><label>Artist<select id="artist"><option value="">Choose an artist</option></select></label><label>Existing folder on Kronos<select id="folder"><option value="">Choose an existing folder</option></select><small id="folder-hint" aria-live="polite">Choose an artist first.</small></label></div><div class="action-buttons"><button id="preview" class="primary" disabled>Preview</button><button id="stop" hidden>Stop</button></div><p id="base" class="path"></p><small>Preview reads exact filenames and sizes from Telegram. It does not move files.</small><p id="page-error" role="alert" hidden></p></section>
-<section id="application" class="panel" aria-live="polite" hidden><strong id="application-title" class="application-heading"></strong><p id="application-message"></p><details id="error-details" hidden><summary>Show error details</summary><pre id="error-text"></pre></details><progress id="application-progress" max="100" aria-label="Organization progress" hidden></progress><small id="application-counts"></small><progress id="phase-progress" max="100" aria-label="Current organization phase progress" hidden></progress><small id="phase-detail" hidden></small><details id="image-warning-details" hidden open><summary id="image-warning-summary">Image warnings</summary><ul id="image-warnings"></ul></details><button id="resume" hidden>Resume organization</button></section>
+<section id="application" class="panel" aria-live="polite" hidden><strong id="application-title" class="application-heading"></strong><p id="application-message"></p><details id="error-details" hidden><summary>Show error details</summary><pre id="error-text"></pre></details><progress id="application-progress" max="100" aria-label="Organization progress" hidden></progress><small id="application-counts"></small><progress id="phase-progress" max="100" aria-label="Current organization phase progress" hidden></progress><small id="phase-detail" hidden></small><details id="image-warning-details" hidden open><summary id="image-warning-summary">Warnings</summary><ul id="image-warnings"></ul></details><button id="resume" hidden>Resume organization</button></section>
 <section id="preview-panel" class="panel" hidden><div id="status" role="status"></div><p id="scope"></p><progress id="scan" hidden aria-label="Telegram comparison progress"></progress><small id="scan-detail" hidden></small><small id="live-note" hidden>Updates automatically while the organizer is running.</small>
 <div id="preview-results" hidden><div id="metrics" class="metrics"></div>
 <div id="apply-controls" class="apply-controls" hidden><label class="image-choice"><input id="extract-images" type="checkbox" checked> Extract images into one flat release_images folder</label><small>Apply moves ready files into monthly folders, extracts missing images when selected, and records matches as downloaded. Conflicts and unclear release months stay for review.</small><p id="apply-summary"></p><button id="apply" class="primary" disabled>Apply ready files</button></div>
@@ -82,9 +82,9 @@ function renderTable(){
  const outcomes=new Map((planJob()?.files||[]).map(f=>[f.source,f]));
  const files=(current.files||[]).map(f=>({...f,outcome:outcomes.get(f.source)}));
  const recorded=f=>f.already_recorded||f.outcome?.recorded;
- const toRecord=f=>f.would_record&&!recorded(f);
- const toMove=f=>f.action==='move'&&!f.outcome?.moved;
- const needsReview=f=>['review','conflict'].includes(f.action)||!['matched','pending'].includes(f.telegram_status);
+ const needsReview=f=>f.outcome?.state==='needs_review'||['review','conflict'].includes(f.action)||!['matched','pending'].includes(f.telegram_status);
+ const toRecord=f=>f.would_record&&!recorded(f)&&!needsReview(f);
+ const toMove=f=>f.action==='move'&&!f.outcome?.moved&&!needsReview(f);
  el('metrics').replaceChildren();
  for(const [label,count] of [['Files',files.length],['Matched',files.filter(f=>f.telegram_status==='matched').length],['To move',files.filter(toMove).length],['To record',files.filter(toRecord).length],['Recorded',files.filter(recorded).length],['Needs review',files.filter(needsReview).length]]){
   const box=node('div','','metric');box.append(node('strong',String(count)),node('span',label));el('metrics').append(box);
@@ -94,17 +94,18 @@ function renderTable(){
   const filter=el('filter').value;
   if(filter==='move'&&!toMove(f)||filter==='record'&&!toRecord(f)||filter==='recorded'&&!recorded(f)||filter==='keep'&&f.action!=='keep'&&!f.outcome?.moved||filter==='review'&&!needsReview(f))continue;
   const row=node('tr',''),name=node('td',f.source),destination=node('td',f.destination||'Month needs review'),action=node('td','');
-  const moved=f.action==='move'&&f.outcome?.moved;
-  action.append(node('span',moved?'Moved':({move:'Would move',keep:'Keep in place',conflict:'Conflict',review:'Needs review'})[f.action],'badge '+(moved?'moved':f.action)));
-  const phase=({pending:'Waiting',waiting:'Waiting for download',preparing:'Preparing release',extracting:'Extracting images',images:'Moving release images',moving:'Moving archives',recording:'Recording in history',moved:'Waiting for history',paused:'Paused',completed:'Complete'})[f.outcome?.state];
+  const moved=f.action==='move'&&f.outcome?.moved,skipped=f.outcome?.state==='needs_review';
+  action.append(node('span',moved?'Moved':skipped?'Needs review':({move:'Would move',keep:'Keep in place',conflict:'Conflict',review:'Needs review'})[f.action],'badge '+(moved?'moved':skipped?'review':f.action)));
+  const phase=({pending:'Waiting',waiting:'Waiting for download',preparing:'Preparing release',extracting:'Extracting images',images:'Moving release images',moving:'Moving archives',recording:'Recording in history',moved:'Waiting for history',paused:'Paused',needs_review:'Skipped; other releases continue',completed:'Complete'})[f.outcome?.state];
   if(phase)action.append(node('small',phase));
   if(f.reason)action.append(node('small',f.reason));
+  if(f.outcome?.error){const details=node('details','');details.append(node('summary','Release error'),node('pre',cleanMessage(f.outcome.error)));action.append(details)}
   const match=node('td','');
   match.append(node('span',({matched:'Name + size match',unmatched:'No name match',size_mismatch:'Size differs',size_unreadable:'Size needs review',ambiguous:'Multiple matches',pending:'Pending'})[f.telegram_status]||f.telegram_status,'badge '+f.telegram_status));
   if(f.telegram_name&&f.telegram_name!==f.filename)match.append(node('small',f.telegram_name));
   const localSize=node('td',(f.size/1048576).toFixed(1)+' MiB');localSize.append(node('small',f.size.toLocaleString()+' bytes'));
   const telegramSize=node('td',f.telegram_size||'Not read');if(f.telegram_size)telegramSize.append(node('small','Exact Telegram metadata'));
-  const record=node('td',f.outcome?.recorded?'Recorded':f.already_recorded?'Already recorded':f.would_record?(f.outcome?'Pending recording':'Would record as downloaded'):'No history change proposed');
+  const record=node('td',f.outcome?.recorded?'Recorded':f.already_recorded?'Already recorded':skipped?'Not recorded; needs review':f.would_record?(f.outcome?'Pending recording':'Would record as downloaded'):'No history change proposed');
   row.append(name,destination,action,localSize,telegramSize,match,record);rows.append(row);
  }
  el('rows').replaceChildren(rows);
@@ -119,7 +120,7 @@ async function refresh(){
  finally{refreshPending=false}
 }
 function renderApplication(){
- const job=current.application,files=current.files||[],available=files.filter(applicable),pending=job&&['failed','stopped','interrupted'].includes(job.state),running=appRunning();
+ const job=current.application,files=current.files||[],available=files.filter(applicable),pending=job&&['failed','stopped','interrupted'].includes(job.state),running=appRunning(),review=job?.state==='completed'&&job.releases_review>0;
  const fresh=available.every(f=>f.identity),matchesChoice=sameChoice(current);
  const applied=planJob()?.state==='completed';
  el('apply-controls').hidden=el('preview-results').hidden||current.state!=='completed'||!available.length||!matchesChoice||!!pending||running||applied;
@@ -129,10 +130,11 @@ function renderApplication(){
  el('apply-summary').textContent=!fresh?'Run a fresh preview before applying.':`${available.filter(f=>f.action==='move').length} files to move · ${available.filter(f=>f.action==='keep').length} already in monthly folders · ${files.length-available.length} skipped for review`;
  el('application').hidden=!running&&!pending&&!(job?.state==='completed'&&job.warnings?.length);
  el('application-progress').hidden=!running;el('phase-progress').hidden=!running;el('phase-detail').hidden=!running;
- el('resume').hidden=!pending;el('resume').disabled=active()||actionPending;
+ el('resume').hidden=!pending&&!review;el('resume').disabled=active()||actionPending;
+ el('resume').textContent=review?'Retry skipped releases':'Resume organization';
  if(!job)return;
  el('image-warning-details').hidden=!job.warnings?.length;
- el('image-warning-summary').textContent=`Image warnings (${job.warnings?.length||0})`;
+ el('image-warning-summary').textContent=`Warnings (${job.warnings?.length||0})`;
  el('image-warnings').replaceChildren(...(job.warnings||[]).map(warning=>node('li',warning)));
  el('application-title').textContent=`${job.creator} · ${running?'Organizing folders':job.state==='completed'?'Organization complete with warnings':'Organization paused'}`;
  const message=jobMessage(job),details=cleanMessage(job.message);
@@ -140,8 +142,8 @@ function renderApplication(){
  el('error-details').hidden=!pending||details===message;
  if(el('error-details').hidden)el('error-details').open=false;
  el('error-text').textContent=details;
- el('application-progress').value=job.files_total?100*job.files_done/job.files_total:0;
- el('application-counts').textContent=`${job.files_done} / ${job.files_total} files recorded · ${job.moves_done} / ${job.moves_total} archives moved · ${job.releases_done} / ${job.releases_total} releases`;
+ el('application-progress').value=job.files_total?100*(job.files_done+(job.files_review||0))/job.files_total:0;
+ el('application-counts').textContent=`${job.files_done} / ${job.files_total} files recorded · ${job.moves_done} / ${job.moves_total} archives moved · ${job.releases_done} / ${job.releases_total} releases${job.releases_review?' · '+job.releases_review+' releases need review':''}`;
  const total=job.progress_total,done=job.progress_done||0;
  if(total>0)el('phase-progress').value=Math.min(100,100*done/total);else el('phase-progress').removeAttribute('value');
  const units=job.progress_unit==='bytes'&&total?`${(done/1048576).toFixed(1)} / ${(total/1048576).toFixed(1)} MiB`:job.progress_unit==='percent'&&total?Math.round(100*done/total)+'% checked':total?`${done} / ${total} files`:'';

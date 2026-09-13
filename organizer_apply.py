@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import stat
 from subprocess import Popen
@@ -21,6 +22,10 @@ from transfer_metrics import TransferMeter
 ROOT = Path(__file__).resolve().parent
 RUNNING = ('starting', 'running')
 RETRYABLE = ('failed', 'stopped', 'interrupted')
+
+
+def has_skipped_releases(job):
+    return bool(job and job.get('state') == 'completed' and job.get('releases_review', 0))
 
 
 def identity(info):
@@ -41,19 +46,22 @@ def application_status(store):
     # identities and extraction manifests remain in the private journal.
     result = {k: v for k, v in job.items() if k not in ('groups', 'mount')}
     result['warnings']=[group['key']+' · '+warning for group in job.get('groups',[]) for warning in group.get('image_warnings',[])]
+    result['warnings'] += [group['key']+' · '+group['error'] for group in job.get('groups',[]) if group.get('error')]
     result['files'] = []
     for group in job.get('groups', []):
         current = group['key'] == job.get('current_release')
         for record in group['records']:
             recorded = group['state'] == 'completed' or bool(record.get('recorded'))
             state = 'completed' if recorded else 'moved' if record.get('moved') else 'pending'
-            if current and not recorded:
+            if group['state']=='needs_review' and not recorded:state='needs_review'
+            elif current and not recorded:
                 if job['state'] in RUNNING:
                     state = job.get('phase', 'preparing')
                 elif job['state'] in RETRYABLE:
                     state = 'paused'
             result['files'].append({'source': record['source'], 'destination': record['destination'],
-                                    'moved': bool(record.get('moved')), 'recorded': recorded, 'state': state})
+                                    'moved': bool(record.get('moved')), 'recorded': recorded, 'state': state,
+                                    'error': group.get('error', '')})
     return result
 
 
@@ -168,7 +176,38 @@ def ready_groups(plan):
     for group in groups.values():
         indexes = [volume_key(record['filename'])[1] for record in group['records']]
         if len(set(indexes)) != len(indexes):raise ValueError('Plan contains competing archive parts; review required.')
-    return [groups[key] for key in sorted(groups)]
+    result = [groups[key] for key in sorted(groups)]
+    set_part_requirements(result, plan)
+    return result
+
+
+def set_part_requirements(groups, plan):
+    """Retain the preview's complete volume metadata, including rejected parts."""
+    for group in groups:
+        key=group['key'].split('/',1)[1]
+        related=[a for a in plan.get('attachments',[]) if volume_key(a['filename'])[0]==key]
+        if not any(volume_key(a['filename'])[1] for a in related):continue
+        names=sorted({a['filename'] for a in related})
+        group['part_requirements']=[{'filename':name,
+            'sizes':sorted({a['bytes_total'] for a in related if a['filename']==name}),
+            'local_sizes':sorted({f['size'] for f in plan.get('files',[]) if f['filename']==name})} for name in names]
+
+
+def check_parts(group):
+    names={r['filename'] for r in group['records']}
+    for part in group.get('part_requirements',[]):
+        if part['filename'] in names:continue
+        local=', '.join(f'{n:,}' for n in part['local_sizes']) or 'missing'
+        expected=', '.join(f'{n:,}' for n in part['sizes'])
+        raise ValueError(f"Incomplete archive set: {part['filename']} is not a matched part (local: {local}; Telegram: {expected} bytes). Fix the part and run a new preview.")
+    indexes={volume_key(name)[1] for name in names}
+    if max(indexes)==0:return
+    # Old RAR/ZIP sets need their unnumbered .rar/.zip plus .r00/.z01.
+    old_style=any(re.search(r'\.[rz]\d{2,}$',name,re.I) for name in names)
+    start=0 if old_style else 1
+    zip_gap=1 if any(re.search(r'\.z\d{2,}$',name,re.I) for name in names) else 0
+    if start not in indexes or len(indexes)!=max(indexes)-start+1-zip_gap or (zip_gap and 1 in indexes):
+        raise ValueError('Incomplete archive set: first or intermediate part is missing from the matched files. Fix the parts and run a new preview.')
 
 
 def regroup_saved_volumes(job):
@@ -226,12 +265,17 @@ def start_application(store, payload, resume=False):
         path = store.root / 'data/organizer-apply.json'
         previous = application_status(store)
         if resume:
-            if not previous or previous['id'] != payload.get('job_id') or previous['state'] not in RETRYABLE:
+            if not previous or previous['id'] != payload.get('job_id') or (previous['state'] not in RETRYABLE and not has_skipped_releases(previous)):
                 raise ValueError('No interrupted organization is available to resume.')
             job = json.loads(path.read_text())
             if regroup_saved_volumes(job):
                 backup = store.root / 'data/organizer-jobs' / (job['id'] + '.before-volume-grouping.json')
                 if not backup.exists():store.atomic_write(backup, json.loads(path.read_text()))
+            if job['plan_id']==plan.get('id'):set_part_requirements(job['groups'],plan)
+            for group in job['groups']:
+                if group['state']=='needs_review':group['state']='pending'
+                group.pop('error',None)
+            job.update(files_review=0,releases_review=0)
         else:
             if previous and previous['state'] in RETRYABLE:
                 raise FileExistsError('Resume the unfinished organization before applying another plan.')
@@ -245,17 +289,14 @@ def start_application(store, payload, resume=False):
             groups = ready_groups(plan)
             if not groups:raise ValueError('No matched files with monthly destinations are ready to apply.')
             pinned = PinnedFolder(plan['base'], plan['creator_folder'])
-            try:
-                for group in groups:
-                    for record in group['records']:pinned.locate(record)
-                mounted = list(pinned.mount)
+            try:mounted = list(pinned.mount)
             finally:pinned.close()
             if previous:
                 store.atomic_write(store.root / 'data/organizer-jobs' / (previous['id'] + '.json'), json.loads(path.read_text()))
             job = {k: plan[k] for k in ('base', 'creator', 'creator_folder', 'topic_url')}
             job.update(id=uuid.uuid4().hex, plan_id=plan['id'], groups=groups, mount=mounted,
                        extract_images=payload['extract_images'], started_at=datetime.now(timezone.utc).isoformat(),
-                       releases_total=len(groups), releases_done=0, files_total=sum(len(g['records']) for g in groups), files_done=0,
+                       releases_total=len(groups), releases_done=0, releases_review=0, files_total=sum(len(g['records']) for g in groups), files_done=0, files_review=0,
                        moves_total=sum(r['action']=='move' for g in groups for r in g['records']), moves_done=0,
                        skipped_files=len(plan['files'])-sum(len(g['records']) for g in groups))
         job.update(state='starting', message='Preparing the saved organization plan.', heartbeat=time.time())
@@ -355,45 +396,57 @@ class ApplyWorker:
         try:
             self.check()
             pinned=PinnedFolder(self.job['base'],self.job['creator_folder'])
-            # Revalidate the entire pending plan before its first mutation.
-            for group in self.job['groups']:
-                if group['state']=='completed':continue
-                for record in group['records']:pinned.locate(record)
             self.work.mkdir(parents=True,exist_ok=True,mode=0o700)
+            self.job.update(files_review=0,releases_review=0)
             for index,group in enumerate(self.job['groups']):
                 if group['state']=='completed':continue
                 self.check()
+                group['state']='pending'
                 def waiting():self.progress('waiting','Waiting for download of '+self.job['creator']+' · '+group['month'],current_release=group['key'])
-                with release_lock(self.store.root,self.job['base'],self.job['creator_folder'],group['month'],self.stopped,waiting):
-                    self.save(state='running',phase='preparing',message='Organizing '+group['key'],current_release=group['key'],progress_done=0,progress_total=None)
-                    work=self.work/str(group.get('work_index',index));work.mkdir(exist_ok=True)
-                    images=self.images(group,pinned,work)
-                    for record in group['records']:
+                try:
+                    with release_lock(self.store.root,self.job['base'],self.job['creator_folder'],group['month'],self.stopped,waiting):
+                        self.save(state='running',phase='preparing',message='Organizing '+group['key'],current_release=group['key'],progress_done=0,progress_total=None)
+                        work=self.work/str(group.get('work_index',index));work.mkdir(exist_ok=True)
+                        for record in group['records']:pinned.locate(record)
+                        check_parts(group)
+                        group.pop('error',None)
+                        images=self.images(group,pinned,work)
+                        for record in group['records']:
+                            self.check()
+                            self.progress('moving','Moving archives into '+group['month'],self.job['moves_done'],self.job['moves_total'],'files')
+                            pinned.locate(record)
+                            record['move_started']=True;self.save()
+                            pinned.move(record)
+                            if not record.get('moved'):
+                                record['moved']=True
+                                if record['action']=='move':self.job['moves_done']+=1
+                            self.save()
                         self.check()
-                        self.progress('moving','Moving archives into '+group['month'],self.job['moves_done'],self.job['moves_total'],'files')
-                        pinned.locate(record)
-                        record['move_started']=True;self.save()
-                        pinned.move(record)
-                        if not record.get('moved'):
-                            record['moved']=True
-                            if record['action']=='move':self.job['moves_done']+=1
+                        for record in group['records']:
+                            if pinned.info(record['destination'])!=pinned.destination_identity(record):raise ValueError('Organized file changed before history recording.')
+                        self.progress('recording','Recording completed files in download history',self.job['files_done'],self.job['files_total'],'files')
+                        self.store.history.import_organized(self.job,group['records'],images,pinned.path/group['month']/'release_images',image_warnings=group.get('image_warnings',[]))
+                        group['state']='completed'
+                        self.job['releases_done']+=1
+                        self.job['files_done']+=sum(not record.get('recorded') for record in group['records'])
+                        for record in group['records']:record['recorded']=True
                         self.save()
+                        shutil.rmtree(work,ignore_errors=True)
+                except Exception as error:
+                    # Stop and mount loss affect the whole operation. A release
+                    # failure keeps its journal and does not block later releases.
                     self.check()
-                    for record in group['records']:
-                        if pinned.info(record['destination'])!=pinned.destination_identity(record):raise ValueError('Organized file changed before history recording.')
-                    self.progress('recording','Recording completed files in download history',self.job['files_done'],self.job['files_total'],'files')
-                    self.store.history.import_organized(self.job,group['records'],images,pinned.path/group['month']/'release_images',image_warnings=group.get('image_warnings',[]))
-                    group['state']='completed'
-                    self.job['releases_done']+=1
-                    self.job['files_done']+=sum(not record.get('recorded') for record in group['records'])
-                    for record in group['records']:record['recorded']=True
+                    group.update(state='needs_review',error=str(error))
+                    self.job['releases_review']+=1
+                    self.job['files_review']+=sum(not r.get('recorded') for r in group['records'])
                     self.save()
-                    shutil.rmtree(work)
             warning_count=sum(len(g.get('image_warnings',[])) for g in self.job['groups'])
-            message='Organization complete. Matched files are recorded as downloaded.'
+            message='Organization complete. Successfully organized files are recorded as downloaded.'
+            if self.job['releases_review']:
+                message+=f" {self.job['releases_review']} release(s) need review ({self.job['files_review']} files). Fix the reported issues, then retry skipped releases or run a new preview."
             if warning_count:message+=' '+str(warning_count)+' image warning(s); recoverable images were kept and original archives remain intact.'
             self.save(state='completed',phase='completed',message=message,finished_at=datetime.now(timezone.utc).isoformat(),progress_done=self.job['files_done'],progress_total=self.job['files_total'],progress_unit='files')
-            if self.work.exists():shutil.rmtree(self.work)
+            if not self.job['releases_review'] and self.work.exists():shutil.rmtree(self.work,ignore_errors=True)
         except Exception as error:
             self.save(state='stopped' if self.stopped() else 'failed',message=str(error))
         finally:

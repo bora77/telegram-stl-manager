@@ -153,11 +153,13 @@ def validate_servers(choices, root=ROOT):
 
 
 class TelegramCLI:
-    def __init__(self, root=ROOT, state=CLI_STATE, binary=None, config=None):
+    def __init__(self, root=ROOT, state=CLI_STATE, binary=None, config=None, service=None):
         self.root, self.state = Path(root), Path(state)
         self.source = load_source(self.root)
         self.binary = Path(binary) if binary else self.root / '.tools/tdl-stl/tdl'
         self.config = config or {}
+        self.release_servers = {}
+        self.use_service=(binary is None and read_json(self.root/'.tools/tdl-stl/build.json',{}).get('service_protocol')==1) if service is None else service
         self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.child = None
         self.lock = (self.state / 'application.lock').open('a')
@@ -186,6 +188,10 @@ class TelegramCLI:
                 self.child.wait(timeout=5)
 
     def _run(self, args, directory, stopped, tick=lambda: None, timeout=300, waiting=lambda: None):
+        if self.use_service and args and args[0]=='stl':
+            from telegram_service import TelegramService,ServiceError
+            try:return TelegramService(self.root,self.state,self.command).run(args,stopped,tick,timeout,waiting)
+            except (ServiceError,OSError,ValueError) as error:raise CLIError(str(error)) from error
         # The CLI's Bolt storage needs exclusive access only while its command
         # runs. Release it during extraction/moves and between attachments so
         # organizer scans can share the existing login without another session.
@@ -288,7 +294,14 @@ class TelegramCLI:
             SubscriptionStore(self.root).atomic_write(self.root / 'data/telegram-servers.json', data)
             return data
 
-    def download(self, item, progress, stopped, status=lambda event: None, probe_only=False, retest=False):
+    def download(self, item, progress, stopped, status=lambda event: None, probe_only=False, retest=False, quick_test=False):
+        if probe_only:
+            # Diagnostics must never remove a verified or partial real transfer.
+            with tempfile.TemporaryDirectory(prefix='server-probe-', dir=self.state) as temporary:
+                return self._download(item, progress, stopped, status, probe_only, retest, quick_test, Path(temporary))
+        return self._download(item, progress, stopped, status, probe_only, retest, quick_test)
+
+    def _download(self, item, progress, stopped, status, probe_only, retest, quick_test, directory=None):
         topic = self._topic(item['topic_url'])
         if (not safe_filename(item['filename']) or item['message_url'] != item['topic_url'] + '/' + str(item['source_message_id'])
                 or item.get('unsafe_filename')):
@@ -296,7 +309,7 @@ class TelegramCLI:
         size = item['bytes_total']
         if shutil.disk_usage(self.state).free < (0 if probe_only else size) + 1024**3:
             raise CLIError('Not enough local staging space for this file plus 1 GiB reserve.')
-        directory = self.state / 'transfers' / str(item['source_message_id'])
+        directory = directory or self.state / 'transfers' / str(item['source_message_id'])
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         if directory.is_symlink():
             raise CLIError('Invalid local transfer directory.')
@@ -321,6 +334,17 @@ class TelegramCLI:
             path.unlink(missing_ok=True)
         network, ipv6 = network_identity()
         server = self.config.get('download_servers', {}).get(str(item['dc_id']), 'auto')
+        from release_rules import release_month
+        month = release_month(item['filename'])
+        release = (network, item['dc_id'], item['topic_url'], month)
+        # Small files cannot provide a useful throughput sample. Test at the
+        # first large attachment, once per artist/month/DC in this manual run.
+        per_release = self.config.get('server_check_frequency', 'cached') == 'release'
+        reuse = self.release_servers.get(release) if per_release and month and server == 'auto' and not probe_only else None
+        select_release = bool(per_release and month and server == 'auto' and not probe_only and (reuse or size >= 64*1024*1024))
+        if select_release:
+            quick_test = True
+            if not reuse: retest = True
         args = ['stl', 'download', '--topic', topic, '--message', item['source_message_id'],
                 '--document-id', item['document_id'], '--dc', item['dc_id'], '--size', size,
                 '--filename', item['filename'], '--output', output, '--events', events,
@@ -328,6 +352,8 @@ class TelegramCLI:
         if ipv6: args.append('--ipv6')
         if probe_only: args.append('--probe-only')
         if retest: args.append('--retest')
+        if quick_test: args.append('--quick-test')
+        if reuse: args.extend(['--reuse-server', reuse])
         offset = 0; pending = b''; complete = None; probed = False; previous = 0; active = False
         last_change = time.monotonic()
         def tick():
@@ -360,6 +386,8 @@ class TelegramCLI:
                     elif kind == 'probe_complete':
                         probed = True
                     else:
+                        if kind == 'server_selected' and select_release:
+                            self.release_servers[release] = event['endpoint']
                         if kind.startswith('server_'): active = False
                         last_change = time.monotonic(); status(event)
             if time.monotonic() - last_change > (300 if active else 180):

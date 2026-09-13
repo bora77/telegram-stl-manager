@@ -2,11 +2,80 @@ package stl
 
 import (
 	"bytes"
+	"context"
+	"fmt"
+	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
+	"github.com/iyear/tdl/core/tmedia"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+type strictFileClient struct {
+	downloader.Client
+	size      int64
+	truncated bool
+}
+
+func (c strictFileClient) UploadGetFile(ctx context.Context, r *tg.UploadGetFileRequest) (tg.UploadFileClass, error) {
+	if r.Offset >= c.size {
+		return nil, fmt.Errorf("OFFSET_INVALID")
+	}
+	if r.Offset == 0 {
+		time.Sleep(10 * time.Millisecond)
+	} // EOF may arrive before an earlier chunk.
+	n := min(int64(r.Limit), c.size-r.Offset)
+	if c.truncated {
+		n--
+	}
+	return &tg.UploadFile{Type: &tg.StorageFileUnknown{}, Bytes: bytes.Repeat([]byte{byte(r.Offset / partSize)}, int(n))}, nil
+}
+
+func TestParallelTransferNeverRequestsPastKnownSize(t *testing.T) {
+	for _, size := range []int64{0, 17 * partSize, 17*partSize + 37} {
+		file, err := os.CreateTemp(t.TempDir(), "payload")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		writer := &countWriter{file: file, total: size}
+		if err := transfer(context.Background(), strictFileClient{size: size}, &tmedia.Media{Size: size}, writer); err != nil {
+			t.Fatal(err)
+		}
+		if writer.done != size {
+			t.Fatalf("received %d of %d bytes", writer.done, size)
+		}
+		data, err := os.ReadFile(file.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if int64(len(data)) != size {
+			t.Fatal("incomplete output")
+		}
+		for offset, value := range data {
+			if value != byte(offset/partSize) {
+				t.Fatalf("missing or wrong data at %d", offset)
+			}
+		}
+	}
+	// Check the actual 4.19 GB boundary without allocating a multi-GB fixture.
+	size := int64(4000) * partSize
+	client := sizedClient{Client: strictFileClient{size: size}, size: size}
+	for _, offset := range []int64{size - partSize, size, size + partSize} {
+		if _, err := client.UploadGetFile(context.Background(), &tg.UploadGetFileRequest{Offset: offset, Limit: partSize}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestPrematureShortChunkIsNotAcceptedAsEOF(t *testing.T) {
+	size := int64(partSize)
+	if err := transfer(context.Background(), strictFileClient{size: size, truncated: true}, &tmedia.Media{Size: size}, &countWriter{total: size}); err == nil {
+		t.Fatal("truncated attachment accepted")
+	}
+}
 
 func fixture() (*tg.Message, Options) {
 	o := Options{ChatID: 123456789, Topic: 200, Message: 100000, DocumentID: 42, Size: 10, DC: 4, Filename: "Artist 2026-09.zip"}

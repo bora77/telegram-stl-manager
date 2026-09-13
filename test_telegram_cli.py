@@ -7,6 +7,8 @@ import tempfile
 import time
 import unittest
 import threading
+import socket
+import subprocess
 import fcntl
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -18,6 +20,83 @@ parse_export = partial(parse_source_export, scope=TEST_SOURCE)
 from subscription_store import SubscriptionStore
 
 TOPIC='https://t.me/c/123456789/200'
+
+
+class ServiceProcessTests(unittest.TestCase):
+    @unittest.skipUnless((Path(__file__).parent/'.tools/tdl-stl/tdl').is_file(), 'Build the CLI to test its local proxy')
+    def test_built_cli_forwards_flags_without_opening_login_storage(self):
+        binary=Path(__file__).resolve().parent/'.tools/tdl-stl/tdl'
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);configure_source(root);state=root/'state';state.mkdir()
+            listener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);listener.bind(str(state/'service.sock'));listener.listen();listener.settimeout(5)
+            self.addCleanup(listener.close)
+            commands=[['files','--topic','200','--after-id','123','--output',str(root/'metadata.json')],
+                      ['download','--topic','200','--message','100000','--document-id','42','--dc','4','--size','10',
+                       '--filename','Artist 2026-09.zip','--output',str(root/'payload'),'--events',str(root/'events'),
+                       '--cache',str(root/'cache'),'--quick-test','--reuse-server','4/media/127.0.0.1/443','--probe-only']]
+            def receive():
+                with listener.accept()[0] as conn:
+                    request=json.loads(conn.makefile('rb').readline())
+                    conn.sendall(json.dumps({'ok':True,'protocol':1,'source':str(root/'data/source.json')}).encode()+b'\n')
+                    return request
+            for args in commands:
+                with self.subTest(command=args[0]),ThreadPoolExecutor(1) as pool:
+                    pending=pool.submit(receive)
+                    result=subprocess.run([str(binary),'--storage','type=bolt,path='+str(state/'data'),
+                                           'stl','--source',str(root/'data/source.json'),*args],cwd=root,capture_output=True,text=True,timeout=5)
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    request=pending.result(timeout=5)
+                    self.assertEqual(request['args'][0],args[0]);self.assertIn('--topic=200',request['args'])
+                    if args[0]=='files':self.assertIn('--after-id=123',request['args'])
+                    else:
+                        self.assertIn('--filename=Artist 2026-09.zip',request['args'])
+                        self.assertIn('--probe-only=true',request['args']);self.assertIn('--quick-test=true',request['args'])
+                        self.assertIn('--reuse-server=4/media/127.0.0.1/443',request['args'])
+            self.assertFalse(list((state/'data').rglob('*')), 'Proxy unexpectedly opened a login database')
+
+    def test_scan_and_download_overlap_and_stop_only_cancels_its_own_request(self):
+        from telegram_service import TelegramService,ServiceError
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);state=root/'state';state.mkdir()
+            listener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);listener.bind(str(state/'service.sock'));listener.listen()
+            self.addCleanup(listener.close)
+            entered={name:threading.Event() for name in ('files','download')};cancelled=threading.Event();release=threading.Event()
+            threads=[]
+            def respond(conn):
+                with conn:
+                    request=json.loads(conn.makefile('rb').readline());kind=request['args'][0]
+                    if kind in entered:entered[kind].set()
+                    if kind=='files':conn.recv(1);cancelled.set()
+                    if kind=='download':release.wait(5)
+                    conn.sendall(json.dumps({'ok':kind!='files','error':'Cancelled' if kind=='files' else '',
+                                            'protocol':1,'source':str(root/'data/source.json')}).encode()+b'\n')
+            def accept():
+                for _ in range(4):
+                    conn,_=listener.accept();t=threading.Thread(target=respond,args=(conn,));threads.append(t);t.start()
+            server=threading.Thread(target=accept);server.start()
+            service=TelegramService(root,state,lambda *args: (_ for _ in ()).throw(AssertionError('must reuse service')))
+            stop=threading.Event()
+            with (state/'application.lock').open('a') as legacy,ThreadPoolExecutor(2) as pool:
+                fcntl.flock(legacy,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                download=pool.submit(service.run,['stl','download'],lambda:False,lambda:None,5,lambda:None)
+                scan=pool.submit(service.run,['stl','files'],stop.is_set,lambda:None,5,lambda:None)
+                try:
+                    self.assertTrue(entered['download'].wait(2));self.assertTrue(entered['files'].wait(2))
+                    stop.set()
+                    with self.assertRaisesRegex(ServiceError,'Stopped'):scan.result(timeout=3)
+                    self.assertTrue(cancelled.is_set());self.assertFalse(download.done())
+                finally:release.set()
+                download.result(timeout=3)
+            server.join(timeout=2)
+            for t in threads:t.join(timeout=2)
+
+    def test_service_source_mismatch_cannot_start_a_job(self):
+        from telegram_service import TelegramService,ServiceError
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);service=TelegramService(root,root,lambda *args:None)
+            for response in ({'ok':True,'protocol':1,'source':'/wrong/source.json'},
+                             {'ok':True,'protocol':2,'source':service.source}):
+                with self.assertRaises(ServiceError):service.validate(response)
 
 
 def exported(name='Artist 2026-09.zip',size=10):
@@ -181,6 +260,61 @@ class IncrementalScanTests(unittest.TestCase):
 
 
 class CLIProcessTests(unittest.TestCase):
+    def test_release_server_comparison_is_once_per_month_artist_and_dc(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);client=self.make_client(root,'');client.config={'server_check_frequency':'release'};calls=[]
+            def run(args,work,stopped,tick,**kwargs):
+                calls.append(args)
+                def arg(key):return args[args.index(key)+1]
+                size=arg('--size');output=Path(arg('--output'))
+                with output.open('wb') as stream:stream.truncate(size)
+                events=[{'event':'server_selected','endpoint':'4/media/127.0.0.1/443'},
+                        {'event':'complete','bytes':size,'message_id':arg('--message'),'filename':arg('--filename'),'sha256':'0'*64}]
+                Path(arg('--events')).write_text(''.join(json.dumps(e)+'\n' for e in events));tick()
+            with patch.object(client,'_run',side_effect=run),patch('telegram_cli.network_identity',return_value=('test',False)):
+                for message,month,dc,size in [(1,'09',4,10),(2,'09',4,64*1024**2),(3,'09',4,10),
+                                              (4,'10',4,64*1024**2),(5,'10',5,64*1024**2)]:
+                    item=parse_export(exported('Artist 2026-'+month+' part '+str(message)+'.rar',size),TOPIC)[0]
+                    item.update(source_message_id=message,message_url=TOPIC+'/'+str(message),dc_id=dc)
+                    client.download(item,lambda *a:None,lambda:False)
+            self.assertNotIn('--retest',calls[0]) # Tiny sample defers comparison.
+            for index in (1,3,4):
+                self.assertIn('--retest',calls[index]);self.assertIn('--quick-test',calls[index])
+                self.assertNotIn('--reuse-server',calls[index])
+            self.assertNotIn('--retest',calls[2]);self.assertIn('--reuse-server',calls[2])
+            self.assertEqual(calls[2][calls[2].index('--reuse-server')+1],'4/media/127.0.0.1/443')
+
+    def test_probe_never_changes_existing_staged_payload_or_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);client=self.make_client(root,"events.write_text(json.dumps({'event':'probe_complete'})+'\\n')\n")
+            item=parse_export(exported(),TOPIC)[0];staged=root/'state/transfers/100000';staged.mkdir(parents=True)
+            original={'payload.part':b'original bytes','complete.json':b'original receipt','events.jsonl':b'original events','item.json':b'original identity'}
+            for name,data in original.items():(staged/name).write_bytes(data)
+            client.download(item,lambda *a:None,lambda:False,probe_only=True,retest=True,quick_test=True)
+            self.assertEqual({p.name:p.read_bytes() for p in staged.iterdir()},original)
+            self.assertFalse(list((root/'state').glob('server-probe-*')))
+
+    def test_manual_server_choice_does_not_trigger_release_comparison(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);client=self.make_client(root,'');client.config={'download_servers':{'4':'chosen-server'},'server_check_frequency':'release'}
+            item=parse_export(exported(size=64*1024**2),TOPIC)[0]
+            def run(args,*a,**kw):
+                self.assertEqual(args[args.index('--server')+1],'chosen-server')
+                self.assertNotIn('--retest',args);self.assertNotIn('--quick-test',args);self.assertNotIn('--reuse-server',args)
+                raise CLIError('Test stops before transferring')
+            with patch.object(client,'_run',side_effect=run),self.assertRaisesRegex(CLIError,'Test stops'):
+                client.download(item,lambda *a:None,lambda:False)
+
+    def test_default_reuses_recent_comparisons_without_forcing_a_new_test(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);client=self.make_client(root,'')
+            item=parse_export(exported(size=64*1024**2),TOPIC)[0]
+            def run(args,*a,**kw):
+                self.assertNotIn('--retest',args);self.assertNotIn('--quick-test',args);self.assertNotIn('--reuse-server',args)
+                raise CLIError('Test stops before transferring')
+            with patch.object(client,'_run',side_effect=run),self.assertRaisesRegex(CLIError,'Test stops'):
+                client.download(item,lambda *a:None,lambda:False)
+
     def test_clients_share_login_between_commands_and_waiting_can_be_cancelled(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);configure_source(root)

@@ -20,6 +20,9 @@ func NewSTL() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&sourcePath, "source", filepath.Clean(filepath.Join(filepath.Dir(executable), "../../data/source.json")), "Private source configuration file")
 	var output string
 	servers := &cobra.Command{Use: "servers", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if handled, err := proxySTL(cmd, sourcePath); handled {
+			return err
+		}
 		return tRun(cmd.Context(), func(ctx context.Context, c *telegram.Client, kv storage.Storage) error {
 			return stl.WriteJSON(output, map[string]any{"endpoints": stl.Servers(c)})
 		})
@@ -30,6 +33,9 @@ func NewSTL() *cobra.Command {
 	var filesTopic int
 	var filesAfter int
 	files := &cobra.Command{Use: "files", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if handled, err := proxySTL(cmd, sourcePath); handled {
+			return err
+		}
 		if filesTopic <= 0 || filesAfter < 0 || filesAfter >= 2147483647 {
 			return fmt.Errorf("an explicit approved-group topic is required")
 		}
@@ -60,6 +66,9 @@ func NewSTL() *cobra.Command {
 	var o stl.Options
 	var events string
 	download := &cobra.Command{Use: "download", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if handled, err := proxySTL(cmd, sourcePath); handled {
+			return err
+		}
 		source, err := stl.LoadSource(sourcePath)
 		if err != nil {
 			return err
@@ -93,10 +102,12 @@ func NewSTL() *cobra.Command {
 	f.StringVar(&o.Network, "network", "default", "Network cache identity")
 	f.BoolVar(&o.IPv6, "ipv6", false, "IPv6 route available")
 	f.BoolVar(&o.Retest, "retest", false, "Ignore cached server comparison")
+	f.BoolVar(&o.QuickTest, "quick-test", false, "Use two-second samples per endpoint")
+	f.StringVar(&o.ReuseServer, "reuse-server", "", "Reuse this release's automatic selection; retest on failure")
 	f.BoolVar(&o.ProbeOnly, "probe-only", false, "Only compare servers; retain no payload")
 	for _, name := range []string{"topic", "message", "dc", "document-id", "size", "filename", "output", "events", "cache"} {
 		download.MarkFlagRequired(name)
 	}
-	cmd.AddCommand(servers, files, download)
+	cmd.AddCommand(servers, files, download, newSTLService(&sourcePath))
 	return cmd
 }

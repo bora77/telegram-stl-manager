@@ -35,6 +35,9 @@ func Allowed(o tg.DCOption) bool {
 	return !o.CDN && !o.TCPObfuscatedOnly && o.ID > 0 && net.ParseIP(o.IPAddress) != nil && o.Port > 0 && o.Port <= 65535
 }
 func (r *Resolver) Select(key string) { r.mu.Lock(); defer r.mu.Unlock(); r.selected = key }
+func (r *Resolver) Selected(key string) *Resolver {
+	return &Resolver{Base: r.Base, Dial: r.Dial, selected: key}
+}
 func (r *Resolver) Primary(ctx context.Context, dc int, list dcs.List) (transport.Conn, error) {
 	return r.Base.Primary(ctx, dc, list)
 }

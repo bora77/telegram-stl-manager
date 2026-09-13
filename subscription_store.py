@@ -25,6 +25,7 @@ class SubscriptionStore:
     def config(self):
         data=json.loads(self.config_path.read_text()) if self.config_path.exists() else {'revision':0,'download_directory':'/mnt/kronos-stl/'+INCOMING}
         data.setdefault('download_servers',{})
+        data.setdefault('server_check_frequency','cached')
         return data
 
     def atomic_write(self, path, data):
@@ -51,7 +52,9 @@ class SubscriptionStore:
             if payload.get('revision')!=current['revision']:raise FileExistsError('Settings changed in another tab. Reload before saving.')
             from telegram_cli import validate_servers
             servers=validate_servers(payload.get('download_servers',current['download_servers']),self.root)
-            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers}
+            frequency=payload.get('server_check_frequency',current['server_check_frequency'])
+            if frequency not in ('cached','release'):raise ValueError('Choose a valid server comparison frequency.')
+            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency}
             self.atomic_write(self.config_path,data)
             return data
 

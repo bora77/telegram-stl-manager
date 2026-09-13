@@ -130,7 +130,8 @@ type Options struct {
 	ChatID                                   int64
 	DocumentID, Size                         int64
 	Filename, Output, Server, Cache, Network string
-	ProbeOnly, Retest, IPv6                  bool
+	ReuseServer                              string
+	ProbeOnly, Retest, IPv6, QuickTest       bool
 }
 type Measurement struct {
 	Endpoint string  `json:"endpoint"`
@@ -145,6 +146,19 @@ type Selection struct {
 	Measurements []Measurement `json:"measurements"`
 }
 type Cache map[string]Selection
+
+var cacheMu sync.Mutex
+
+func readCache(path string) Cache {
+	cache := Cache{}
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &cache)
+	}
+	if cache == nil {
+		cache = Cache{}
+	}
+	return cache
+}
 
 func cacheKey(o Options) string { return fmt.Sprintf("%s/%d", o.Network, o.DC) }
 
@@ -182,8 +196,7 @@ func verifyMessage(m *tg.Message, o Options) (*tmedia.Media, error) {
 }
 
 func poolClient(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, dc int, key string) (telegram.CloseInvoker, *tg.Client, error) {
-	r.Select(key)
-	pool, err := c.MediaOnly(ctx, dc, 8)
+	pool, err := c.MediaOnlyWithResolver(ctx, dc, 8, r.Selected(key))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -196,6 +209,7 @@ func poolClient(ctx context.Context, c *telegram.Client, r *stltransport.Resolve
 }
 
 type countWriter struct {
+	mu          sync.Mutex
 	file        *os.File
 	total, done int64
 	last        time.Time
@@ -203,6 +217,8 @@ type countWriter struct {
 }
 
 func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if off < 0 || off+int64(len(data)) > w.total {
 		return 0, errors.New("received bytes exceed expected attachment size")
 	}
@@ -218,11 +234,40 @@ func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
 	}
 	return n, err
 }
-func transfer(ctx context.Context, api *tg.Client, file *tmedia.Media, w *countWriter) error {
-	_, err := downloader.NewDownloader().WithPartSize(partSize).Download(api, file.InputFileLoc).WithThreads(16).Parallel(ctx, w)
+
+// The generic downloader reads until EOF. Telegram can reject offsets beyond
+// large, chunk-aligned files instead of returning an empty EOF response.
+// Use the size verified from the message to stop those speculative requests.
+type sizedClient struct {
+	downloader.Client
+	size int64
+}
+
+func (c sizedClient) UploadGetFile(ctx context.Context, request *tg.UploadGetFileRequest) (tg.UploadFileClass, error) {
+	if request.Offset < 0 || request.Limit <= 0 {
+		return nil, errors.New("invalid file range")
+	}
+	if request.Offset >= c.size {
+		return &tg.UploadFile{Type: &tg.StorageFileUnknown{}}, nil
+	}
+	result, err := c.Client.UploadGetFile(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if chunk, ok := result.(*tg.UploadFile); ok {
+		expected := min(int64(request.Limit), c.size-request.Offset)
+		if int64(len(chunk.Bytes)) != expected {
+			return nil, fmt.Errorf("incomplete file chunk at %d: expected %d bytes, received %d", request.Offset, expected, len(chunk.Bytes))
+		}
+	}
+	return result, nil
+}
+
+func transfer(ctx context.Context, api downloader.Client, file *tmedia.Media, w *countWriter) error {
+	_, err := downloader.NewDownloader().WithPartSize(partSize).Download(sizedClient{Client: api, size: file.Size}, file.InputFileLoc).WithThreads(16).Parallel(ctx, w)
 	return err
 }
-func probe(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, file *tmedia.Media, key string) Measurement {
+func probe(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, file *tmedia.Media, key string, duration time.Duration) Measurement {
 	result := Measurement{Endpoint: key}
 	setup, cancel := context.WithTimeout(ctx, 8*time.Second)
 	pool, api, err := poolClient(setup, c, r, file.DC, key)
@@ -232,7 +277,7 @@ func probe(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, fi
 		return result
 	}
 	defer pool.Close()
-	sample, stop := context.WithTimeout(ctx, 4*time.Second)
+	sample, stop := context.WithTimeout(ctx, duration)
 	defer stop()
 	w := &countWriter{total: file.Size}
 	started := time.Now()
@@ -264,13 +309,19 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 		}
 		return "", errors.New("manual server is unavailable for this file's data center or network; choose Auto")
 	}
-	cache := Cache{}
-	if data, err := os.ReadFile(o.Cache); err == nil {
-		_ = json.Unmarshal(data, &cache)
+	// Reuse the release's measured endpoint even if another concurrent job
+	// updates the shared cache. Automatic retry can still compare again.
+	if o.ReuseServer != "" && !o.Retest {
+		for _, candidate := range candidates {
+			if candidate.Key == o.ReuseServer {
+				return candidate.Key, nil
+			}
+		}
+		o.Retest = true
 	}
-	if cache == nil {
-		cache = Cache{}
-	}
+	cacheMu.Lock()
+	cache := readCache(o.Cache)
+	cacheMu.Unlock()
 	if selection, ok := cache[cacheKey(o)]; ok && !o.Retest && time.Since(selection.TestedAt) >= 0 && time.Since(selection.TestedAt) < 6*time.Hour {
 		for _, candidate := range candidates {
 			if candidate.Key == selection.Endpoint {
@@ -284,6 +335,10 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 		return candidates[0].Key, nil
 	}
 	measurements := []Measurement{}
+	duration := 4 * time.Second
+	if o.QuickTest {
+		duration = 2 * time.Second
+	}
 	best := ""
 	bestBPS := float64(0)
 	for index, candidate := range candidates {
@@ -293,7 +348,7 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 		if err := e.Emit("server_testing", map[string]any{"endpoint": candidate.Key, "index": index + 1, "count": len(candidates)}); err != nil {
 			return "", err
 		}
-		measured := probe(ctx, c, r, file, candidate.Key)
+		measured := probe(ctx, c, r, file, candidate.Key, duration)
 		measurements = append(measurements, measured)
 		if err := e.Emit("server_result", map[string]any{"measurement": measured}); err != nil {
 			return "", err
@@ -309,8 +364,12 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 	if best == "" {
 		return "", errors.New("all download server tests failed; check the connection and retry")
 	}
+	cacheMu.Lock()
+	cache = readCache(o.Cache)
 	cache[cacheKey(o)] = Selection{Endpoint: best, TestedAt: time.Now().UTC(), Measurements: measurements}
-	if err := WriteJSON(o.Cache, cache); err != nil {
+	err := WriteJSON(o.Cache, cache)
+	cacheMu.Unlock()
+	if err != nil {
 		return "", err
 	}
 	return best, nil

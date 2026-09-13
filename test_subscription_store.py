@@ -31,6 +31,16 @@ class StoreTests(unittest.TestCase):
         self.store.save_config(dict(revision=0,download_directory=str(self.root)))
         with self.assertRaises(FileExistsError):self.save()
         self.assertFalse((self.root/'- Example').exists())
+
+    def test_server_comparison_frequency_is_optional_saved_and_validated(self):
+        self.assertEqual(self.store.config()['server_check_frequency'],'cached')
+        saved=self.store.save_config(dict(revision=0,download_directory=str(self.root),server_check_frequency='release'))
+        self.assertEqual(self.store.config()['server_check_frequency'],'release')
+        # A client opened before this setting existed must not erase it.
+        self.store.save_config(dict(revision=1,download_directory=str(self.root)))
+        self.assertEqual(self.store.config()['server_check_frequency'],'release')
+        with self.assertRaises(ValueError):self.store.save_config(dict(revision=2,download_directory=str(self.root),server_check_frequency='file'))
+        self.assertEqual(self.store.config()['revision'],2)
     def test_custom_month_survives_save_and_invalid_month_is_rejected(self):
         saved=self.save(download_scope='from_month',start_month='2025-03')
         self.assertEqual(saved['subscriptions'][0]['start_month'],'2025-03')

@@ -95,7 +95,7 @@ func New(ctx context.Context, o Options) (*telegram.Client, error) {
 
 func NewDefaultMiddlewares(ctx context.Context, timeout time.Duration) []telegram.Middleware {
 	return []telegram.Middleware{
-		recovery.New(ctx, newBackoff(timeout)),
+		recovery.New(ctx, func() backoff.BackOff { return newBackoff(timeout) }),
 		retry.New(5),
 		floodwait.NewSimpleWaiter(),
 	}

@@ -280,7 +280,7 @@ minutes. The script limits compilation to two CPUs and a 2 GiB Go memory target,
 uses `CGO_ENABLED=0`, and installs the result as `.tools/tdl-stl/tdl`.
 It writes a binary checksum to `.tools/tdl-stl/build.json`.
 
-Help must list **files**, **servers** and **download** under `stl`. An “unknown
+Help must list **files**, **servers**, **download** and **serve** under `stl`. An “unknown
 command stl” error means this is the wrong binary. Keep
 `.tools/tdl-stl/src/go.work`: it connects the local `core` and `extension` modules
 and replaces `github.com/gotd/td` with the sibling patched `../gotd` tree.
@@ -548,7 +548,12 @@ Configure the application:
    queue shows the saved creator/scope.
 5. When ready for actual transfers, click **Download all subscriptions** once.
    This processes all eligible files in the saved scope; it is not a single-file
-   diagnostic button. Auto may compare servers before the first large transfer.
+   diagnostic button. Auto normally reuses recent comparisons for up to six
+   hours. Configuration can instead compare at the first large file of each
+   artist/month and reuse that choice for its remaining files and parts.
+   Those tests use two-second samples per server, plus connection setup; a
+   comparison can take more than ten seconds. Another data center or a failed
+   connection can require another comparison.
 6. Check download speed, extraction progress, image delivery and archive moves.
    Delivered images belong directly in `creator/YYYY-MM/release_images/`, with
    stable name suffixes to avoid collisions. History persists if releases move
@@ -564,6 +569,14 @@ Configure the application:
    Further saves replace that collage and keep previous versions locally under
    `data/collages/versions/`. See IMAGE-WORKFLOW.md for layouts,
    keyboard controls and retry behavior.
+
+The CLI service starts automatically for a Telegram operation and shares one
+login between downloads and organizer previews. Stopping a job cancels only its
+own request. Its private Unix socket and log are under the CLI state directory;
+it exits after one minute without requests. No additional service installation
+or Telegram login is needed. Before logging in again, finish/stop active jobs
+and let the idle service exit. During an upgrade from the older CLI, its current
+standalone transfer must finish once before the shared service can start.
 
 Saving subscriptions/settings, logging in, starting the server and opening pages
 never start a download batch or apply an organizer plan. Choose **From month/year**

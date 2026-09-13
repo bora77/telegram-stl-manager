@@ -13,7 +13,9 @@
 <p>Example: <span id="example"></span></p><small>Changing this setting does not move existing files.</small>
 </section>
 <section class="panel"><h2>Download servers</h2>
-<p><strong>Auto (fastest)</strong> compares real download throughput and remembers the fastest available server for six hours on the current network. The first large file runs short server tests before downloading.</p>
+<p><strong>Auto (fastest)</strong> compares real download speed. Reusing recent results avoids repeated test delays. You can also compare before each artist’s monthly release and reuse the choice for its files and archive parts.</p>
+<label for="server-frequency">Auto comparison frequency</label><select id="server-frequency" disabled><option value="cached">Reuse recent results (up to 6 hours)</option><option value="release">Before each artist / monthly release</option></select>
+<small>Per-release tests use two-second samples per server, plus connection setup. A comparison can take more than ten seconds. Manual server choices skip these tests.</small>
 <small>Telegram stores files in specific data centers. You can choose a server separately for each one. Small files use a cached result or a media server until a larger file can be tested.</small>
 <div id="servers">Loading servers…</div>
 <div class="actions"><button id="refresh-servers" class="secondary" disabled>Refresh server list</button><button id="retest-servers" class="secondary" disabled>Retest on next download</button></div>
@@ -24,7 +26,7 @@
 </div></main>
 <script>
 let revision=0;
-const folder=document.getElementById('folder'),button=document.getElementById('save'),status=document.getElementById('status'),serverStatus=document.getElementById('server-status');
+const folder=document.getElementById('folder'),frequency=document.getElementById('server-frequency'),button=document.getElementById('save'),status=document.getElementById('status'),serverStatus=document.getElementById('server-status');
 function preview(){document.getElementById('example').textContent=folder.value.replace(/\/$/,'')+'/- Atlan Forge/2026-08/filename.7z'}
 folder.addEventListener('input',preview);
 async function request(path,data){const response=await fetch(path,{cache:'no-store',...(data!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}:{})});const result=await response.json();if(!response.ok)throw Error(result.error);return result}
@@ -44,7 +46,7 @@ function renderServers(data,saved){
   box.append(row);
  }
 }
-request('/api/config').then(data=>{revision=data.revision;folder.value=data.download_directory;renderServers(data.telegram_servers||{},data.download_servers||{});folder.disabled=false;button.disabled=false;document.getElementById('refresh-servers').disabled=false;document.getElementById('retest-servers').disabled=false;preview();status.textContent=data.available?'Settings loaded.':'The download folder is currently unavailable.'}).catch(error=>status.textContent=error.message);
-button.onclick=async()=>{const value=folder.value,servers=choices();button.disabled=true;status.textContent='Saving…';try{const data=await request('/api/config',{revision,download_directory:value,download_servers:servers});revision=data.revision;status.textContent=folder.value===value&&JSON.stringify(choices())===JSON.stringify(servers)?'Configuration saved.':'Configuration saved; newer edits are not saved yet.'}catch(error){status.textContent='Not saved: '+error.message}finally{button.disabled=false}};
+request('/api/config').then(data=>{revision=data.revision;folder.value=data.download_directory;frequency.value=data.server_check_frequency||'cached';renderServers(data.telegram_servers||{},data.download_servers||{});folder.disabled=false;frequency.disabled=false;button.disabled=false;document.getElementById('refresh-servers').disabled=false;document.getElementById('retest-servers').disabled=false;preview();status.textContent=data.available?'Settings loaded.':'The download folder is currently unavailable.'}).catch(error=>status.textContent=error.message);
+button.onclick=async()=>{const value=folder.value,servers=choices(),frequencyValue=frequency.value;button.disabled=true;status.textContent='Saving…';try{const data=await request('/api/config',{revision,download_directory:value,download_servers:servers,server_check_frequency:frequencyValue});revision=data.revision;status.textContent=folder.value===value&&JSON.stringify(choices())===JSON.stringify(servers)&&frequency.value===frequencyValue?'Configuration saved.':'Configuration saved; newer edits are not saved yet.'}catch(error){status.textContent='Not saved: '+error.message}finally{button.disabled=false}};
 for(const [id,action] of [['refresh-servers','refresh'],['retest-servers','retest']])document.getElementById(id).onclick=async()=>{const target=document.getElementById(id);target.disabled=true;serverStatus.textContent=action==='refresh'?'Reading Telegram server list…':'Clearing speed comparisons…';try{const data=await request('/api/servers/'+action,{});renderServers(data,choices());serverStatus.textContent=action==='refresh'?'Server list refreshed. Save configuration to keep changed choices.':'Auto will compare servers on the next eligible manual download.'}catch(error){serverStatus.textContent=error.message}finally{target.disabled=false}};
 </script></html>

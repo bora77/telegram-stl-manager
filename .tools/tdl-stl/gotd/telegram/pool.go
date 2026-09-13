@@ -142,8 +142,13 @@ func (c *Client) DC(ctx context.Context, dc int, max int64) (CloseInvoker, error
 // MediaOnly creates new multi-connection invoker to given DC ID.
 // It connects to MediaOnly DCs.
 func (c *Client) MediaOnly(ctx context.Context, dc int, max int64) (CloseInvoker, error) {
+	return c.MediaOnlyWithResolver(ctx, dc, max, c.resolver)
+}
+
+// MediaOnlyWithResolver pins the endpoint for this pool, including reconnects.
+func (c *Client) MediaOnlyWithResolver(ctx context.Context, dc int, max int64, resolver dcs.Resolver) (CloseInvoker, error) {
 	dialer := func(ctx context.Context) (transport.Conn, error) {
-		return c.resolver.MediaOnly(ctx, dc, c.dcList())
+		return resolver.MediaOnly(ctx, dc, c.dcList())
 	}
 	// Local STL integration: home-DC media pools reuse the primary key without
 	// trying to export authorization back into the same DC.

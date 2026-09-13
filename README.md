@@ -7,7 +7,19 @@ already downloaded.
 
 Downloads and folder organization can run together, with independent Stop
 buttons. Work on the same artist/month is coordinated; other releases proceed
-in parallel. Telegram metadata scans share the login between file transfers.
+in parallel. A local CLI service shares one login across independent requests,
+so organizer previews can read metadata while a file is downloading. Stopping
+one job leaves the other running. The service starts on demand and exits after
+one idle minute; it needs no second login or desktop session.
+
+Auto normally reuses comparisons for up to six hours on the current network.
+Configuration also offers a comparison before each artist/month: the first large
+attachment tests the servers with two-second samples, then the remaining files
+and archive parts reuse that result for the manual run. Another data center gets
+its own comparison. Small files use a recent result until a large file is available;
+failed connections can trigger another test. Connection setup adds time beyond
+the samples, so a comparison can take more than ten seconds. It indicates current
+throughput, not a guaranteed speed.
 
 After each artist's initial scan, Download all checks only messages newer than
 its last successful check. The private `data/telegram-catalog.sqlite3` retains

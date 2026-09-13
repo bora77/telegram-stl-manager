@@ -15,6 +15,7 @@ import hashlib,json,sys
 from datetime import datetime,timezone
 root=Path(sys.argv[1]);directory=root/'.tools/tdl-stl'
 data={'tdl_version':'v0.20.4','gotd_version':'v0.140.0','local_command':'stl',
+      'service_protocol':1,
       'binary_sha256':hashlib.sha256((directory/'tdl').read_bytes()).hexdigest(),
       'built_at':datetime.now(timezone.utc).isoformat()}
 (directory/'build.json').write_text(json.dumps(data,indent=2)+'\n')

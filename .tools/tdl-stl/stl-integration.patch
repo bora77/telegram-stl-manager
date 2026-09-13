@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/app/stl/stl.go
-@@ -0,0 +1,440 @@
+@@ -0,0 +1,499 @@
 +// Package stl implements the local application's bounded, machine-readable CLI.
 +package stl
 +
@@ -133,7 +133,8 @@
 +	ChatID                                   int64
 +	DocumentID, Size                         int64
 +	Filename, Output, Server, Cache, Network string
-+	ProbeOnly, Retest, IPv6                  bool
++	ReuseServer                              string
++	ProbeOnly, Retest, IPv6, QuickTest       bool
 +}
 +type Measurement struct {
 +	Endpoint string  `json:"endpoint"`
@@ -148,6 +149,19 @@
 +	Measurements []Measurement `json:"measurements"`
 +}
 +type Cache map[string]Selection
++
++var cacheMu sync.Mutex
++
++func readCache(path string) Cache {
++	cache := Cache{}
++	if data, err := os.ReadFile(path); err == nil {
++		_ = json.Unmarshal(data, &cache)
++	}
++	if cache == nil {
++		cache = Cache{}
++	}
++	return cache
++}
 +
 +func cacheKey(o Options) string { return fmt.Sprintf("%s/%d", o.Network, o.DC) }
 +
@@ -185,8 +199,7 @@
 +}
 +
 +func poolClient(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, dc int, key string) (telegram.CloseInvoker, *tg.Client, error) {
-+	r.Select(key)
-+	pool, err := c.MediaOnly(ctx, dc, 8)
++	pool, err := c.MediaOnlyWithResolver(ctx, dc, 8, r.Selected(key))
 +	if err != nil {
 +		return nil, nil, err
 +	}
@@ -199,6 +212,7 @@
 +}
 +
 +type countWriter struct {
++	mu          sync.Mutex
 +	file        *os.File
 +	total, done int64
 +	last        time.Time
@@ -206,6 +220,8 @@
 +}
 +
 +func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
 +	if off < 0 || off+int64(len(data)) > w.total {
 +		return 0, errors.New("received bytes exceed expected attachment size")
 +	}
@@ -221,11 +237,40 @@
 +	}
 +	return n, err
 +}
-+func transfer(ctx context.Context, api *tg.Client, file *tmedia.Media, w *countWriter) error {
-+	_, err := downloader.NewDownloader().WithPartSize(partSize).Download(api, file.InputFileLoc).WithThreads(16).Parallel(ctx, w)
++
++// The generic downloader reads until EOF. Telegram can reject offsets beyond
++// large, chunk-aligned files instead of returning an empty EOF response.
++// Use the size verified from the message to stop those speculative requests.
++type sizedClient struct {
++	downloader.Client
++	size int64
++}
++
++func (c sizedClient) UploadGetFile(ctx context.Context, request *tg.UploadGetFileRequest) (tg.UploadFileClass, error) {
++	if request.Offset < 0 || request.Limit <= 0 {
++		return nil, errors.New("invalid file range")
++	}
++	if request.Offset >= c.size {
++		return &tg.UploadFile{Type: &tg.StorageFileUnknown{}}, nil
++	}
++	result, err := c.Client.UploadGetFile(ctx, request)
++	if err != nil {
++		return nil, err
++	}
++	if chunk, ok := result.(*tg.UploadFile); ok {
++		expected := min(int64(request.Limit), c.size-request.Offset)
++		if int64(len(chunk.Bytes)) != expected {
++			return nil, fmt.Errorf("incomplete file chunk at %d: expected %d bytes, received %d", request.Offset, expected, len(chunk.Bytes))
++		}
++	}
++	return result, nil
++}
++
++func transfer(ctx context.Context, api downloader.Client, file *tmedia.Media, w *countWriter) error {
++	_, err := downloader.NewDownloader().WithPartSize(partSize).Download(sizedClient{Client: api, size: file.Size}, file.InputFileLoc).WithThreads(16).Parallel(ctx, w)
 +	return err
 +}
-+func probe(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, file *tmedia.Media, key string) Measurement {
++func probe(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, file *tmedia.Media, key string, duration time.Duration) Measurement {
 +	result := Measurement{Endpoint: key}
 +	setup, cancel := context.WithTimeout(ctx, 8*time.Second)
 +	pool, api, err := poolClient(setup, c, r, file.DC, key)
@@ -235,7 +280,7 @@
 +		return result
 +	}
 +	defer pool.Close()
-+	sample, stop := context.WithTimeout(ctx, 4*time.Second)
++	sample, stop := context.WithTimeout(ctx, duration)
 +	defer stop()
 +	w := &countWriter{total: file.Size}
 +	started := time.Now()
@@ -267,13 +312,19 @@
 +		}
 +		return "", errors.New("manual server is unavailable for this file's data center or network; choose Auto")
 +	}
-+	cache := Cache{}
-+	if data, err := os.ReadFile(o.Cache); err == nil {
-+		_ = json.Unmarshal(data, &cache)
++	// Reuse the release's measured endpoint even if another concurrent job
++	// updates the shared cache. Automatic retry can still compare again.
++	if o.ReuseServer != "" && !o.Retest {
++		for _, candidate := range candidates {
++			if candidate.Key == o.ReuseServer {
++				return candidate.Key, nil
++			}
++		}
++		o.Retest = true
 +	}
-+	if cache == nil {
-+		cache = Cache{}
-+	}
++	cacheMu.Lock()
++	cache := readCache(o.Cache)
++	cacheMu.Unlock()
 +	if selection, ok := cache[cacheKey(o)]; ok && !o.Retest && time.Since(selection.TestedAt) >= 0 && time.Since(selection.TestedAt) < 6*time.Hour {
 +		for _, candidate := range candidates {
 +			if candidate.Key == selection.Endpoint {
@@ -287,6 +338,10 @@
 +		return candidates[0].Key, nil
 +	}
 +	measurements := []Measurement{}
++	duration := 4 * time.Second
++	if o.QuickTest {
++		duration = 2 * time.Second
++	}
 +	best := ""
 +	bestBPS := float64(0)
 +	for index, candidate := range candidates {
@@ -296,7 +351,7 @@
 +		if err := e.Emit("server_testing", map[string]any{"endpoint": candidate.Key, "index": index + 1, "count": len(candidates)}); err != nil {
 +			return "", err
 +		}
-+		measured := probe(ctx, c, r, file, candidate.Key)
++		measured := probe(ctx, c, r, file, candidate.Key, duration)
 +		measurements = append(measurements, measured)
 +		if err := e.Emit("server_result", map[string]any{"measurement": measured}); err != nil {
 +			return "", err
@@ -312,8 +367,12 @@
 +	if best == "" {
 +		return "", errors.New("all download server tests failed; check the connection and retry")
 +	}
++	cacheMu.Lock()
++	cache = readCache(o.Cache)
 +	cache[cacheKey(o)] = Selection{Endpoint: best, TestedAt: time.Now().UTC(), Measurements: measurements}
-+	if err := WriteJSON(o.Cache, cache); err != nil {
++	err := WriteJSON(o.Cache, cache)
++	cacheMu.Unlock()
++	if err != nil {
 +		return "", err
 +	}
 +	return best, nil
@@ -443,16 +502,85 @@
 +}
 --- /dev/null
 +++ b/app/stl/stl_test.go
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,145 @@
 +package stl
 +
 +import (
 +	"bytes"
++	"context"
++	"fmt"
++	"github.com/gotd/td/telegram/downloader"
 +	"github.com/gotd/td/tg"
++	"github.com/iyear/tdl/core/tmedia"
 +	"os"
 +	"path/filepath"
 +	"testing"
++	"time"
 +)
++
++type strictFileClient struct {
++	downloader.Client
++	size      int64
++	truncated bool
++}
++
++func (c strictFileClient) UploadGetFile(ctx context.Context, r *tg.UploadGetFileRequest) (tg.UploadFileClass, error) {
++	if r.Offset >= c.size {
++		return nil, fmt.Errorf("OFFSET_INVALID")
++	}
++	if r.Offset == 0 {
++		time.Sleep(10 * time.Millisecond)
++	} // EOF may arrive before an earlier chunk.
++	n := min(int64(r.Limit), c.size-r.Offset)
++	if c.truncated {
++		n--
++	}
++	return &tg.UploadFile{Type: &tg.StorageFileUnknown{}, Bytes: bytes.Repeat([]byte{byte(r.Offset / partSize)}, int(n))}, nil
++}
++
++func TestParallelTransferNeverRequestsPastKnownSize(t *testing.T) {
++	for _, size := range []int64{0, 17 * partSize, 17*partSize + 37} {
++		file, err := os.CreateTemp(t.TempDir(), "payload")
++		if err != nil {
++			t.Fatal(err)
++		}
++		defer file.Close()
++		writer := &countWriter{file: file, total: size}
++		if err := transfer(context.Background(), strictFileClient{size: size}, &tmedia.Media{Size: size}, writer); err != nil {
++			t.Fatal(err)
++		}
++		if writer.done != size {
++			t.Fatalf("received %d of %d bytes", writer.done, size)
++		}
++		data, err := os.ReadFile(file.Name())
++		if err != nil {
++			t.Fatal(err)
++		}
++		if int64(len(data)) != size {
++			t.Fatal("incomplete output")
++		}
++		for offset, value := range data {
++			if value != byte(offset/partSize) {
++				t.Fatalf("missing or wrong data at %d", offset)
++			}
++		}
++	}
++	// Check the actual 4.19 GB boundary without allocating a multi-GB fixture.
++	size := int64(4000) * partSize
++	client := sizedClient{Client: strictFileClient{size: size}, size: size}
++	for _, offset := range []int64{size - partSize, size, size + partSize} {
++		if _, err := client.UploadGetFile(context.Background(), &tg.UploadGetFileRequest{Offset: offset, Limit: partSize}); err != nil {
++			t.Fatal(err)
++		}
++	}
++}
++
++func TestPrematureShortChunkIsNotAcceptedAsEOF(t *testing.T) {
++	size := int64(partSize)
++	if err := transfer(context.Background(), strictFileClient{size: size, truncated: true}, &tmedia.Media{Size: size}, &countWriter{total: size}); err == nil {
++		t.Fatal("truncated attachment accepted")
++	}
++}
 +
 +func fixture() (*tg.Message, Options) {
 +	o := Options{ChatID: 123456789, Topic: 200, Message: 100000, DocumentID: 42, Size: 10, DC: 4, Filename: "Artist 2026-09.zip"}
@@ -522,7 +650,7 @@
 +}
 --- /dev/null
 +++ b/cmd/stl.go
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,113 @@
 +package cmd
 +
 +import (
@@ -545,6 +673,9 @@
 +	cmd.PersistentFlags().StringVar(&sourcePath, "source", filepath.Clean(filepath.Join(filepath.Dir(executable), "../../data/source.json")), "Private source configuration file")
 +	var output string
 +	servers := &cobra.Command{Use: "servers", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
++		if handled, err := proxySTL(cmd, sourcePath); handled {
++			return err
++		}
 +		return tRun(cmd.Context(), func(ctx context.Context, c *telegram.Client, kv storage.Storage) error {
 +			return stl.WriteJSON(output, map[string]any{"endpoints": stl.Servers(c)})
 +		})
@@ -555,6 +686,9 @@
 +	var filesTopic int
 +	var filesAfter int
 +	files := &cobra.Command{Use: "files", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
++		if handled, err := proxySTL(cmd, sourcePath); handled {
++			return err
++		}
 +		if filesTopic <= 0 || filesAfter < 0 || filesAfter >= 2147483647 {
 +			return fmt.Errorf("an explicit approved-group topic is required")
 +		}
@@ -585,6 +719,9 @@
 +	var o stl.Options
 +	var events string
 +	download := &cobra.Command{Use: "download", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
++		if handled, err := proxySTL(cmd, sourcePath); handled {
++			return err
++		}
 +		source, err := stl.LoadSource(sourcePath)
 +		if err != nil {
 +			return err
@@ -618,11 +755,13 @@
 +	f.StringVar(&o.Network, "network", "default", "Network cache identity")
 +	f.BoolVar(&o.IPv6, "ipv6", false, "IPv6 route available")
 +	f.BoolVar(&o.Retest, "retest", false, "Ignore cached server comparison")
++	f.BoolVar(&o.QuickTest, "quick-test", false, "Use two-second samples per endpoint")
++	f.StringVar(&o.ReuseServer, "reuse-server", "", "Reuse this release's automatic selection; retest on failure")
 +	f.BoolVar(&o.ProbeOnly, "probe-only", false, "Only compare servers; retain no payload")
 +	for _, name := range []string{"topic", "message", "dc", "document-id", "size", "filename", "output", "events", "cache"} {
 +		download.MarkFlagRequired(name)
 +	}
-+	cmd.AddCommand(servers, files, download)
++	cmd.AddCommand(servers, files, download, newSTLService(&sourcePath))
 +	return cmd
 +}
 --- a/cmd/root.go
@@ -638,7 +777,7 @@
  
 --- /dev/null
 +++ b/core/stltransport/resolver.go
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,63 @@
 +// Package stltransport confines manual selection to endpoints advertised by Telegram.
 +package stltransport
 +
@@ -676,6 +815,9 @@
 +	return !o.CDN && !o.TCPObfuscatedOnly && o.ID > 0 && net.ParseIP(o.IPAddress) != nil && o.Port > 0 && o.Port <= 65535
 +}
 +func (r *Resolver) Select(key string) { r.mu.Lock(); defer r.mu.Unlock(); r.selected = key }
++func (r *Resolver) Selected(key string) *Resolver {
++	return &Resolver{Base: r.Base, Dial: r.Dial, selected: key}
++}
 +func (r *Resolver) Primary(ctx context.Context, dc int, list dcs.List) (transport.Conn, error) {
 +	return r.Base.Primary(ctx, dc, list)
 +}
@@ -730,29 +872,17 @@
 +}
 --- a/core/tclient/tclient.go
 +++ b/core/tclient/tclient.go
-@@ -18,6 +18,7 @@
- 	"github.com/iyear/tdl/core/logctx"
- 	"github.com/iyear/tdl/core/middlewares/recovery"
- 	"github.com/iyear/tdl/core/middlewares/retry"
+@@ -20,0 +21 @@
 +	"github.com/iyear/tdl/core/stltransport"
- 	"github.com/iyear/tdl/core/util/netutil"
- 	"github.com/iyear/tdl/core/util/tutil"
- )
-@@ -84,6 +85,11 @@
- 		Logger:         logctx.From(ctx).Named("td"),
- 	}
- 
+@@ -86,0 +88,5 @@
 +	if resolver := stltransport.From(ctx); resolver != nil {
 +		resolver.Base = opts.Resolver
 +		resolver.Dial = dialer
 +		opts.Resolver = resolver
 +	}
- 	return telegram.NewClient(o.AppID, o.AppHash, opts), nil
- }
- 
-
-diff --git a/app/chat/export.go b/app/chat/export.go
-index 59169590..510db82c 100644
+@@ -92 +98 @@
+-		recovery.New(ctx, newBackoff(timeout)),
++		recovery.New(ctx, func() backoff.BackOff { return newBackoff(timeout) }),
 --- a/app/chat/export.go
 +++ b/app/chat/export.go
 @@ -40,0 +41,2 @@ type ExportOptions struct {
@@ -771,3 +901,432 @@ index 59169590..510db82c 100644
 +		if opts.LastID != nil && msg.Msg.GetID() > *opts.LastID {
 +			*opts.LastID = msg.Msg.GetID()
 +		}
+--- /dev/null
++++ b/app/stlservice/service.go
+@@ -0,0 +1,174 @@
++// Package stlservice multiplexes independent jobs over one authenticated client.
++package stlservice
++
++import (
++	"bufio"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net"
++	"os"
++	"sync"
++	"time"
++)
++
++const Protocol = 1
++
++type Request struct {
++	Source string   `json:"source"`
++	Args   []string `json:"args"`
++}
++type Response struct {
++	OK       bool   `json:"ok"`
++	Error    string `json:"error,omitempty"`
++	Protocol int    `json:"protocol"`
++	Source   string `json:"source"`
++}
++type Handler func(context.Context, Request) error
++
++// Call never retries an accepted request: a lost response may follow a write.
++func Call(ctx context.Context, path string, request Request) (bool, error) {
++	conn, err := (&net.Dialer{Timeout: time.Second}).DialContext(ctx, "unix", path)
++	if err != nil {
++		return false, err
++	}
++	defer conn.Close()
++	stop := context.AfterFunc(ctx, func() {
++		// Keep the read half open until the cancelled job has closed its files.
++		if unix, ok := conn.(*net.UnixConn); ok {
++			unix.CloseWrite()
++			conn.SetReadDeadline(time.Now().Add(4 * time.Second))
++		} else {
++			conn.Close()
++		}
++	})
++	defer stop()
++	if err = json.NewEncoder(conn).Encode(request); err != nil {
++		return true, err
++	}
++	var response Response
++	if err = json.NewDecoder(io.LimitReader(conn, 1024*1024)).Decode(&response); err != nil {
++		return true, err
++	}
++	if err = ctx.Err(); err != nil {
++		return true, err
++	}
++	if response.Protocol != Protocol || response.Source != request.Source {
++		return true, errors.New("Telegram service identity changed")
++	}
++	if !response.OK {
++		return true, fmt.Errorf("%s", response.Error)
++	}
++	return true, nil
++}
++
++func serveConn(ctx context.Context, conn net.Conn, source string, run Handler) {
++	defer conn.Close()
++	requestCtx, cancel := context.WithCancel(ctx)
++	defer cancel()
++	stop := context.AfterFunc(ctx, func() { conn.Close() })
++	defer stop()
++	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
++	line, err := bufio.NewReader(io.LimitReader(conn, 1024*1024)).ReadBytes('\n')
++	if err != nil {
++		return
++	}
++	conn.SetReadDeadline(time.Time{})
++	var request Request
++	response := Response{Protocol: Protocol, Source: source}
++	if err = json.Unmarshal(line, &request); err == nil {
++		if request.Source != source {
++			err = errors.New("Telegram service source does not match this application")
++		} else if len(request.Args) == 1 && request.Args[0] == "health" {
++			response.OK = true
++		} else {
++			// Disconnect cancels only this job, never the shared client or its peers.
++			go func() { io.Copy(io.Discard, conn); cancel() }()
++			err = run(requestCtx, request)
++			response.OK = err == nil
++		}
++	}
++	if err != nil {
++		response.Error = err.Error()
++	}
++	json.NewEncoder(conn).Encode(response)
++}
++
++func Serve(ctx context.Context, path, source string, idle time.Duration, run Handler) error {
++	// The caller serializes startup; never unlink a live or non-socket path.
++	if info, err := os.Lstat(path); err == nil {
++		if info.Mode()&os.ModeSocket == 0 {
++			return errors.New("Telegram service socket path is occupied")
++		}
++		if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
++			conn.Close()
++			return errors.New("Telegram service is already running")
++		}
++		if err = os.Remove(path); err != nil {
++			return err
++		}
++	}
++	listener, err := net.Listen("unix", path)
++	if err != nil {
++		return err
++	}
++	defer listener.Close()
++	if err = os.Chmod(path, 0600); err != nil {
++		return err
++	}
++	var mu sync.Mutex
++	active := 0
++	last := time.Now()
++	var jobs sync.WaitGroup
++	serviceCtx, cancel := context.WithCancel(ctx)
++	defer cancel()
++	done := make(chan struct{})
++	defer close(done)
++	go func() {
++		ticker := time.NewTicker(time.Second)
++		defer ticker.Stop()
++		for {
++			select {
++			case <-done:
++				return
++			case <-ctx.Done():
++				listener.Close()
++				return
++			case <-ticker.C:
++				mu.Lock()
++				expired := active == 0 && time.Since(last) >= idle
++				mu.Unlock()
++				if expired {
++					listener.Close()
++					return
++				}
++			}
++		}
++	}()
++	for {
++		conn, err := listener.Accept()
++		if err != nil {
++			// A connection accepted just as idle shutdown begins still gets to
++			// finish. External shutdown and listener errors cancel all jobs.
++			if ctx.Err() != nil || !errors.Is(err, net.ErrClosed) {
++				cancel()
++			}
++			jobs.Wait()
++			if errors.Is(err, net.ErrClosed) {
++				return nil
++			}
++			return err
++		}
++		mu.Lock()
++		active++
++		mu.Unlock()
++		jobs.Add(1)
++		go func() {
++			defer jobs.Done()
++			defer func() { mu.Lock(); active--; last = time.Now(); mu.Unlock() }()
++			serveConn(serviceCtx, conn, source, run)
++		}()
++	}
++}
+--- /dev/null
++++ b/app/stlservice/service_test.go
+@@ -0,0 +1,98 @@
++package stlservice
++
++import (
++	"context"
++	"errors"
++	"net"
++	"path/filepath"
++	"sync"
++	"testing"
++	"time"
++)
++
++func TestIndependentJobsAndCancellation(t *testing.T) {
++	path := filepath.Join(t.TempDir(), "service.sock")
++	source := "/example/source.json"
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	entered := make(chan string, 4)
++	released := make(chan struct{})
++	cancelled := make(chan struct{})
++	handler := func(ctx context.Context, r Request) error {
++		entered <- r.Args[0]
++		if r.Args[0] == "scan" {
++			<-ctx.Done()
++			close(cancelled)
++			return ctx.Err()
++		}
++		select {
++		case <-released:
++			return nil
++		case <-ctx.Done():
++			return ctx.Err()
++		}
++	}
++	done := make(chan error, 1)
++	go func() { done <- Serve(ctx, path, source, time.Minute, handler) }()
++	deadline := time.Now().Add(time.Second)
++	for {
++		conn, err := net.Dial("unix", path)
++		if err == nil {
++			conn.Close()
++			break
++		}
++		if time.Now().After(deadline) {
++			t.Fatal("service did not start")
++		}
++		time.Sleep(time.Millisecond)
++	}
++	scanCtx, stopScan := context.WithCancel(ctx)
++	var wg sync.WaitGroup
++	wg.Add(2)
++	downloadDone := make(chan struct{})
++	go func() {
++		defer wg.Done()
++		handled, err := Call(ctx, path, Request{source, []string{"download"}})
++		if !handled || err != nil {
++			t.Errorf("download: %v %v", handled, err)
++		}
++		close(downloadDone)
++	}()
++	go func() {
++		defer wg.Done()
++		handled, err := Call(scanCtx, path, Request{source, []string{"scan"}})
++		if !handled || err == nil {
++			t.Errorf("cancelled scan: %v %v", handled, err)
++		}
++	}()
++	for range 2 {
++		select {
++		case <-entered:
++		case <-time.After(time.Second):
++			t.Fatal("jobs were serialized")
++		}
++	}
++	stopScan()
++	select {
++	case <-cancelled:
++	case <-time.After(time.Second):
++		t.Fatal("scan was not cancelled")
++	}
++	select {
++	case <-downloadDone:
++		t.Fatal("cancelling scan interrupted download")
++	default:
++	}
++	if handled, err := Call(ctx, path, Request{source, []string{"health"}}); !handled || err != nil {
++		t.Fatal("service was cancelled", err)
++	}
++	if handled, err := Call(ctx, path, Request{"/wrong/source.json", []string{"health"}}); !handled || err == nil {
++		t.Fatal("wrong source accepted")
++	}
++	close(released)
++	wg.Wait()
++	cancel()
++	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
++		t.Fatal(err)
++	}
++}
+--- /dev/null
++++ b/cmd/stl_service.go
+@@ -0,0 +1,137 @@
++package cmd
++
++import (
++	"context"
++	"flag"
++	"fmt"
++	"io"
++	"path/filepath"
++	"time"
++
++	"github.com/gotd/td/telegram"
++	"github.com/iyear/tdl/app/chat"
++	"github.com/iyear/tdl/app/stl"
++	"github.com/iyear/tdl/app/stlservice"
++	"github.com/iyear/tdl/core/stltransport"
++	"github.com/iyear/tdl/core/storage"
++	"github.com/iyear/tdl/pkg/consts"
++	"github.com/spf13/cobra"
++	"github.com/spf13/pflag"
++	"github.com/spf13/viper"
++)
++
++func serviceSocket() string {
++	return filepath.Join(filepath.Dir(viper.GetStringMapString(consts.FlagStorage)["path"]), "service.sock")
++}
++
++func proxySTL(cmd *cobra.Command, source string) (bool, error) {
++	source, _ = filepath.Abs(source)
++	request := stlservice.Request{Source: source, Args: []string{cmd.Name()}}
++	cmd.LocalNonPersistentFlags().VisitAll(func(f *pflag.Flag) {
++		if f.Changed {
++			request.Args = append(request.Args, "--"+f.Name+"="+f.Value.String())
++		}
++	})
++	return stlservice.Call(cmd.Context(), serviceSocket(), request)
++}
++
++func newSTLService(source *string) *cobra.Command {
++	return &cobra.Command{Use: "serve", Short: "Serve independent local jobs using one Telegram login", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
++		absolute, err := filepath.Abs(*source)
++		if err != nil {
++			return err
++		}
++		if _, err := stl.LoadSource(absolute); err != nil {
++			return err
++		}
++		resolver := &stltransport.Resolver{}
++		return tRun(stltransport.With(cmd.Context(), resolver), func(ctx context.Context, c *telegram.Client, kv storage.Storage) error {
++			return stlservice.Serve(ctx, serviceSocket(), absolute, 60*time.Second, func(ctx context.Context, request stlservice.Request) error {
++				return runSTLRequest(ctx, c, kv, resolver, request)
++			})
++		}, limiter)
++	}}
++}
++
++func runSTLRequest(ctx context.Context, c *telegram.Client, kv storage.Storage, resolver *stltransport.Resolver, request stlservice.Request) error {
++	if len(request.Args) == 0 {
++		return fmt.Errorf("missing Telegram operation")
++	}
++	source, err := stl.LoadSource(request.Source)
++	if err != nil {
++		return err
++	}
++	f := flag.NewFlagSet(request.Args[0], flag.ContinueOnError)
++	f.SetOutput(io.Discard)
++	var output, events string
++	var topic, after int
++	var o stl.Options
++	switch request.Args[0] {
++	case "servers":
++		f.StringVar(&output, "output", "", "")
++	case "files":
++		f.IntVar(&topic, "topic", 0, "")
++		f.IntVar(&after, "after-id", 0, "")
++		f.StringVar(&output, "output", "", "")
++	case "download":
++		f.IntVar(&o.Topic, "topic", 0, "")
++		f.IntVar(&o.Message, "message", 0, "")
++		f.IntVar(&o.DC, "dc", 0, "")
++		f.Int64Var(&o.DocumentID, "document-id", 0, "")
++		f.Int64Var(&o.Size, "size", 0, "")
++		f.StringVar(&o.Filename, "filename", "", "")
++		f.StringVar(&o.Output, "output", "", "")
++		f.StringVar(&events, "events", "", "")
++		f.StringVar(&o.Server, "server", "auto", "")
++		f.StringVar(&o.Cache, "cache", "", "")
++		f.StringVar(&o.Network, "network", "default", "")
++		f.BoolVar(&o.IPv6, "ipv6", false, "")
++		f.BoolVar(&o.Retest, "retest", false, "")
++		f.BoolVar(&o.QuickTest, "quick-test", false, "")
++		f.StringVar(&o.ReuseServer, "reuse-server", "", "")
++		f.BoolVar(&o.ProbeOnly, "probe-only", false, "")
++	default:
++		return fmt.Errorf("unknown Telegram operation")
++	}
++	if err = f.Parse(request.Args[1:]); err != nil {
++		return err
++	}
++	if f.NArg() != 0 {
++		return fmt.Errorf("unexpected Telegram arguments")
++	}
++	switch request.Args[0] {
++	case "servers":
++		if output == "" {
++			return fmt.Errorf("missing server output")
++		}
++		return stl.WriteJSON(output, map[string]any{"endpoints": stl.Servers(c)})
++	case "files":
++		if topic <= 0 || after < 0 || after >= 2147483647 || output == "" {
++			return fmt.Errorf("invalid topic scan")
++		}
++		last := after
++		if err = chat.Export(ctx, c, kv, chat.ExportOptions{Type: chat.ExportTypeId, Chat: fmt.Sprint(source.ChatID), Thread: topic, Input: []int{after + 1, 2147483646}, Output: output, Filter: "true", Raw: true, AfterID: after, LastID: &last}); err != nil {
++			return err
++		}
++		if err = ctx.Err(); err != nil {
++			return err
++		}
++		if err = stl.WriteJSON(output+".cursor", map[string]any{"after": after, "last_id": last, "topic": topic}); err != nil {
++			return err
++		}
++		return stl.WriteJSON(output+".complete", map[string]any{"complete": true, "topic": topic})
++	case "download":
++		o.ChatID = source.ChatID
++		e, err := stl.OpenEvents(events)
++		if err != nil {
++			return err
++		}
++		defer e.Close()
++		err = stl.Download(ctx, c, kv, resolver, o, e)
++		if err != nil {
++			e.Emit("error", map[string]any{"message": err.Error()})
++		}
++		return err
++	}
++	return nil
++}
+--- a/core/middlewares/recovery/recovery.go
++++ b/core/middlewares/recovery/recovery.go
+@@ -20 +20 @@
+-	backoff backoff.BackOff
++	backoff func() backoff.BackOff
+@@ -23 +23 @@
+-func New(ctx context.Context, backoff backoff.BackOff) telegram.Middleware {
++func New(ctx context.Context, backoff func() backoff.BackOff) telegram.Middleware {
+@@ -44 +44 @@
+-		}, r.backoff, func(err error, duration time.Duration) {
++		}, backoff.WithContext(r.backoff(), ctx), func(err error, duration time.Duration) {

@@ -55,8 +55,9 @@ Only work targeting the same artist/month waits for the other worker. Downloads
 recheck history after waiting and skip files the organizer has completed. If a
 download has already delivered an identical archive, the organizer verifies both
 checksums before removing the redundant flat copy and retains the completed
-download record. Different contents remain a conflict. Preview may wait for the
-current Telegram transfer; extraction and folder moves do not hold the CLI login.
+download record. Different contents remain a conflict. Preview uses the shared
+CLI service and can read metadata during a Telegram transfer. Each request has
+its own cancellation, so stopping Preview does not stop a download.
 
 A durable journal supports stopping and resuming after partial moves, verified
 image delivery or a failed database commit. Current operation and per-release

@@ -24,7 +24,10 @@ content for locally configured source references before creating an archive.
    mounted inside Linux; Windows installations use WSL2.
 2. Refresh the server list after logging in to the CLI. Auto compares advertised
    Telegram endpoints for a suitable attachment and caches the fastest result.
-   A manual endpoint can be selected per data center.
+   A manual endpoint can be selected per data center. Auto normally reuses
+   comparisons for up to six hours. Configuration can instead compare before
+   each artist/month and reuse the result across its files and archive parts.
+   Connection setup means even short tests can add more than ten seconds.
 3. In Artists, search the catalog, filter subscribed/unsubscribed creators, and
    choose the creator folder and scope in the same view. Save the selection.
 4. Press **Download all subscriptions** on the queue page. It processes every

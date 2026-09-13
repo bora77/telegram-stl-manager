@@ -19,6 +19,107 @@ TOPIC='https://t.me/c/123456789/200'
 
 
 class OrganizerApplyTests(unittest.TestCase):
+    def repair_fixture(self, root, monthly=False, missing=False):
+        store,folder=self.setup_store(root);image=root/'preview.jpg';image.write_bytes(os.urandom(6000))
+        subprocess.run(['7z','a','-mx0','-v4k',str(folder/'Example 2026-01.7z'),str(image)],stdout=subprocess.DEVNULL,check=True)
+        first=folder/'Example 2026-01.7z.001';full=first.read_bytes();first.write_bytes(b'incomplete original')
+        if monthly:
+            (folder/'2026-01').mkdir();first=first.rename(folder/'2026-01'/first.name)
+        plan=self.preview(store,folder)
+        for item in plan['attachments']:
+            item.update(topic_url=TOPIC,dc_id=2,document_id=123456+item['source_message_id'])
+            if item['filename']==first.name:item['bytes_total']=len(full)
+        if missing:
+            first.unlink();plan['files']=[f for f in plan['files'] if f['filename']!=first.name]
+        match_files(plan['files'],plan['attachments'],set());store.atomic_write(Organizer(store).path,plan)
+        job_id=self.start(store);ApplyWorker(store,job_id).execute()
+        self.assertEqual(self.job(store)['releases_review'],1)
+        source=root/'cli-transfer/payload.part';source.parent.mkdir();source.write_bytes(full)
+        class Client:
+            calls=0
+            def download(self,item,progress,stopped,status):
+                self.calls+=1;status({'event':'download_start'});progress(0,len(full));progress(len(full),len(full));return source
+            def close(self):pass
+            def cleanup_transfer(self,item):pass
+        return store,folder,job_id,first,full,image,source,Client()
+
+    def request_repair(self, store, job_id):
+        with patch('organizer_apply.Popen'):start_application(store,{'job_id':job_id},resume=True,repair=True)
+
+    def test_manual_repair_downloads_exact_part_backs_up_original_and_finishes_release(self):
+        for missing in (False,True):
+            with self.subTest(missing=missing),tempfile.TemporaryDirectory() as temporary:
+                store,folder,job_id,first,full,image,source,client=self.repair_fixture(Path(temporary),missing=missing)
+                options=Organizer(store).status()['application']['repair_files']
+                self.assertEqual(len(options),1);self.assertEqual(options[0]['bytes_total'],len(full))
+                with patch('organizer_repair.TelegramCLI',return_value=client):
+                    with patch('organizer_apply.Popen'):start_application(store,{'job_id':job_id},resume=True)
+                    ApplyWorker(store,job_id).execute();self.assertEqual(client.calls,0) # Ordinary Retry never downloads.
+                    self.request_repair(store,job_id);ApplyWorker(store,job_id).execute()
+                job=self.job(store);self.assertEqual((job['state'],job['files_done'],job['files_total'],job['releases_review']),('completed',2,2,0),job['message'])
+                self.assertEqual(client.calls,1);self.assertFalse(first.exists());self.assertFalse(source.exists())
+                target=folder/'2026-01'/first.name;self.assertEqual(target.read_bytes(),full)
+                self.assertEqual(next((folder/'2026-01/release_images').iterdir()).read_bytes(),image.read_bytes())
+                repair=job['groups'][0]['repairs'][0]
+                if not missing:self.assertEqual(Path(repair['backup']['path']).read_bytes(),b'incomplete original')
+                with store.history.connect() as db:
+                    row=dict(db.execute('SELECT * FROM downloads WHERE filename=?',(first.name,)).fetchone())
+                self.assertEqual(row['state'],'downloaded');self.assertEqual(row['sha256'],digest(target));self.assertEqual(row['origin'],'download')
+                self.assertIsNotNone(row['download_seconds']);self.assertEqual(row['image_count'],1)
+
+    def test_repair_delivery_failure_reuses_download_and_preserves_local_backup(self):
+        for after_publish in (False,True):
+            with self.subTest(after_publish=after_publish),tempfile.TemporaryDirectory() as temporary:
+                store,folder,job_id,first,full,image,source,client=self.repair_fixture(Path(temporary),monthly=after_publish)
+                self.request_repair(store,job_id)
+                from file_delivery import deliver
+                def fail_delivery(*args,**kwargs):
+                    if after_publish:deliver(*args,**kwargs)
+                    raise OSError('test interrupted delivery')
+                with patch('organizer_repair.TelegramCLI',return_value=client):
+                    with patch('organizer_repair.deliver',side_effect=fail_delivery):ApplyWorker(store,job_id).execute()
+                    failed=self.job(store);repair=failed['groups'][0]['repairs'][0]
+                    self.assertEqual(failed['releases_review'],1);self.assertFalse(store.history.was_downloaded(repair['item']['source_message_id']))
+                    self.assertEqual(Path(repair['backup']['path']).read_bytes(),b'incomplete original');self.assertTrue(source.exists())
+                    if not after_publish:self.assertEqual(first.read_bytes(),b'incomplete original')
+                    with patch('organizer_apply.Popen'):start_application(store,{'job_id':job_id},resume=True)
+                    ApplyWorker(store,job_id).execute()
+                self.assertEqual(client.calls,1);self.assertEqual(self.job(store)['releases_review'],0,self.job(store)['message'])
+                self.assertEqual((folder/'2026-01'/first.name).read_bytes(),full);self.assertFalse(source.exists())
+
+    def test_repair_refuses_changed_original_or_wrong_sized_download(self):
+        for failure in ('original','download'):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as temporary:
+                store,folder,job_id,first,full,image,source,client=self.repair_fixture(Path(temporary))
+                if failure=='original':first.write_bytes(b'user replaced this file')
+                else:source.write_bytes(b'truncated download')
+                before=first.read_bytes();self.request_repair(store,job_id)
+                with patch('organizer_repair.TelegramCLI',return_value=client):ApplyWorker(store,job_id).execute()
+                self.assertEqual(self.job(store)['releases_review'],1);self.assertEqual(first.read_bytes(),before)
+                self.assertFalse((folder/'2026-01'/first.name).exists())
+                self.assertEqual(client.calls,0 if failure=='original' else 1)
+
+    def test_repair_rejects_changed_preview_or_ambiguous_source_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store,folder,job_id,*_=self.repair_fixture(Path(temporary))
+            plan=json.loads(Organizer(store).path.read_text())
+            plan['attachments'][0]['topic_url']='https://t.me/c/999999999/200'
+            store.atomic_write(Organizer(store).path,plan)
+            with self.assertRaisesRegex(ValueError,'No unambiguous'):self.request_repair(store,job_id)
+
+    def test_stopped_repair_resumes_only_after_manual_retry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store,folder,job_id,first,full,image,source,client=self.repair_fixture(Path(temporary))
+            self.request_repair(store,job_id)
+            def stop(*args,**kwargs):
+                (store.root/'data/organizer-stop').touch();raise RuntimeError('Stopped by request')
+            with patch('organizer_repair.TelegramCLI',return_value=client):
+                with patch.object(client,'download',side_effect=stop):ApplyWorker(store,job_id).execute()
+                self.assertEqual(self.job(store)['state'],'stopped');self.assertEqual(first.read_bytes(),b'incomplete original')
+                with patch('organizer_apply.Popen'):start_application(store,{'job_id':job_id},resume=True)
+                ApplyWorker(store,job_id).execute()
+            self.assertEqual(client.calls,1);self.assertEqual(self.job(store)['releases_review'],0)
+
     def test_incomplete_volume_set_is_skipped_before_moves_even_without_images(self):
         for images in (True,False):
             with self.subTest(images=images),tempfile.TemporaryDirectory() as temporary:

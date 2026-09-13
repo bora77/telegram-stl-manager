@@ -27,6 +27,7 @@
 !/file_size.py
 !/folder_organizer.py
 !/organizer_apply.py
+!/organizer_repair.py
 !/queue-panel.html
 !/release_images.py
 !/release_rules.py

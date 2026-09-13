@@ -55,6 +55,22 @@ images and partial moves. If an original file is repaired or replaced, run a
 fresh preview so its new identity and size can be checked. Completed work and
 download records remain intact.
 
+For a skipped split release, **Download missing/incomplete parts & retry** can
+fetch the exact missing or size-mismatched parts from the saved Telegram preview.
+It shows the filenames and download sizes before starting. This is a separate
+manual action; ordinary Retry does not authorize new repair downloads. No new
+channel scan is needed. Ambiguous metadata and changed local originals require
+a fresh preview.
+
+Repairs use the existing CLI and server selector, with download and NAS-transfer
+progress and speed in the organizer. Each incomplete original is preserved in
+`data/organizer-repairs/<job>/<message>/previous/`, with its checksum recorded in
+the private job journal, before replacement. Verified new parts are delivered
+into the monthly folder, and the release is organized and its images extracted.
+Download timing and the new file checksum remain in download history. Interrupted
+repairs retain their verified download and backup for manual retry; staging is
+removed only after the release history commits. The backups are retained locally.
+
 CLI metadata provides actual Telegram message IDs. Existing matched files can
 therefore enter normal download history with origin `organizer`, exact names and
 sizes, plus a separate organization record. Full archive hashes and transfer

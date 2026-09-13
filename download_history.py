@@ -59,9 +59,10 @@ class DownloadHistory:
                             release_month,batch_id,origin) VALUES(?,?,?,?,?,?,?,?,?)''',
                             (chat,message,job['creator'],job['topic_url'],record['filename'],record['size'],record['month'],'organizer-'+job['id'],'organizer'))
                     db.execute('''UPDATE downloads SET state='downloaded',bytes_total=?,bytes_downloaded=?,release_month=?,
-                        original_destination=?,completed_at=CURRENT_TIMESTAMP,error=NULL,origin='organizer',sha256=NULL
+                        original_destination=?,completed_at=CURRENT_TIMESTAMP,error=NULL,origin=?,sha256=?
                         WHERE source_chat_id=? AND source_message_id=? AND attachment_index=0 AND state!='downloaded' ''',
-                        (record['size'],record['size'],record['month'],destination,chat,message))
+                        (record['size'],record['size'],record['month'],destination,
+                         'download' if record.get('repair_download') else 'organizer',record.get('repair_download',{}).get('sha256'),chat,message))
                     if images is not None:
                         db.execute('''UPDATE downloads SET image_count=?,images_destination=?,images_manifest=?,image_warnings=?
                             WHERE source_chat_id=? AND source_message_id=? AND attachment_index=0''',

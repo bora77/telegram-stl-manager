@@ -37,6 +37,10 @@ def application_status(store):
     path = store.root / 'data/organizer-apply.json'
     if not path.exists():return None
     job = json.loads(path.read_text())
+    from organizer_repair import candidates
+    plan_path=store.root/'data/organizer-plan.json'
+    plan=json.loads(plan_path.read_text()) if plan_path.exists() else {}
+    if job.get('plan_id') and plan.get('id')==job['plan_id']:set_part_requirements(job['groups'],plan)
     if job['state'] in RUNNING and time.time() - job.get('heartbeat', 0) > 30:
         with (store.root / 'data/organizer-worker.lock').open('a') as lock:
             try:fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -45,6 +49,8 @@ def application_status(store):
     # Publish only the per-file outcome needed by the live table. The recovery
     # identities and extraction manifests remain in the private journal.
     result = {k: v for k, v in job.items() if k not in ('groups', 'mount')}
+    result['repair_files']=[{'filename':r['item']['filename'],'bytes_total':r['item']['bytes_total'],
+                             'local_bytes':r['original']['identity']['size'] if r['original'] else None} for r in candidates(job,plan)]
     result['warnings']=[group['key']+' · '+warning for group in job.get('groups',[]) for warning in group.get('image_warnings',[])]
     result['warnings'] += [group['key']+' · '+group['error'] for group in job.get('groups',[]) if group.get('error')]
     result['files'] = []
@@ -254,7 +260,7 @@ def regroup_saved_volumes(job):
     return True
 
 
-def start_application(store, payload, resume=False):
+def start_application(store, payload, resume=False, repair=False):
     from folder_organizer import Organizer, ACTIVE
     with (store.root / 'data/operation.lock').open('a') as operation:
         fcntl.flock(operation, fcntl.LOCK_EX)
@@ -272,6 +278,9 @@ def start_application(store, payload, resume=False):
                 backup = store.root / 'data/organizer-jobs' / (job['id'] + '.before-volume-grouping.json')
                 if not backup.exists():store.atomic_write(backup, json.loads(path.read_text()))
             if job['plan_id']==plan.get('id'):set_part_requirements(job['groups'],plan)
+            if repair:
+                from organizer_repair import prepare
+                prepare(job,plan,store.history.source)
             for group in job['groups']:
                 if group['state']=='needs_review':group['state']='pending'
                 group.pop('error',None)
@@ -408,6 +417,9 @@ class ApplyWorker:
                         self.save(state='running',phase='preparing',message='Organizing '+group['key'],current_release=group['key'],progress_done=0,progress_total=None)
                         work=self.work/str(group.get('work_index',index));work.mkdir(exist_ok=True)
                         for record in group['records']:pinned.locate(record)
+                        if group.get('repairs'):
+                            from organizer_repair import run
+                            run(self,group,pinned)
                         check_parts(group)
                         group.pop('error',None)
                         images=self.images(group,pinned,work)
@@ -431,6 +443,9 @@ class ApplyWorker:
                         self.job['files_done']+=sum(not record.get('recorded') for record in group['records'])
                         for record in group['records']:record['recorded']=True
                         self.save()
+                        if group.get('repairs'):
+                            from organizer_repair import cleanup
+                            cleanup(self,group)
                         shutil.rmtree(work,ignore_errors=True)
                 except Exception as error:
                     # Stop and mount loss affect the whole operation. A release

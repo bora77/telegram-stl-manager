@@ -8,11 +8,39 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from release_images import extract_images, ExtractionError, complete_split_7z, listing, volume_key, flat_image_name
+from release_images import extract_images, ExtractionError, MissingVolumeError, archive_error, complete_split_7z, listing, volume_key, flat_image_name
 from file_delivery import deliver, DeliveryError
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_nested_7z_with_zip_extension_extracts_despite_format_warning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);image=root/'preview.jpg';image.write_bytes(b'original preview')
+            subprocess.run(['7z','a',str(root/'nested.7z'),str(image)],stdout=subprocess.DEVNULL,check=True)
+            with zipfile.ZipFile(root/'release.zip','w') as archive:
+                archive.write(root/'nested.7z','nested.zip')
+            images=extract_images(root/'release.zip',root/'work')
+            self.assertEqual([p.read_bytes() for p in images],[image.read_bytes()])
+
+    def test_format_warning_does_not_hide_invalid_paths_or_member_metadata(self):
+        text=('Open WARNING: Cannot open the file as [zip] archive\nType = 7z\n----------\n'
+              'Path = ../preview.jpg\nSize = 12\n\n\nWarnings: 1\n')
+        for malformed in (text,text.replace('../preview.jpg','preview\ninjected.jpg'),
+                          text.replace('../preview.jpg','preview.jpg').replace('Size = 12','Size = 12\nUnexpected content')):
+            with patch('release_images.command',return_value=malformed):
+                with self.assertRaises(ExtractionError):listing(Path('release.zip'),Path('.'),lambda:False)
+
+    def test_missing_volume_is_reported_only_from_archive_header(self):
+        source=Path('inputs/Example 2026-09 1.rar')
+        text='Type = Rar5\nERROR = Missing volume : Example 2026-09 2.rar\n----------\nPath = models.zip\nSize = 12\n'
+        error=archive_error(text,source)
+        self.assertIsInstance(error,MissingVolumeError)
+        self.assertEqual(error.archive,source)
+        self.assertEqual(error.missing,'Example 2026-09 2.rar')
+        for invalid in (text.replace('Example 2026-09 2.rar','../elsewhere.rar'),
+                        'Type = Rar5\n----------\n'+text):
+            self.assertNotIsInstance(archive_error(invalid,source),MissingVolumeError)
+
     def test_rar_part_separators_and_numbers_group_without_changing_release_name(self):
         for separator in ('.','_','-',' '):
             with self.subTest(separator=separator):

@@ -22,6 +22,20 @@ class ExtractionError(RuntimeError):
     pass
 
 
+class MissingVolumeError(ExtractionError):
+    def __init__(self, archive, missing):
+        self.archive=Path(archive);self.missing=missing
+        super().__init__('Missing archive volume: '+missing+'. Downloaded parts were kept locally.')
+
+
+def archive_error(text, archive):
+    header=text.split('----------\n',1)[0]
+    match=re.search(r'^ERROR = Missing volume : ([^\r\n]+)$',header,re.M)
+    if match and match[1] not in ('.','..') and not re.search(r'[\\/<>:"|?*\x00-\x1f]',match[1]):
+        return MissingVolumeError(archive,match[1])
+    return ExtractionError('7-Zip could not read the complete archive (missing part, password, damage or unsupported format). Local files retained. '+text[-700:].strip())
+
+
 def volume_key(name):
     """Group archive volumes without confusing a part number with a month."""
     match = re.fullmatch(r'(.+\.(?:7z|zip|rar))\.(\d{3,})', name, re.I)
@@ -106,7 +120,7 @@ def command(args, work, stopped, tick=lambda: None, percent=None):
             if len(output) > MAX_LISTING:raise ExtractionError('Archive listing is too large to process safely.')
             text = output.decode('utf-8', errors='strict')
             if child.returncode:
-                raise ExtractionError('7-Zip could not read the complete archive (missing part, password, damage or unsupported format). Local files retained. ' + text[-700:].strip())
+                raise archive_error(text,args[-1])
             pulse()
             return text
         finally:
@@ -118,6 +132,10 @@ def listing(archive, work, stopped, tick=lambda: None):
     text = command(['l', '-slt', '-bd', '-p-', '--', str(archive)], work, stopped, tick)
     if '----------\n' not in text:raise ExtractionError('Archive contents could not be identified.')
     header, members = text.split('----------\n', 1)
+    # 7-Zip can successfully detect an archive whose extension is wrong. Its
+    # trailing warning count is a report footer, not another archive member.
+    if re.search(r'^Open WARNING: Cannot open the file as \[[^\]\r\n]+\] archive$', header, re.M):
+        members = re.sub(r'\n{2,}Warnings: [1-9]\d*\n\Z', '\n\n', members)
     entries = [];seen = set()
     if not members.strip():return header,entries
     # Empty final values (for example RAR's "NT Security = ") include a

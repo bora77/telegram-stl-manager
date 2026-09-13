@@ -2,7 +2,7 @@ async function api(path, data) {
   const response=await fetch(path,{cache:'no-store',...(data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})});
   const body=await response.json();if(!response.ok)throw Error(body.error||'Request failed');return body;
 }
-function savedSummary(){document.getElementById('saved-summary').textContent=`${savedSubscriptions.length} subscriptions saved · manual downloads only`;document.getElementById('next-run-scope').textContent='Saved scope: '+(savedSubscriptions.map(s=>s.creator+' — '+(s.download_scope==='all_and_future'?'all existing releases':s.start_month+' onwards')).join(' · ')||'no saved subscriptions')+' · Already downloaded files are skipped.';}
+function savedSummary(){document.getElementById('saved-summary').textContent=`${savedSubscriptions.length} subscriptions saved · manual downloads only`;}
 function applySaved(){
   selected={};for(const r of savedSubscriptions)selected[r.topic_url]=SelectionRules.migrate({...r,selection_version:2},inventory);
   try{localStorage.setItem('telegram-stl-selection',JSON.stringify(selected))}catch{}
@@ -30,6 +30,12 @@ function bytes(value){if(value==null)return 'Size pending';const units=['B','KiB
 function duration(value){if(value==null)return 'Timing unavailable';const secs=Math.max(0,Math.round(value));return secs<60?secs+' s':Math.floor(secs/60)+' min '+secs%60+' s'}
 function speed(value){return value==null?'Speed unavailable':(value/1e6).toFixed(1)+' MB/s'}
 function progress(bar,done,total){if(total>0){bar.value=Math.min(100,100*done/total)}else if(total===0){bar.value=0}else{bar.removeAttribute('value')}}
+function runMessage(run){
+  const message=String(run.message||'');
+  const missing=message.match(/^ERROR = Missing volume : ([^\r\n]+)/m);
+  if(missing)return 'Image extraction stopped: missing archive part '+missing[1]+'. Downloaded files have been kept locally.';
+  return message;
+}
 function renderRunActivity(queue){
   const run=queue.run,state=queue.worker_state,ended=['completed','needs_review'].includes(state);
   document.getElementById('run-activity').dataset.active=String(queue.active);
@@ -38,7 +44,7 @@ function renderRunActivity(queue){
   const seconds=run.started_at?(Date.parse(run.finished_at||new Date().toISOString())-Date.parse(run.started_at))/1000:null;
   document.getElementById('run-elapsed').textContent=seconds==null?'':(queue.active?'Elapsed: ':'Run duration: ')+duration(seconds);
   const scanning=state==='scanning';
-  document.getElementById('run-detail').textContent=scanning?`${run.current_creator||'Creator'} · ${run.files_listed||0} exact file records read. Checking release months and download history.`:ended&&queue.total_files===0?'No matching releases were queued for download.'+(run.warnings?.length?' Some entries could not be classified; review them below.':''):run.message;
+  document.getElementById('run-detail').textContent=scanning?`${run.current_creator||'Creator'} · ${run.files_listed||0} exact file records read. Checking release months and download history.`:ended&&queue.total_files===0?'No matching releases were queued for download.'+(run.warnings?.length?' Some entries could not be classified; review them below.':''):runMessage(run);
   document.getElementById('review-summary').textContent=`Items needing review (${run.warnings?.length||0})`;
 }
 async function refreshQueue(){
@@ -46,18 +52,19 @@ async function refreshQueue(){
     const queue=await api('/api/queue');
     renderRunActivity(queue);
     const checking=['starting','scanning'].includes(queue.worker_state),emptyFinished=['completed','needs_review'].includes(queue.worker_state)&&queue.total_files===0;
+    const stopped=['failed','interrupted','stopped'].includes(queue.worker_state);
     document.getElementById('worker-state').textContent=queue.worker_state.replaceAll('_',' ');
     document.getElementById('download-all').disabled=!queue.can_start||saving;document.getElementById('stop-downloads').disabled=!queue.active;
-    document.getElementById('download-start-help').textContent=queue.organizer_active?'A folder operation is active. Downloads can start when it finishes.':queue.active?'One manual run is active.':queue.subscriptions_saved?'Runs all saved subscriptions; unsaved edits are excluded.':'Save at least one subscription to start.';
+    document.getElementById('download-start-help').textContent=queue.organizer_active?'A folder operation is active. Downloads can start when it finishes.':queue.active?'One manual run is active.':stopped?'Press Download all subscriptions to retry. Completed files are skipped and verified local downloads are reused.':queue.subscriptions_saved?'Runs all saved subscriptions; unsaved edits are excluded.':'Save at least one subscription to start.';
     const total=queue.progress_total??queue.bytes_total;
     const percent=total>0?Math.min(100,100*queue.bytes_downloaded/total):null;
-    document.getElementById('queue-percent').textContent=checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'%';
+    document.getElementById('queue-percent').textContent=stopped?'Stopped'+(percent==null?'':' at '+Math.floor(percent)+'%'):checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'%';
     const overall=document.getElementById('queue-progress');overall.hidden=emptyFinished;
     progress(overall,queue.bytes_downloaded,checking?null:queue.total_files?total:0);
     document.getElementById('queue-files').textContent=`${queue.completed_files} / ${queue.total_files} files complete`;
     document.getElementById('history-summary').textContent=`${queue.history_completed||0} completed downloads in permanent history · retained when files move`;
     document.getElementById('queue-bytes').textContent=queue.total_files?bytes(queue.bytes_downloaded)+' / '+(queue.total_is_estimate?'≈ ':'')+bytes(total):checking?'Scanning before downloading':emptyFinished?'No data transferred':'No transfers yet';
-    document.getElementById('queue-message').textContent=queue.run.message+(queue.worker_state==='downloading'&&queue.run.download_server?' · Server: '+queue.run.download_server:'');
+    document.getElementById('queue-message').textContent=runMessage(queue.run)+(queue.worker_state==='downloading'&&queue.run.download_server?' · Server: '+queue.run.download_server:'');
     const warnings=document.getElementById('run-warnings');warnings.replaceChildren();for(const text of queue.run.warnings||[])warnings.append(element('li',text));
     const moving=queue.worker_state==='copying';document.getElementById('move-panel').hidden=!moving;
     const extracting=queue.worker_state==='extracting';document.getElementById('extraction-panel').hidden=!extracting;

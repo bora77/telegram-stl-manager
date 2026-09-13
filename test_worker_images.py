@@ -11,7 +11,7 @@ import zipfile
 
 import download_worker
 from file_delivery import digest
-from release_images import ExtractionError
+from release_images import ExtractionError, MissingVolumeError
 from subscription_store import SubscriptionStore
 
 
@@ -26,6 +26,90 @@ class WorkerImageTests(unittest.TestCase):
         self.enterContext(patch.object(download_worker,'STATE',state))
         worker=download_worker.Worker('test')
         return worker,store,sub,state,base
+
+    def test_separately_posted_numbered_rars_reuse_verified_first_part_on_retry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);worker,store,sub,state,base=self.setup_worker(root)
+            names=['Example 2026-09 1.rar','Example 2026-09 2.rar']
+            contents=[b'first archive part',b'second archive part']
+            items=[{'filename':name,'source_message_id':message,'message_url':sub['topic_url']+'/'+str(message),
+                    'bytes_total':len(content)} for name,message,content in zip(names,[101,307],contents)]
+            first=store.history.register(source_message_id=101,creator='Example',topic_url=sub['topic_url'],
+                filename=names[0],bytes_total=len(contents[0]),release_month='2026-09',batch_id='previous')
+            staged=state/'staging'/str(first['id']);staged.mkdir(parents=True)
+            (staged/names[0]).write_bytes(contents[0])
+            store.atomic_write(staged/'receipt.json',{'message_url':items[0]['message_url'],
+                'size':len(contents[0]),'sha256':digest(staged/names[0])})
+            metrics={'download_started_at':'2026-09-01T12:00:00+00:00','download_finished_at':'2026-09-01T12:00:02+00:00',
+                     'download_seconds':2.0,'download_speed_bps':9.0,'download_average_bps':9.0}
+            store.history.record_transfer(first['id'],len(contents[0]),len(contents[0]),metrics)
+            with store.history.connect() as db:db.execute("UPDATE downloads SET state='paused' WHERE id=?",(first['id'],))
+            calls=[];extracted=[]
+            class CLI:
+                def __init__(self,**kwargs):pass
+                def list_files(self,*args):return list(reversed(items))
+                def download(self,item,progress,stopped,status=None):
+                    calls.append(item['source_message_id'])
+                    source=state/item['filename'];source.write_bytes(contents[1])
+                    progress(source.stat().st_size,source.stat().st_size);return source
+                def close(self):pass
+            def extract(source,work,*args):
+                extracted.append(sorted(p.name for p in source.parent.iterdir()))
+                if not (source.parent/names[1]).exists():raise MissingVolumeError(source,names[1])
+                self.assertEqual([ (source.parent/name).read_bytes() for name in names ],contents)
+                image=work/'output/preview.jpg';image.parent.mkdir(parents=True);image.write_bytes(b'preview')
+                return [image]
+            with patch.object(download_worker,'TelegramCLI',CLI),patch.object(download_worker,'extract_images',side_effect=extract),\
+                 patch.object(download_worker,'listing',return_value=('Type = Rar5\nMultivolume = +\nVolumes = 2\n',[])):
+                worker.execute()
+            self.assertEqual(worker.run['state'],'completed',worker.run['message'])
+            self.assertEqual(calls,[307])
+            self.assertEqual(extracted,[[names[0]],names])
+            self.assertTrue(all(store.history.was_downloaded(i) for i in [101,307]))
+            with store.history.connect() as db:
+                after=dict(db.execute('SELECT * FROM downloads WHERE id=?',(first['id'],)).fetchone())
+            self.assertEqual({key:after[key] for key in metrics},metrics)
+            self.assertEqual(list((state/'staging').iterdir()),[])
+            for name,content in zip(names,contents):self.assertEqual((base/'Example/2026-09'/name).read_bytes(),content)
+            self.assertEqual(len(list((base/'Example/2026-09/release_images').glob('*.jpg'))),1)
+
+    def test_numbered_independent_archives_still_each_extract_their_own_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);worker,store,sub,state,base=self.setup_worker(root)
+            class CLI:
+                def download(self,item,progress,stopped,status=None):
+                    source=state/item['filename']
+                    with zipfile.ZipFile(source,'w') as archive:archive.writestr('preview.jpg',item['filename'].encode())
+                    progress(source.stat().st_size,source.stat().st_size);return source
+            worker.telegram=CLI()
+            for message in (1,2):
+                name=f'Example 2026-09 {message}.rar'
+                worker.transfer(sub,{'filename':name,'source_message_id':message,'message_url':sub['topic_url']+'/'+str(message)},'2026-09')
+                self.assertTrue(store.history.was_downloaded(message))
+            self.assertEqual(len(list((base/'Example/2026-09/release_images').glob('*.jpg'))),2)
+            self.assertEqual(worker.numbered_rars,set())
+
+    def test_numbered_archive_requires_confirmed_complete_set_and_is_scoped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);worker,store,sub,state,base=self.setup_worker(root)
+            names=['Example 1.rar','Example 2.rar']
+            record={'filename':names[0],'sub':sub,'month':'2026-09'}
+            self.assertFalse(worker.discover_numbered_rar(record,MissingVolumeError(Path('nested')/names[0],names[1])))
+            self.assertTrue(worker.discover_numbered_rar(record,MissingVolumeError(Path('inputs')/names[0],names[1])))
+            self.assertEqual(worker.archive_key(names[1],sub,'2026-09')[1],2)
+            self.assertEqual(worker.archive_key(names[1],sub,'2026-08')[1],0)
+            self.assertEqual(worker.archive_key(names[1],dict(sub,topic_url=sub['topic_url']+'0'),'2026-09')[1],0)
+            class CLI:
+                def download(self,item,progress,stopped,status=None):
+                    source=state/item['filename'];source.write_bytes(b'part');progress(4,4);return source
+            worker.telegram=CLI()
+            for message,name in enumerate(names,1):
+                worker.transfer(sub,{'filename':name,'source_message_id':message,'message_url':sub['topic_url']+'/'+str(message)},'2026-09')
+            with patch.object(download_worker,'listing',return_value=('Type = Rar5\nMultivolume = +\nVolumes = 1\n',[])):
+                with self.assertRaisesRegex(ExtractionError,'complete archive set'):worker.finish_pending(sub)
+            self.assertFalse(any(store.history.was_downloaded(i) for i in (1,2)))
+            self.assertEqual(len(list((state/'staging').glob('*/receipt.json'))),2)
+            self.assertEqual(list(base.iterdir()),[])
 
     def test_reuses_previously_completed_part_and_preserves_it_and_its_history(self):
         with tempfile.TemporaryDirectory() as temp:

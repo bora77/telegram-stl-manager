@@ -16,7 +16,7 @@ from telegram_cli import TelegramCLI, CLIError as WorkerError, STATE, safe_filen
 from release_rules import release_month,in_scope
 from transfer_metrics import TransferMeter
 from file_delivery import deliver,mount_identity,digest
-from release_images import extract_images,ExtractionError,volume_key,flat_image_name
+from release_images import extract_images,ExtractionError,MissingVolumeError,volume_key,flat_image_name,listing
 
 ROOT=Path(__file__).resolve().parent
 class Worker:
@@ -24,7 +24,24 @@ class Worker:
         self.store=SubscriptionStore(ROOT);self.history=self.store.history
         self.path=ROOT/'data/run.json';self.run=json.loads(self.path.read_text())
         if self.run['id']!=batch:raise RuntimeError('Run was replaced before start.')
-        self.batch=batch;self.telegram=None;self.pending=[];self.planned=[]
+        self.batch=batch;self.telegram=None;self.pending=[];self.planned=[];self.numbered_rars=set()
+    def archive_key(self,name,sub,month):
+        match=re.fullmatch(r'(.+)[ _.-](\d+)\.rar',name,re.I)
+        if match and (sub['topic_url'],month,match[1].casefold()) in self.numbered_rars:
+            return 'numbered-rar:'+match[1].casefold(),int(match[2])
+        return volume_key(name)
+    def discover_numbered_rar(self,record,error):
+        # A bare number can also label an independent release. Only group it
+        # when 7-Zip explicitly identifies a companion of this outer archive.
+        first=re.fullmatch(r'(.+)[ _.-](\d+)\.rar',record['filename'],re.I)
+        missing=re.fullmatch(r'(.+)[ _.-](\d+)\.rar',error.missing,re.I)
+        if error.archive.name!=record['filename'] or error.archive.parent.name!='inputs' or not first or not missing or first[1].casefold()!=missing[1].casefold():return False
+        self.numbered_rars.add((record['sub']['topic_url'],record['month'],first[1].casefold()))
+        return True
+    def stage_part(self,record):
+        self.pending.append(record)
+        with self.history.connect() as db:db.execute("UPDATE downloads SET state='queued',error=NULL,bytes_downloaded=? WHERE id=?",(record['staged'].stat().st_size,record['id']))
+        self.update('downloading','Archive part ready locally; collecting the remaining parts · '+record['filename'])
     def stopped(self):return (ROOT/'data/stop-request').exists()
     def update(self,state,message,**extra):
         self.run.update(state=state,message=message,**extra);self.store.atomic_write(self.path,self.run)
@@ -74,11 +91,15 @@ class Worker:
             if proof['message_url']!=item['message_url'] or staged.stat().st_size!=proof['size']:raise WorkerError('Staged file does not match its download receipt.')
             if item.get('bytes_total') is not None and staged.stat().st_size!=item['bytes_total']:raise WorkerError('Staged file differs from Telegram’s exact file size.')
             if proof.get('sha256') and digest(staged)!=proof['sha256']:raise WorkerError('Staged file failed checksum verification.')
-            if volume_key(filename)[1]>0:
-                self.pending.append(record)
-                self.update('scanning','Archive part staged; checking the creator for the remaining parts.')
+            if self.archive_key(filename,sub,month)[1]>0:
+                self.stage_part(record)
                 return
             try:self.finish_release([record])
+            except MissingVolumeError as error:
+                if self.stopped():raise
+                if self.discover_numbered_rar(record,error):self.stage_part(record)
+                elif Path(filename).suffix.lower() in ('.rar','.zip'):self.pending.append(record)
+                else:raise
             except ExtractionError:
                 if self.stopped():raise
                 # A .rar or .zip can be the first volume even without a numbered
@@ -112,26 +133,32 @@ class Worker:
         move_result=move_result or {'seconds':None,'average':None}
         return {'destination':str(destination),'size':size,'sha256':checksum,'move_seconds':move_result['seconds'],'move_average_bps':move_result['average']}
     def finish_release(self,records):
-        records=sorted(records,key=lambda r:volume_key(r['filename'])[1])
-        sub=records[0]['sub'];month=records[0]['month'];first=records[0]['filename']
+        sub=records[0]['sub'];month=records[0]['month'];key=lambda name:self.archive_key(name,sub,month)
+        records=sorted(records,key=lambda r:key(r['filename'])[1]);first=records[0]['filename']
         try:
             # A companion may have completed before image extraction was added.
             # Reuse its verified NAS copy without downloading or moving it again.
             companions=[];names={r['filename'] for r in records}
-            if any(volume_key(name)[1]>0 for name in names):
-                key=volume_key(first)[0]
+            if any(key(name)[1]>0 for name in names):
+                group_key=key(first)[0]
                 with self.history.connect() as db:
                     completed=[dict(r) for r in db.execute("SELECT * FROM downloads WHERE state='downloaded' AND topic_url=? AND release_month=?",(sub['topic_url'],month))]
                 for row in completed:
-                    if row['filename'] not in names and volume_key(row['filename'])[0]==key:
+                    if row['filename'] not in names and key(row['filename'])[0]==group_key:
                         companions.append(row);names.add(row['filename'])
-                first=min(names,key=lambda name:volume_key(name)[1])
-            if volume_key(first)[1]>1:raise ExtractionError('First archive volume is missing; all downloaded parts were kept locally.')
+                first=min(names,key=lambda name:key(name)[1])
+            if key(first)[1]>1:raise ExtractionError('First archive volume is missing; all downloaded parts were kept locally.')
             with tempfile.TemporaryDirectory(prefix='release-work-',dir=STATE/'staging') as temporary:
                 work=Path(temporary);inputs=work/'inputs';inputs.mkdir()
                 for record in records:
                     os.link(record['staged'],inputs/record['filename'])
                 for companion in companions:self.stage_completed_part(companion,inputs,sub,month)
+                if key(first)[0].startswith('numbered-rar:'):
+                    header,_=listing(inputs/first,work,self.stopped)
+                    volumes=re.search(r'^Volumes = (\d+)$',header,re.M)
+                    indexes=sorted(key(name)[1] for name in names)
+                    if 'Multivolume = +' not in header or not volumes or int(volumes[1])!=len(names) or indexes!=list(range(1,len(names)+1)):
+                        raise ExtractionError('Numbered RAR files do not form one complete archive set; all parts were kept locally.')
                 started=time.monotonic();last_update=0;last_stage=None
                 def extraction_progress(stage,count,total,done,expected):
                     nonlocal last_update,last_stage
@@ -194,7 +221,7 @@ class Worker:
         groups={}
         for record in self.pending:
             if record['sub']['topic_url']==sub['topic_url']:
-                groups.setdefault((record['month'],volume_key(record['filename'])[0]),[]).append(record)
+                groups.setdefault((record['month'],self.archive_key(record['filename'],sub,record['month'])[0]),[]).append(record)
         for records in groups.values():self.finish_release(records)
         self.pending=[r for r in self.pending if r['sub']['topic_url']!=sub['topic_url']]
     def scan(self,sub):
@@ -221,9 +248,12 @@ class Worker:
                                       filename=item['filename'],bytes_total=item['bytes_total'],release_month=month,batch_id=self.batch)
             if row['filename']!=item['filename'] or row['topic_url']!=topic:
                 raise WorkerError('Previously queued attachment identity changed; review required.')
+            stagedir=STATE/'staging'/str(row['id'])
+            staged=stagedir/item['filename'];receipt=stagedir/'receipt.json'
+            reuse=row.get('download_finished_at') and staged.is_file() and not staged.is_symlink() and receipt.is_file() and not receipt.is_symlink()
             with self.history.connect() as db:
-                db.execute("UPDATE downloads SET batch_id=?,state='queued',error=NULL,bytes_total=?,bytes_downloaded=0,download_started_at=NULL,download_finished_at=NULL,download_seconds=NULL,download_speed_bps=NULL,download_average_bps=NULL WHERE id=? AND state!='downloaded'",
-                           (self.batch,item['bytes_total'],row['id']))
+                reset='' if reuse else ',bytes_downloaded=0,download_started_at=NULL,download_finished_at=NULL,download_seconds=NULL,download_speed_bps=NULL,download_average_bps=NULL'
+                db.execute("UPDATE downloads SET batch_id=?,state='queued',error=NULL,bytes_total=?"+reset+" WHERE id=? AND state!='downloaded'",(self.batch,item['bytes_total'],row['id']))
             self.planned.append((sub,item,month))
         self.update('scanning',f"{sub['creator']} · {len(items)} exact file records checked",files_listed=len(items),telegram_file_count=len(items))
     def cleanup_completed(self):
@@ -245,12 +275,12 @@ class Worker:
                 self.scan(sub)
             for sub in self.run['subscriptions']:
                 group=None
-                planned=sorted((p for p in self.planned if p[0]['topic_url']==sub['topic_url']),key=lambda p:(p[2],volume_key(p[1]['filename'])))
+                planned=sorted((p for p in self.planned if p[0]['topic_url']==sub['topic_url']),key=lambda p:(p[2],self.archive_key(p[1]['filename'],sub,p[2])))
                 for _,item,month in planned:
-                    next_group=(month,volume_key(item['filename'])[0])
+                    next_group=(month,self.archive_key(item['filename'],sub,month)[0])
                     if group is not None and group!=next_group:self.finish_pending(sub)
-                    group=next_group
                     self.transfer(sub,item,month)
+                    group=(month,self.archive_key(item['filename'],sub,month)[0])
                 self.finish_pending(sub)
                 self.run['creators_done']+=1
             self.update('needs_review' if self.run['warnings'] else 'completed', 'Manual run finished. '+('Some items need review; see details below.' if self.run['warnings'] else 'All eligible discovered files are handled.'),finished_at=datetime.now(timezone.utc).isoformat())

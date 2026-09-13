@@ -16,6 +16,9 @@ sizes, full part set and image destination. Existing saved image manifests count
 too. A result with no images or with recovery warnings is also remembered; an
 interrupted extraction or incomplete image delivery is not marked finished.
 The organizer table shows **Images extracted** or **Checked: no images found**.
+The preview distinguishes files needing work from files already complete and
+shows how many have saved image results. Preview never extracts images; use
+**Apply remaining work** to perform the pending actions.
 Moving images away later does not erase this status or trigger extraction again.
 Changed archive sizes, additional parts or a different destination require a new
 extraction.

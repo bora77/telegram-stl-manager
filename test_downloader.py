@@ -58,6 +58,13 @@ class DownloaderTests(unittest.TestCase):
         self.assertEqual(release_month('Example 2026-August.rar'),'2026-08')
         self.assertIsNone(release_month('Loyalty.7z'))
         self.assertIsNone(release_month('2026-07 and 2026-08.zip'))
+        for filename,expected in [('Example 01-2023.zip','2023-01'),('Example 09.2022.rar','2022-09'),
+                                  ('Example_03_2023_Release.zip','2023-03'),('Example 04-2023 - April 23.zip','2023-04'),
+                                  ('Example 2023-01.zip','2023-01'),('Example 3_2023.zip','2023-03'),
+                                  ('Example 13-2023.zip',None),('Example 00.2022.zip',None),
+                                  ('Example 103_2023.zip',None),('Example 03_20230.zip',None),
+                                  ('Example 01-2023 and 02-2023.zip',None)]:
+            with self.subTest(filename=filename):self.assertEqual(release_month(filename),expected)
         sub={'download_scope':'future','start_month':'2026-09'}
         self.assertTrue(in_scope(sub,'2026-09'))
         self.assertTrue(in_scope(sub,'2026-10'))

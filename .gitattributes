@@ -1,0 +1,12 @@
+# Keep source checkouts consistent on Linux and Windows.
+* text=auto
+*.py text eol=lf
+*.js text eol=lf
+*.sh text eol=lf
+*.go text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+.githooks/* text eol=lf
+# Preserve upstream fixtures and vendored sources byte-for-byte.
+/.tools/** -text

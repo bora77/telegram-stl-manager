@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telegram STL · Organize folders</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f5f9;color:#272332;font:15px system-ui,sans-serif}main{max-width:1440px;margin:48px auto;padding:0 24px}nav{display:flex;gap:24px;margin:24px 0;flex-wrap:wrap}a{color:#754aaf}h1{font-size:32px;margin:10px 0}.eyebrow{font-size:12px;color:#7651a6;letter-spacing:.08em;font-weight:700}p{line-height:1.6;color:#65606e}.panel{background:white;border:1px solid #e3dfe9;border-radius:16px;padding:24px;margin:24px 0}.notice{background:#eee8f6;border-left:4px solid #8962b6;padding:14px 18px}.controls{display:flex;gap:16px;flex-wrap:wrap;align-items:end}label{display:grid;gap:8px;color:#655f70;font-size:13px}input,select,button{font:inherit;padding:11px 14px;border:1px solid #d8d3e0;border-radius:8px;background:white}select,input{max-width:100%;min-width:240px}button{cursor:pointer}button.primary{background:#7651a6;color:white;border-color:#7651a6}button:disabled{opacity:.5;cursor:default}.metrics{display:flex;flex-wrap:wrap;gap:28px;margin:22px 0}.metric strong{display:block;font-size:28px;color:#654091}.metric span,small{color:#807787;font-size:12px}small{display:block;margin-top:6px}progress{width:100%;height:12px;accent-color:#8053c0}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:14px;border-bottom:1px solid #eeeaf2;vertical-align:top}th{font-size:12px;color:#706879;background:#fbfaff}td{font-size:13px;overflow-wrap:anywhere}td:first-child{min-width:240px;max-width:380px}.table{overflow:auto;margin-top:20px;border:1px solid #e3dfe9;border-radius:10px}.badge{display:inline-block;border-radius:20px;padding:5px 9px;font-size:12px;background:#eee8f5;color:#69418d;white-space:nowrap}.review,.conflict{background:#fff0d7;color:#8a5b15}.matched{background:#e4f3eb;color:#296c49}.apply-controls{border:1px solid #e3dfe9;border-radius:12px;padding:20px;margin:20px 0}.image-choice{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}.image-choice input{min-width:0;width:18px;height:18px;accent-color:#7651a6}#page-error{color:#943d40}.status-controls{display:flex;align-items:start;justify-content:space-between;gap:16px}#scope{margin-bottom:0}.application-heading{font-size:18px}#phase-progress{margin-top:16px}#status{font-weight:600;color:#654091}.path{font-size:12px;overflow-wrap:anywhere;color:#807787}[hidden]{display:none!important}
+.selection-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}.selection-fields label{min-width:0}.selection-fields input,.selection-fields select{width:100%;min-width:0;height:44px;font-size:14px}.selection-fields small{margin:0;line-height:1.5}.action-buttons{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:20px}.action-buttons button{height:44px}.completed,.moved{background:#e4f3eb;color:#296c49}#live-note{color:#7651a6}#application-message,#status{overflow-wrap:anywhere}#error-details{margin:16px 0;color:#706879;font-size:13px}#error-details summary{cursor:pointer}#error-text{max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f5fa;border:1px solid #e3dfe9;border-radius:8px;padding:12px;font:12px/1.6 ui-monospace,monospace}#resume{margin-top:16px}@media(max-width:850px){.selection-fields{grid-template-columns:1fr}.panel{padding:20px}input,select{min-width:0;width:100%}}
+</style>
+<main class="app-main">__APP_LAYOUT__
+<p>Choose an artist and its existing folder, then preview the monthly structure before applying changes.</p>
+<section class="panel"><div class="selection-fields"><label>Find artist<input id="search" type="search" placeholder="Search the approved Table of Contents"></label><label>Artist<select id="artist"><option value="">Choose an artist</option></select></label><label>Existing folder on Kronos<select id="folder"><option value="">Choose an existing folder</option></select><small id="folder-hint" aria-live="polite">Choose an artist first.</small></label></div><div class="action-buttons"><button id="preview" class="primary" disabled>Preview</button><button id="stop" hidden>Stop</button></div><p id="base" class="path"></p><small>Preview reads exact filenames and sizes from Telegram. It does not move files.</small><p id="page-error" role="alert" hidden></p></section>
+<section id="application" class="panel" aria-live="polite" hidden><strong id="application-title" class="application-heading"></strong><p id="application-message"></p><details id="error-details" hidden><summary>Show error details</summary><pre id="error-text"></pre></details><progress id="application-progress" max="100" aria-label="Organization progress" hidden></progress><small id="application-counts"></small><progress id="phase-progress" max="100" aria-label="Current organization phase progress" hidden></progress><small id="phase-detail" hidden></small><button id="resume" hidden>Resume organization</button></section>
+<section id="preview-panel" class="panel" hidden><div id="status" role="status"></div><p id="scope"></p><progress id="scan" hidden aria-label="Telegram comparison progress"></progress><small id="scan-detail" hidden></small><small id="live-note" hidden>Updates automatically while the organizer is running.</small>
+<div id="preview-results" hidden><div id="metrics" class="metrics"></div>
+<div id="apply-controls" class="apply-controls" hidden><label class="image-choice"><input id="extract-images" type="checkbox" checked> Extract images into one flat release_images folder</label><small>Apply moves ready files into monthly folders, extracts missing images when selected, and records matches as downloaded. Conflicts and unclear release months stay for review.</small><p id="apply-summary"></p><button id="apply" class="primary" disabled>Apply ready files</button></div>
+<div class="controls"><label>Show<select id="filter"><option value="all">All files</option><option value="move">To move</option><option value="record">To record as downloaded</option><option value="recorded">Recorded as downloaded</option><option value="review">Needs review</option><option value="keep">Already structured</option></select></label></div>
+<div class="table"><table><thead><tr><th>Existing file</th><th>Monthly location</th><th>Folder action</th><th>Local size</th><th>Telegram size</th><th>Comparison</th><th>Download history</th></tr></thead><tbody id="rows"></tbody></table></div>
+<details id="scan-notes" hidden><summary>Scan notes</summary><ul id="warnings"></ul></details><small>Matches use exact filenames and byte sizes. Different names or sizes stay for review.</small></div></section>
+</main><script>
+__RULES__
+const el=id=>document.getElementById(id);
+let creators=[],subscriptions=[],current={files:[]},ready=false,downloadActive=false;
+let previewPlanId=null,previewChoice=null,previewPending=false,actionPending=false,refreshPending=false,revision=0,tableSignature=null;
+const active=()=>['starting','scanning','applying'].includes(current.state)||appRunning();
+const appRunning=()=>['starting','running'].includes(current.application?.state);
+const sameChoice=plan=>plan.topic_url===el('artist').value&&plan.creator_folder===el('folder').value;
+const choiceKey=()=>JSON.stringify([el('artist').value,el('folder').value]);
+const previewRunning=()=>['starting','scanning'].includes(current.state);
+const planJob=()=>current.application?.plan_id===current.id?current.application:null;
+const applicable=f=>['move','keep'].includes(f.action)&&f.telegram_status==='matched'&&f.month;
+function cleanMessage(message=''){
+ const lines=String(message).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').replace(/\x08+|\r/g,'\n').replace(/[\x00-\x07\x0b-\x1f\x7f]/g,'').split('\n').map(line=>line.replace(/[ \t]+/g,' ').trim()).filter(line=>line&&!/^\d{1,3}%(?:\s|$)/.test(line));
+ return [...new Set(lines)].join('\n');
+}
+function jobMessage(job){
+ const message=cleanMessage(job.message);
+ if(['failed','stopped','interrupted'].includes(job.state)&&message.startsWith('7-Zip could not read the complete archive'))return 'Image extraction stopped because the archive could not be read. Completed work is saved.';
+ const line=message.split('\n')[0];return line.length>260?line.slice(0,257)+'…':line;
+}
+function showError(message=''){el('page-error').textContent=cleanMessage(message);el('page-error').hidden=!message}
+async function api(path,data){const r=await fetch(path,{cache:'no-store',...(data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})});const b=await r.json();if(!r.ok)throw Error(b.error||'Request failed');return b}
+function node(tag,text,className){const n=document.createElement(tag);n.textContent=text;if(className)n.className=className;return n}
+function artists(){
+ const old=el('artist').value,query=el('search').value.trim().toLowerCase();
+ const matches=creators.filter(c=>c.name.toLowerCase().includes(query));
+ el('artist').replaceChildren(new Option('Choose an artist',''));
+ for(const c of matches)el('artist').append(new Option(c.name,c.topic_url));
+ el('artist').value=old&&matches.some(c=>c.topic_url===old)?old:(query&&matches.length?matches[0].topic_url:'');
+ if(el('artist').value!==old)suggest();render();
+}
+function suggest(){
+ const creator=creators.find(c=>c.topic_url===el('artist').value),saved=subscriptions.find(s=>s.topic_url===el('artist').value),folders=[...el('folder').options].map(o=>o.value).filter(Boolean);
+ const folder=saved?(folders.includes(saved.creator_folder)?saved.creator_folder:''):(creator?SelectionRules.suggest(creator.name,folders):'');
+ el('folder').value=folder;
+ el('folder-hint').textContent=!creator?'Choose an artist first.':folder?(saved?'Saved download folder for this artist.':'Matched by artist name.'):saved?'Saved folder “'+saved.creator_folder+'” is not available here.':'Choose an existing folder for this artist.';
+}
+function acceptPlan(plan){
+ current=plan;
+ if(plan.id&&(previewRunning()||(appRunning()&&planJob()))){previewPlanId=plan.id;previewChoice=choiceKey()}
+}
+function render(){
+ const p=current,scanning=previewRunning(),running=active();
+ const visible=previewPending||scanning||(appRunning()&&!!planJob())||!!(previewPlanId&&p.id===previewPlanId&&previewChoice===choiceKey());
+ el('preview-panel').hidden=!visible;
+ el('preview-results').hidden=!visible||previewPending||p.id!==previewPlanId;
+ el('status').textContent=previewPending?'Starting preview…':(planJob()?jobMessage(planJob()):cleanMessage(p.message)||'Preview results');
+ el('scope').textContent=!previewPending&&p.creator?`${p.creator} · ${p.creator_folder}`:'';
+ el('stop').hidden=!running||previewPending;
+ el('stop').disabled=actionPending;
+ el('preview').disabled=!ready||actionPending||running||downloadActive||!el('artist').value||!el('folder').value;
+ for(const id of ['search','artist','folder'])el(id).disabled=!ready||running||actionPending||(id==='folder'&&!el('artist').value);
+ el('scan').hidden=!scanning||previewPending;
+ el('scan').removeAttribute('value');
+ el('scan-detail').hidden=!scanning||previewPending;
+ el('scan-detail').textContent=scanning&&p.rows_read!=null?`${p.rows_read} Telegram attachments read`+(p.telegram_file_count!=null?` · ${p.telegram_file_count} total`:''):'';
+ el('live-note').hidden=!running||previewPending;
+ renderTable();renderApplication();
+}
+function renderTable(){
+ const signature=JSON.stringify([current.files,current.warnings,planJob()?.files,el('filter').value]);
+ if(signature===tableSignature)return;
+ tableSignature=signature;
+ const outcomes=new Map((planJob()?.files||[]).map(f=>[f.source,f]));
+ const files=(current.files||[]).map(f=>({...f,outcome:outcomes.get(f.source)}));
+ const recorded=f=>f.already_recorded||f.outcome?.recorded;
+ const toRecord=f=>f.would_record&&!recorded(f);
+ const toMove=f=>f.action==='move'&&!f.outcome?.moved;
+ const needsReview=f=>['review','conflict'].includes(f.action)||!['matched','pending'].includes(f.telegram_status);
+ el('metrics').replaceChildren();
+ for(const [label,count] of [['Files',files.length],['Matched',files.filter(f=>f.telegram_status==='matched').length],['To move',files.filter(toMove).length],['To record',files.filter(toRecord).length],['Recorded',files.filter(recorded).length],['Needs review',files.filter(needsReview).length]]){
+  const box=node('div','','metric');box.append(node('strong',String(count)),node('span',label));el('metrics').append(box);
+ }
+ const rows=document.createDocumentFragment();
+ for(const f of files){
+  const filter=el('filter').value;
+  if(filter==='move'&&!toMove(f)||filter==='record'&&!toRecord(f)||filter==='recorded'&&!recorded(f)||filter==='keep'&&f.action!=='keep'&&!f.outcome?.moved||filter==='review'&&!needsReview(f))continue;
+  const row=node('tr',''),name=node('td',f.source),destination=node('td',f.destination||'Month needs review'),action=node('td','');
+  const moved=f.action==='move'&&f.outcome?.moved;
+  action.append(node('span',moved?'Moved':({move:'Would move',keep:'Keep in place',conflict:'Conflict',review:'Needs review'})[f.action],'badge '+(moved?'moved':f.action)));
+  const phase=({pending:'Waiting',preparing:'Preparing release',extracting:'Extracting images',images:'Moving release images',moving:'Moving archives',recording:'Recording in history',moved:'Waiting for history',paused:'Paused',completed:'Complete'})[f.outcome?.state];
+  if(phase)action.append(node('small',phase));
+  if(f.reason)action.append(node('small',f.reason));
+  const match=node('td','');
+  match.append(node('span',({matched:'Name + size match',unmatched:'No name match',size_mismatch:'Size differs',size_unreadable:'Size needs review',ambiguous:'Multiple matches',pending:'Pending'})[f.telegram_status]||f.telegram_status,'badge '+f.telegram_status));
+  if(f.telegram_name&&f.telegram_name!==f.filename)match.append(node('small',f.telegram_name));
+  const localSize=node('td',(f.size/1048576).toFixed(1)+' MiB');localSize.append(node('small',f.size.toLocaleString()+' bytes'));
+  const telegramSize=node('td',f.telegram_size||'Not read');if(f.telegram_size)telegramSize.append(node('small','Exact Telegram metadata'));
+  const record=node('td',f.outcome?.recorded?'Recorded':f.already_recorded?'Already recorded':f.would_record?(f.outcome?'Pending recording':'Would record as downloaded'):'No history change proposed');
+  row.append(name,destination,action,localSize,telegramSize,match,record);rows.append(row);
+ }
+ el('rows').replaceChildren(rows);
+ el('warnings').replaceChildren();for(const warning of current.warnings||[])el('warnings').append(node('li',warning));
+ el('scan-notes').hidden=!(current.warnings||[]).length;
+}
+async function refresh(){
+ if(refreshPending||actionPending)return;
+ refreshPending=true;const started=revision;
+ try{const [plan,queue]=await Promise.all([api('/api/organizer'),api('/api/queue')]);if(started!==revision)return;acceptPlan(plan);downloadActive=queue.active;render()}
+ catch(e){if(started===revision)showError(e.message)}
+ finally{refreshPending=false}
+}
+function renderApplication(){
+ const job=current.application,files=current.files||[],available=files.filter(applicable),pending=job&&['failed','stopped','interrupted'].includes(job.state),running=appRunning();
+ const fresh=available.every(f=>f.identity),matchesChoice=sameChoice(current);
+ const applied=planJob()?.state==='completed';
+ el('apply-controls').hidden=el('preview-results').hidden||current.state!=='completed'||!available.length||!matchesChoice||!!pending||running||applied;
+ el('apply').textContent=`Apply ${available.length} ready files`;
+ el('apply').disabled=!ready||actionPending||active()||downloadActive||current.state!=='completed'||!available.length||!fresh||!matchesChoice||!!pending||applied;
+ el('extract-images').disabled=running||actionPending;
+ el('apply-summary').textContent=downloadActive?'A download is running. Apply will be available when it finishes.':!fresh?'Run a fresh preview before applying.':`${available.filter(f=>f.action==='move').length} files to move · ${available.filter(f=>f.action==='keep').length} already in monthly folders · ${files.length-available.length} skipped for review`;
+ el('application').hidden=!running&&!pending;
+ el('application-progress').hidden=!running;el('phase-progress').hidden=!running;el('phase-detail').hidden=!running;
+ el('resume').hidden=!pending;el('resume').disabled=downloadActive||active()||actionPending;
+ if(!job)return;
+ el('application-title').textContent=`${job.creator} · ${running?'Organizing folders':'Organization paused'}`;
+ const message=jobMessage(job),details=cleanMessage(job.message);
+ el('application-message').textContent=message;
+ el('error-details').hidden=!pending||details===message;
+ if(el('error-details').hidden)el('error-details').open=false;
+ el('error-text').textContent=details;
+ el('application-progress').value=job.files_total?100*job.files_done/job.files_total:0;
+ el('application-counts').textContent=`${job.files_done} / ${job.files_total} files recorded · ${job.moves_done} / ${job.moves_total} archives moved · ${job.releases_done} / ${job.releases_total} releases`;
+ const total=job.progress_total,done=job.progress_done||0;
+ if(total>0)el('phase-progress').value=Math.min(100,100*done/total);else el('phase-progress').removeAttribute('value');
+ const units=job.progress_unit==='bytes'&&total?`${(done/1048576).toFixed(1)} / ${(total/1048576).toFixed(1)} MiB`:job.progress_unit==='percent'&&total?Math.round(100*done/total)+'% checked':total?`${done} / ${total} files`:'';
+ el('phase-detail').textContent=running?[units,job.phase==='extracting'&&job.images_total!=null?`${job.images_done} / ${job.images_total} images`:'',job.phase==='images'&&job.speed_bps!=null?(job.speed_bps/1e6).toFixed(1)+' MB/s':'',job.phase==='extracting'&&job.elapsed_seconds!=null?Math.round(job.elapsed_seconds)+' seconds elapsed':''].filter(Boolean).join(' · '):'';
+}
+async function action(path,payload){
+ actionPending=true;revision++;showError();render();
+ try{acceptPlan(await api(path,payload));return true}catch(e){showError(e.message);return false}finally{actionPending=false;render()}
+}
+el('apply').onclick=()=>action('/api/organizer/apply',{plan_id:current.id,extract_images:el('extract-images').checked});
+el('resume').onclick=()=>action('/api/organizer/resume',{job_id:current.application.id});
+el('search').oninput=artists;
+el('artist').onchange=()=>{suggest();render()};
+el('folder').onchange=()=>{el('folder-hint').textContent=el('folder').value?'Manually selected folder.':'Choose an existing folder for this artist.';render()};
+el('filter').onchange=render;
+el('preview').onclick=async()=>{
+ const choice={dry_run:true,topic_url:el('artist').value,creator_folder:el('folder').value};
+ previewPending=true;previewPlanId=null;previewChoice=choiceKey();
+ const succeeded=await action('/api/organizer/preview',choice);
+ if(succeeded)previewPlanId=current.id;
+ previewPending=false;render();
+};
+el('stop').onclick=async()=>{
+ actionPending=true;revision++;showError();render();
+ try{await api('/api/organizer/stop',{})}catch(e){showError(e.message)}finally{actionPending=false;await refresh();render()}
+};
+async function poll(){await refresh();setTimeout(poll,active()?1000:3000)}
+(async()=>{
+ try{
+  const [catalog,config,saved]=await Promise.all([api('/data/creators.json'),api('/api/config'),api('/api/subscriptions')]);
+  creators=catalog.creators.filter(c=>c.within_approved_group).sort((a,b)=>a.name.localeCompare(b.name));subscriptions=saved.subscriptions;
+  for(const folder of config.folders)el('folder').append(new Option(folder,folder));
+  el('base').textContent=config.download_directory;ready=true;artists();suggest();
+ }catch(e){showError(e.message)}
+ poll();
+})();
+</script></html>

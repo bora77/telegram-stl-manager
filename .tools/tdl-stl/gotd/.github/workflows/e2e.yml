@@ -1,0 +1,52 @@
+name: E2E
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      # Note that we deliberately don’t restore GOCACHE.
+      # That is, we must not cache e2e test results.
+      - name: Get Go environment
+        id: go-env
+        run: echo "::set-output name=modcache::$(go env GOMODCACHE)"
+      - name: Set up cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.go-env.outputs.modcache }}
+          key: e2e-${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/go.mod') }}
+          restore-keys: |
+            e2e-${{ runner.os }}-go-
+
+      - name: Install latest mtg proxy
+        run: go install -v github.com/9seconds/mtg/v2@latest
+
+      # Run all tests that start with "TestExternalE2E".
+      - name: Run tests
+        run: go test -v -run ^TestExternalE2E ./...
+        env:
+          GOTD_TEST_EXTERNAL: 0
+          GOTD_MTPROXY_ADDR: "127.0.0.1:3128"
+          TEST_ACCOUNTS_BROKEN: 1 # use external test accounts
+          TEST_ACCOUNT_MANAGER_DISABLED: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_JOB_ID: ${{ github.job }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}

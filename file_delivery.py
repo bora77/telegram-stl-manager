@@ -1,0 +1,83 @@
+"""Bounded, verified delivery; leave staged input intact on every failure."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import uuid
+
+class DeliveryError(RuntimeError):pass
+
+def digest(path):
+    h=hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        while block:=stream.read(4*1024*1024):h.update(block)
+    return h.hexdigest()
+
+def mount_identity(base):
+    base=Path(base).resolve(strict=True)
+    data=json.loads(subprocess.check_output(['findmnt','-J','-T',str(base),'-o','TARGET,SOURCE,FSTYPE'],text=True,timeout=15))['filesystems'][0]
+    if str(base).startswith('/mnt/kronos-stl/') or base==Path('/mnt/kronos-stl'):
+        if data['fstype']!='cifs' or data['source'].lower()!='//kronos/stl':raise DeliveryError('Kronos is not mounted; staged files were kept locally.')
+    return (data['target'],data['source'],data['fstype'],base.stat().st_dev)
+
+def deliver(source,base,folder,month,filename,progress=lambda done,total:None,phase=lambda state:None,*,subdirectories=()):
+    import re
+    if any(not isinstance(v,str) or not v or v in ('.','..') or re.search(r'[\\/<>:"|?*\x00-\x1f]',v) or v.strip()!=v for v in (folder,filename,*subdirectories)):raise DeliveryError('Unsafe destination filename.')
+    if not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',month or ''):raise DeliveryError('Release month needs review.')
+    base=Path(base).resolve(strict=True);identity=mount_identity(base)
+    source=Path(source);size=source.stat().st_size
+    if shutil.disk_usage(base).free<size+64*1024*1024:raise DeliveryError('Not enough destination space.')
+    destination=base.joinpath(folder,month,*subdirectories,filename)
+    # Refuse symlinks both before creating and immediately before opening.
+    for part in (*destination.relative_to(base).parents,):
+        part=base/part
+        if part.is_symlink():raise DeliveryError('Destination contains a symbolic link.')
+    if destination.is_symlink():raise DeliveryError('Destination contains a symbolic link.')
+    # Pin the mounted base before creating any children. Even a disconnect or
+    # unmount between these operations cannot redirect writes onto the local SSD.
+    basefd=os.open(base,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    dirfd=None
+    try:
+        if os.fstat(basefd).st_dev!=identity[-1]:raise DeliveryError('Destination mount changed.')
+        dirfd=os.dup(basefd)
+        for component in (folder,month,*subdirectories):
+            try:os.mkdir(component,dir_fd=dirfd)
+            except FileExistsError:pass
+            childfd=os.open(component,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=dirfd)
+            os.close(dirfd);dirfd=childfd
+    except BaseException:
+        if dirfd is not None:os.close(dirfd)
+        raise
+    finally:
+        os.close(basefd)
+    temporary=destination.with_name('.'+filename+'.'+uuid.uuid4().hex+'.partial')
+    try:
+        if mount_identity(base)!=identity:raise DeliveryError('Destination mount changed.')
+        phase('preparing')
+        checksum=digest(source)
+        if destination.exists():
+            if destination.stat().st_size==size and digest(destination)==checksum:return destination,size,checksum
+            raise DeliveryError('A different file already exists at the destination; nothing was overwritten.')
+        phase('transferring')
+        fd=os.open(temporary.name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=dirfd)
+        with os.fdopen(fd,'wb') as out,source.open('rb') as incoming:
+            done=0
+            while block:=incoming.read(4*1024*1024):
+                out.write(block);done+=len(block);progress(done,size)
+            out.flush();os.fsync(out.fileno())
+        phase('verifying')
+        if digest(temporary)!=checksum:raise DeliveryError('Destination checksum mismatch; local file retained.')
+        if mount_identity(base)!=identity:raise DeliveryError('Destination mount changed; local file retained.')
+        # Atomic no-overwrite publish on CIFS and local Linux filesystems.
+        import ctypes
+        libc=ctypes.CDLL(None,use_errno=True)
+        result=libc.renameat2(dirfd,os.fsencode(temporary.name),dirfd,os.fsencode(destination.name),1)
+        if result:raise OSError(ctypes.get_errno(),'Could not publish verified file without overwriting')
+        os.fsync(dirfd)
+        return destination,size,checksum
+    finally:
+        try:os.unlink(temporary.name,dir_fd=dirfd)
+        except FileNotFoundError:pass
+        os.close(dirfd)

@@ -1,0 +1,9 @@
+go 1.25.8
+
+use (
+	.
+	core
+	extension
+)
+
+replace github.com/gotd/td => ../gotd

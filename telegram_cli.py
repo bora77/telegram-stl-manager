@@ -253,7 +253,7 @@ class TelegramCLI:
                             return
                     status('Checking new messages…' if saved else 'Reading exact attachment names and sizes…')
             self._run(args, work, stopped, heartbeat, timeout=900,
-                      waiting=lambda:status('Waiting for the current Telegram transfer to finish…'))
+                      waiting=lambda:status('Waiting for another Telegram scan or download to finish…'))
             if read_json(str(export)+'.complete',None)!={'complete':True,'topic':topic_id}:
                 raise CLIError('Telegram did not confirm a complete topic scan; no downloads were planned.')
             if not export.is_file() or export.stat().st_size > 128 * 1024**2:

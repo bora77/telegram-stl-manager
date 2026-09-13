@@ -9,6 +9,7 @@ def release_month(filename):
     for year,month in re.findall(r'(?<!\d)(20\d{2})[ ._\-]+(0?[1-9]|1[0-2])(?![\da-z])',filename,re.I):values.add(f'{year}-{int(month):02d}')
     for month,year in re.findall(r'(?<![\da-z])(0?[1-9]|1[0-2])[ ._\-]+(20\d{2})(?![\da-z])',filename,re.I):values.add(f'{year}-{int(month):02d}')
     for year,month in re.findall(r'(?<![\da-z])(\d{2})[ _\-]+(0[1-9]|1[0-2])(?![\da-z])',filename,re.I):values.add(f'20{year}-{month}')
+    for month,year in re.findall(r'(?<![\da-z])(0[1-9]|1[0-2])[ ._\-]+(\d{2})(?![\da-z])',filename,re.I):values.add(f'20{year}-{month}')
     words=r'(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober|obre)?|Nov(?:ember)?|Dec(?:ember)?)'
     # A quarterly loyalty pack must not silently be assigned to its last month.
     named_months={m[:3].lower() for m in re.findall(r'(?<![a-z])'+words+r'(?![a-z])',filename,re.I)}

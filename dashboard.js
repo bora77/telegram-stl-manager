@@ -6,24 +6,24 @@ function savedSummary(){document.getElementById('saved-summary').textContent=`${
 function applySaved(){
   selected={};for(const r of savedSubscriptions)selected[r.topic_url]=SelectionRules.migrate({...r,selection_version:2},inventory);
   try{localStorage.setItem('telegram-stl-selection',JSON.stringify(selected))}catch{}
-  render();renderSelections();document.getElementById('save-status').textContent='Loaded saved subscriptions.';
+  render();renderSelections();setSaveStatus('Loaded saved subscriptions.');
 }
 document.getElementById('load-subscriptions').onclick=async()=>{
   try{const data=await api('/api/subscriptions');savedSubscriptions=data.subscriptions;serverRevision=data.revision;const config=await api('/api/config');configRevision=config.revision;downloadBase=config.download_directory;document.getElementById('download-base').textContent=downloadBase;applySaved();savedSummary()}
-  catch(error){document.getElementById('save-status').textContent=error.message}
+  catch(error){setSaveStatus(error.message,true)}
 };
 document.getElementById('save-subscriptions').onclick=async()=>{
   const entries=Object.values(selected),allowed=new Set(all.map(r=>r.topic_url));
   const bad=entries.find(r=>SelectionRules.validate(r,allowed));
-  if(bad){document.getElementById('save-status').textContent=bad.creator+': '+SelectionRules.validate(bad,allowed);return}
+  if(bad){setSaveStatus('Not saved: '+bad.creator+': '+SelectionRules.validate(bad,allowed),true);return}
   const snapshot=JSON.stringify(selected);saving=true;renderSelections();
-  document.getElementById('save-status').textContent='Saving subscriptions…';
+  setSaveStatus('Saving subscriptions…');
   try{
     const data=await api('/api/subscriptions',{revision:serverRevision,config_revision:configRevision,subscriptions:entries.map(SelectionRules.exportRecord)});
     serverRevision=data.revision;savedSubscriptions=data.subscriptions;savedSummary();render();
-    document.getElementById('save-status').textContent=JSON.stringify(selected)===snapshot?'Subscriptions saved. Press Download all subscriptions when ready.':'Subscriptions saved, but you have newer unsaved edits.';
+    setSaveStatus(JSON.stringify(selected)===snapshot?'Subscriptions saved. Press Download all subscriptions when ready.':'Subscriptions saved, but you have newer unsaved edits.');
     refreshQueue();
-  }catch(error){document.getElementById('save-status').textContent='Not saved: '+error.message}
+  }catch(error){setSaveStatus('Not saved: '+error.message,true)}
   finally{saving=false;renderSelections()}
 };
 function bytes(value){if(value==null)return 'Size pending';const units=['B','KiB','MiB','GiB','TiB'];let i=0;while(value>=1024&&i<units.length-1){value/=1024;i++}return value.toFixed(i?1:0)+' '+units[i]}
@@ -96,8 +96,8 @@ async function initialize(){
     if(!hasDraft)applySaved();else {render();renderSelections()}
     subscriptionFilter.disabled=false;
     document.getElementById('load-subscriptions').disabled=false;savedSummary();
-    if(!config.available)document.getElementById('save-status').textContent='The configured download folder is currently unavailable. You can save settings, but downloads must wait.';
-  }catch(error){document.getElementById('save-status').textContent='Cannot load saved settings: '+error.message}
+    if(!config.available)setSaveStatus('The configured download folder is currently unavailable. You can save settings, but downloads must wait.');
+  }catch(error){setSaveStatus('Cannot load saved settings: '+error.message,true)}
 }
 initialize();refreshQueue();setInterval(refreshQueue,3000);
 

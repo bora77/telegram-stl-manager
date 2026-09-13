@@ -1,8 +1,14 @@
 function element(tag,text){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el}
 const subscriptionFilter=document.getElementById('subscription-filter');
+function setSaveStatus(message,error=false){
+  const notice=document.getElementById('save-status');
+  notice.classList.toggle('save-error',error);
+  notice.setAttribute('role',error?'alert':'status');
+  notice.textContent=message;
+}
 function persist(){
   try{localStorage.setItem('telegram-stl-selection',JSON.stringify(selected))}catch{}
-  document.getElementById('save-status').textContent='Unsaved changes. Press Save subscriptions to apply them.';
+  setSaveStatus('Unsaved changes. Press Save subscriptions to apply them.');
 }
 function renderSelections(){
   document.getElementById('selected-count').textContent=`${Object.keys(selected).length} creators selected`;

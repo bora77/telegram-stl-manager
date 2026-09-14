@@ -94,7 +94,6 @@ async function refreshQueue(){
     document.getElementById('download-speed').textContent=downloading&&!queue.scheduler?`Download: ${speed(downloading.download_speed_bps)} · ${duration(downloading.download_seconds)} elapsed · average ${speed(downloading.download_average_bps)}`:'';
     const scheduler=queue.scheduler,parallel=document.getElementById('parallel-panel');parallel.hidden=!scheduler;
     if(scheduler){
-      document.getElementById('parallel-status').textContent=`${scheduler.transfers.length} / ${scheduler.max_transfers} transfers · ${scheduler.target_mbps} MB/s target${scheduler.ready_files?' · '+scheduler.ready_files+' files ready for processing':''}`;
       const files=document.getElementById('parallel-files');files.replaceChildren();
       for(const file of scheduler.transfers){
         if(file.phase==='verifying'||file.phase==='staged'||file.total>0&&file.bytes>=file.total){files.append(compactTransfer(file,`${file.creator} · ${file.detail||'Verifying download'} · ${bytes(file.total)}`));continue}

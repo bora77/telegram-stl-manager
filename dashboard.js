@@ -41,12 +41,14 @@ function renderRunActivity(queue){
   document.getElementById('run-activity').dataset.active=String(queue.active);
   const phase=({starting:'Starting run',scanning:'Checking Telegram files',downloading:'Downloading file',extracting:'Extracting release images',copying:'Moving file to destination',completed:'Run finished',needs_review:'Run finished · review needed',failed:'Run stopped with an error',interrupted:'Run interrupted',stopped:'Run stopped'})[state]||'Ready';
   document.getElementById('run-phase').textContent=phase;
-  const seconds=run.started_at?(Date.parse(run.finished_at||new Date().toISOString())-Date.parse(run.started_at))/1000:null;
+  const started=run.resumed_at||run.started_at;
+  const seconds=started?(Date.parse(run.finished_at||new Date().toISOString())-Date.parse(started))/1000:null;
   document.getElementById('run-elapsed').textContent=seconds==null?'':(queue.active?'Elapsed: ':'Run duration: ')+duration(seconds);
   const scanning=state==='scanning';
   document.getElementById('run-detail').textContent=scanning?`${run.creators_checked||0} / ${run.creators_total||0} artists checked · ${run.message||'Checking new messages…'}${run.files_listed?' · '+run.files_listed+' new file records':''}`:ended&&queue.total_files===0?'No matching releases were queued for download.'+(run.warnings?.length?' Some entries could not be classified; review them below.':''):runMessage(run);
   document.getElementById('review-summary').textContent=`Items needing review (${run.warnings?.length||0})`;
 }
+let resumableRunId=null,runRequestPending=false;
 async function refreshQueue(){
   try{
     const queue=await api('/api/queue');
@@ -54,8 +56,10 @@ async function refreshQueue(){
     const checking=['starting','scanning'].includes(queue.worker_state),emptyFinished=['completed','needs_review'].includes(queue.worker_state)&&queue.total_files===0;
     const stopped=['failed','interrupted','stopped'].includes(queue.worker_state);
     document.getElementById('worker-state').textContent=queue.worker_state.replaceAll('_',' ');
-    document.getElementById('download-all').disabled=!queue.can_start||saving;document.getElementById('stop-downloads').disabled=!queue.active;
-    document.getElementById('download-start-help').textContent=queue.active?'One manual run is active.':stopped?'Press Download all subscriptions to retry. Completed files are skipped and verified local downloads are reused.':queue.subscriptions_saved?'Runs all saved subscriptions; unsaved edits are excluded.':'Save at least one subscription to start.';
+    document.getElementById('download-all').disabled=!queue.can_start||saving||runRequestPending;document.getElementById('stop-downloads').disabled=!queue.active;
+    resumableRunId=queue.can_resume?queue.run.id:null;
+    const resume=document.getElementById('resume-downloads');resume.hidden=!queue.can_resume;resume.disabled=!queue.can_resume||saving||runRequestPending;
+    document.getElementById('download-start-help').textContent=queue.active?'One manual run is active.':queue.can_resume?'Resume uses this run’s saved artists, scope and folders, without rechecking finished artists. Completed files and verified local downloads are reused.':queue.subscriptions_saved?'Runs all saved subscriptions; unsaved edits are excluded.':'Save at least one subscription to start.';
     const total=queue.progress_total??queue.bytes_total;
     const percent=total>0?Math.min(100,100*queue.bytes_downloaded/total):null;
     document.getElementById('queue-percent').textContent=stopped?'Stopped'+(percent==null?'':' at '+Math.floor(percent)+'%'):checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'%';
@@ -102,10 +106,22 @@ async function initialize(){
 initialize();refreshQueue();setInterval(refreshQueue,3000);
 
 document.getElementById('download-all').onclick=async()=>{
-  const button=document.getElementById('download-all');button.disabled=true;
+  if(runRequestPending)return;
+  const button=document.getElementById('download-all');button.disabled=true;runRequestPending=true;
+  document.getElementById('resume-downloads').disabled=true;
   document.getElementById('run-phase').textContent='Starting run…';document.getElementById('run-detail').textContent='Sending your manual download request.';document.getElementById('run-activity').dataset.active='true';document.getElementById('queue-message').textContent='Starting…';
   try{await api('/api/run',{revision:serverRevision,config_revision:configRevision});await refreshQueue()}
   catch(error){document.getElementById('queue-message').textContent=error.message;document.getElementById('run-phase').textContent='Could not start';document.getElementById('run-detail').textContent=error.message;document.getElementById('run-activity').dataset.active='false';button.disabled=false}
+  finally{runRequestPending=false}
+};
+document.getElementById('resume-downloads').onclick=async()=>{
+  if(!resumableRunId||runRequestPending)return;
+  const button=document.getElementById('resume-downloads');button.disabled=true;runRequestPending=true;
+  document.getElementById('download-all').disabled=true;
+  document.getElementById('run-phase').textContent='Resuming queue…';document.getElementById('run-detail').textContent='Loading saved checks and pending files.';
+  try{await api('/api/run/resume',{run_id:resumableRunId});await refreshQueue()}
+  catch(error){document.getElementById('queue-message').textContent=error.message;document.getElementById('run-phase').textContent='Could not resume';document.getElementById('run-detail').textContent=error.message;button.disabled=false}
+  finally{runRequestPending=false}
 };
 document.getElementById('stop-downloads').onclick=async()=>{
   try{const result=await api('/api/stop',{});document.getElementById('queue-message').textContent=result.message}catch(error){document.getElementById('queue-message').textContent=error.message}

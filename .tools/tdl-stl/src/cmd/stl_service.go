@@ -87,6 +87,7 @@ func runSTLRequest(ctx context.Context, c *telegram.Client, kv storage.Storage, 
 		f.StringVar(&o.Network, "network", "default", "")
 		f.BoolVar(&o.IPv6, "ipv6", false, "")
 		f.BoolVar(&o.Retest, "retest", false, "")
+		f.Float64Var(&o.MinSpeedMBPS, "min-speed-mbps", 0, "")
 		f.BoolVar(&o.QuickTest, "quick-test", false, "")
 		f.StringVar(&o.ReuseServer, "reuse-server", "", "")
 		f.BoolVar(&o.ProbeOnly, "probe-only", false, "")

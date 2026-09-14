@@ -14,6 +14,7 @@ from datetime import datetime,timezone
 from subscription_store import SubscriptionStore
 from telegram_cli import TelegramCLI, CLIError as WorkerError, STATE, safe_filename
 from release_rules import release_month,in_scope
+from download_plan import DownloadPlan
 from transfer_metrics import TransferMeter
 from file_delivery import deliver,mount_identity,digest,release_lock
 from release_images import extract_images,ExtractionError,MissingVolumeError,volume_key,flat_image_name,listing
@@ -25,6 +26,7 @@ class Worker:
         self.path=ROOT/'data/run.json';self.run=json.loads(self.path.read_text())
         if self.run['id']!=batch:raise RuntimeError('Run was replaced before start.')
         self.batch=batch;self.telegram=None;self.pending=[];self.planned=[];self.numbered_rars=set()
+        self.plan=DownloadPlan(self.store,self.run)
     def archive_key(self,name,sub,month):
         match=re.fullmatch(r'(.+)[ _.-](\d+)\.rar',name,re.I)
         if match and (sub['topic_url'],month,match[1].casefold()) in self.numbered_rars:
@@ -65,7 +67,7 @@ class Worker:
             mount_identity(self.run['download_directory'])
             if not (staged.is_file() and receipt.is_file()):
                 if staged.exists():raise WorkerError('An unverified staging file needs review: '+filename)
-                self.update('downloading','Downloading '+filename,current_creator=sub['creator'],download_server=None,server_stage=None)
+                self.update('downloading','Downloading '+filename,current_creator=sub['creator'],download_server=None,server_stage=None,server_test_reason=None)
                 meter=None
                 def progress(done,total,estimate=None):
                     nonlocal meter
@@ -77,8 +79,15 @@ class Worker:
                     if kind=='waiting_for_telegram':
                         self.update('downloading','Waiting for the current Telegram scan to finish · '+filename)
                     elif kind=='download_start':meter=None
+                    if kind=='speed_retest_pending':
+                        self.update('downloading',f"Speed below {event['threshold_bps']/1e6:g} MB/s for at least five minutes; server check queued for the next file. Downloading "+filename)
+                    elif kind=='server_slow_retest':
+                        self.update('downloading','Comparing servers after sustained slow download speed…',server_test_reason='sustained_slowdown')
+                    elif kind=='server_test_fallback':
+                        self.update('downloading','Server comparison unavailable; keeping the previous server.')
                     if kind=='server_testing':
-                        self.update('downloading',f"Comparing download servers · {event['index']} / {event['count']}",server_test=event,server_stage='testing')
+                        label='Comparing servers after sustained slowdown' if self.run.get('server_test_reason')=='sustained_slowdown' else 'Comparing download servers'
+                        self.update('downloading',f"{label} · {event['index']} / {event['count']}",server_test=event,server_stage='testing')
                     elif kind=='server_selected':
                         self.update('downloading','Downloading '+filename,download_server=event['endpoint'],server_stage='selected')
                     elif kind=='server_retry':
@@ -262,19 +271,23 @@ class Worker:
             result['eligible_files']+=1
             if item['source_message_id'] in downloaded:
                 result['already_downloaded']+=1;continue
-            row=self.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=topic,
-                                      filename=item['filename'],bytes_total=item['bytes_total'],release_month=month,batch_id=self.batch)
-            if row['filename']!=item['filename'] or row['topic_url']!=topic:
-                raise WorkerError('Previously queued attachment identity changed; review required.')
-            stagedir=STATE/'staging'/str(row['id'])
-            staged=stagedir/item['filename'];receipt=stagedir/'receipt.json'
-            reuse=row.get('download_finished_at') and staged.is_file() and not staged.is_symlink() and receipt.is_file() and not receipt.is_symlink()
-            with self.history.connect() as db:
-                reset='' if reuse else ',bytes_downloaded=0,download_started_at=NULL,download_finished_at=NULL,download_seconds=NULL,download_speed_bps=NULL,download_average_bps=NULL'
-                db.execute("UPDATE downloads SET batch_id=?,state='queued',error=NULL,bytes_total=?"+reset+" WHERE id=? AND state!='downloaded'",(self.batch,item['bytes_total'],row['id']))
-            self.planned.append((sub,item,month))
+            self.queue_item(sub,item,month)
         self.run['warnings']=list(dict.fromkeys(self.run['warnings']+warnings))
+        self.plan.save(sub,[{'item':item,'month':month} for saved_sub,item,month in self.planned if saved_sub['topic_url']==topic],result,warnings)
         self.update('scanning',f"{sub['creator']} · check complete",files_listed=received,telegram_file_count=len(items),creators_checked=len(self.run['creator_results']))
+    def queue_item(self,sub,item,month):
+        if self.history.was_downloaded(item['source_message_id']):return
+        item={**item,'topic_url':sub['topic_url']}
+        row=self.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=sub['topic_url'],
+                                  filename=item['filename'],bytes_total=item['bytes_total'],release_month=month,batch_id=self.batch)
+        if row['filename']!=item['filename'] or row['topic_url']!=sub['topic_url']:
+            raise WorkerError('Previously queued attachment identity changed; review required.')
+        stagedir=STATE/'staging'/str(row['id']);staged=stagedir/item['filename'];receipt=stagedir/'receipt.json'
+        reuse=row.get('download_finished_at') and staged.is_file() and not staged.is_symlink() and receipt.is_file() and not receipt.is_symlink()
+        with self.history.connect() as db:
+            reset='' if reuse else ',bytes_downloaded=0,download_started_at=NULL,download_finished_at=NULL,download_seconds=NULL,download_speed_bps=NULL,download_average_bps=NULL'
+            db.execute("UPDATE downloads SET batch_id=?,state='queued',error=NULL,bytes_total=?"+reset+" WHERE id=? AND state!='downloaded'",(self.batch,item['bytes_total'],row['id']))
+        self.planned.append((sub,item,month))
     def cleanup_completed(self):
         # Only the worker owns these scratch directories. Download receipts and
         # source volumes live separately and survive an interrupted extraction.
@@ -290,8 +303,19 @@ class Worker:
         try:
             self.cleanup_completed()
             self.telegram=TelegramCLI(root=ROOT,config=self.run.get('config',self.store.config()))
+            if self.run.get('resume_requested'):self.plan.seed_legacy()
+            self.run.update(plan_version=1,creator_results=[],creators_done=0,creators_checked=0)
             for sub in self.run['subscriptions']:
-                self.scan(sub)
+                if self.stopped():raise WorkerError('Stopped by request.')
+                saved=self.plan.load(sub)
+                if saved is None:self.scan(sub)
+                else:
+                    for entry in saved['items']:
+                        if self.stopped():raise WorkerError('Stopped by request.')
+                        self.queue_item(sub,entry['item'],entry['month'])
+                    self.run['creator_results'].append(saved['result'])
+                    self.run['warnings']=list(dict.fromkeys(self.run['warnings']+saved['warnings']))
+                    self.update('scanning','Using saved queue · '+sub['creator'],creators_checked=len(self.run['creator_results']),files_listed=0)
             for sub in self.run['subscriptions']:
                 planned=sorted((p for p in self.planned if p[0]['topic_url']==sub['topic_url']),key=lambda p:(p[2],self.archive_key(p[1]['filename'],sub,p[2])))
                 from itertools import groupby

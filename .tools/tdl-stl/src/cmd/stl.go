@@ -102,6 +102,7 @@ func NewSTL() *cobra.Command {
 	f.StringVar(&o.Network, "network", "default", "Network cache identity")
 	f.BoolVar(&o.IPv6, "ipv6", false, "IPv6 route available")
 	f.BoolVar(&o.Retest, "retest", false, "Ignore cached server comparison")
+	f.Float64Var(&o.MinSpeedMBPS, "min-speed-mbps", 0, "Schedule an Auto comparison after five minutes below this speed; zero disables")
 	f.BoolVar(&o.QuickTest, "quick-test", false, "Use two-second samples per endpoint")
 	f.StringVar(&o.ReuseServer, "reuse-server", "", "Reuse this release's automatic selection; retest on failure")
 	f.BoolVar(&o.ProbeOnly, "probe-only", false, "Only compare servers; retain no payload")

@@ -28,11 +28,33 @@ content for locally configured source references before creating an archive.
    comparisons for up to six hours. Configuration can instead compare before
    each artist/month and reuse the result across its files and archive parts.
    Connection setup means even short tests can add more than ten seconds.
+   The optional **Retest when download speed stays below (MB/s)** setting requests a comparison
+   after at least five minutes below the threshold. It uses a 30-second rolling
+   average after a ten-second warmup and counts active download time across
+   files on the same server. Extraction, moves and idle time are excluded.
+   Speed recovery resets the counter; history expires after 30 minutes.
+   The current file finishes before the next suitable file triggers a test.
+   Slowdown tests have a ten-minute cooldown and keep the current server unless
+   another measures at least 10% faster (or the current server fails its test).
+   Zero disables this monitor; it only affects Auto selections.
 3. In Artists, search the catalog, filter subscribed/unsubscribed creators, and
    choose the creator folder and scope in the same view. Save the selection.
 4. Press **Download all subscriptions** on the queue page. It processes every
    eligible saved subscription; there is no background subscription scheduler.
 5. Follow download, extraction, image transfer and archive move progress.
+6. After Stop, a failure or a worker interruption, **Resume download queue**
+   continues the same saved run. Each completed artist check has an atomic
+   checkpoint; only unchecked or interrupted artist checks contact Telegram
+   again. Completed identities are skipped and verified staged files are reused.
+   Resume retains the original artists, scopes and folders, uses current server
+   settings, and requires the same source and destination. Incomplete file
+   transfers restart. A new **Download all subscriptions** run checks for newer
+   posts; Resume does not add new posts to already checked artists.
+
+Older stopped queues can recover their completed checks from download history
+and exact cached attachment metadata. If an older creator's metadata is missing,
+only that creator is checked again. Resume does not bypass a file error; resolve
+the reported issue before retrying when necessary. No run resumes automatically.
 
 Scope offers **From month/year** first and **All (archiving)** second. New
 subscriptions default to the previous calendar month; the selected month remains

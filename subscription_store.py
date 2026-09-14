@@ -1,5 +1,6 @@
 """Validated local subscription settings; saving never starts a transfer."""
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -26,6 +27,7 @@ class SubscriptionStore:
         data=json.loads(self.config_path.read_text()) if self.config_path.exists() else {'revision':0,'download_directory':'/mnt/kronos-stl/'+INCOMING}
         data.setdefault('download_servers',{})
         data.setdefault('server_check_frequency','cached')
+        data.setdefault('server_speed_threshold_mbps',0)
         return data
 
     def atomic_write(self, path, data):
@@ -54,7 +56,10 @@ class SubscriptionStore:
             servers=validate_servers(payload.get('download_servers',current['download_servers']),self.root)
             frequency=payload.get('server_check_frequency',current['server_check_frequency'])
             if frequency not in ('cached','release'):raise ValueError('Choose a valid server comparison frequency.')
-            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency}
+            threshold=payload.get('server_speed_threshold_mbps',current['server_speed_threshold_mbps'])
+            if type(threshold) not in (int,float) or not 0<=threshold<=1000 or not math.isfinite(threshold):
+                raise ValueError('Enter a speed threshold between 0 and 1000 MB/s. Zero disables slowdown checks.')
+            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold}
             self.atomic_write(self.config_path,data)
             return data
 
@@ -137,4 +142,5 @@ class SubscriptionStore:
         count=len(self.read()['subscriptions'])
         return {**self.history.queue(run.get('id')),'worker_state':run['state'],
                 'trigger_mode':'manual','can_start':not active and count>0,'active':active,'organizer_active':organizer_active,
+                'can_resume':not active and run['state'] in ('failed','stopped','interrupted') and bool(run.get('id') and run.get('subscriptions')),
                 'run':run,'subscriptions_saved':count}

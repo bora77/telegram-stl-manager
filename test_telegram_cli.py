@@ -33,7 +33,7 @@ class ServiceProcessTests(unittest.TestCase):
             commands=[['files','--topic','200','--after-id','123','--output',str(root/'metadata.json')],
                       ['download','--topic','200','--message','100000','--document-id','42','--dc','4','--size','10',
                        '--filename','Artist 2026-09.zip','--output',str(root/'payload'),'--events',str(root/'events'),
-                       '--cache',str(root/'cache'),'--quick-test','--reuse-server','4/media/127.0.0.1/443','--probe-only']]
+                       '--cache',str(root/'cache'),'--quick-test','--reuse-server','4/media/127.0.0.1/443','--min-speed-mbps','20','--probe-only']]
             def receive():
                 with listener.accept()[0] as conn:
                     request=json.loads(conn.makefile('rb').readline())
@@ -52,6 +52,7 @@ class ServiceProcessTests(unittest.TestCase):
                         self.assertIn('--filename=Artist 2026-09.zip',request['args'])
                         self.assertIn('--probe-only=true',request['args']);self.assertIn('--quick-test=true',request['args'])
                         self.assertIn('--reuse-server=4/media/127.0.0.1/443',request['args'])
+                        self.assertIn('--min-speed-mbps=20',request['args'])
             self.assertFalse(list((state/'data').rglob('*')), 'Proxy unexpectedly opened a login database')
 
     def test_scan_and_download_overlap_and_stop_only_cancels_its_own_request(self):
@@ -260,6 +261,36 @@ class IncrementalScanTests(unittest.TestCase):
 
 
 class CLIProcessTests(unittest.TestCase):
+    def test_threshold_is_forwarded_only_for_automatic_real_transfers(self):
+        for threshold,manual,probe in [(20,False,False),(0,False,False),(20,True,False),(20,False,True)]:
+            with self.subTest(threshold=threshold,manual=manual,probe=probe),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);client=self.make_client(root,'')
+                client.config={'server_speed_threshold_mbps':threshold,'download_servers':{'4':'chosen-server'} if manual else {}}
+                def run(args,*a,**kw):
+                    if threshold and not manual and not probe:self.assertEqual(args[args.index('--min-speed-mbps')+1],20)
+                    else:self.assertNotIn('--min-speed-mbps',args)
+                    raise CLIError('Test stops before transferring')
+                with patch.object(client,'_run',side_effect=run),self.assertRaisesRegex(CLIError,'Test stops'):
+                    client.download(parse_export(exported(),TOPIC)[0],lambda *a:None,lambda:False,probe_only=probe)
+
+    def test_slowdown_notice_does_not_turn_off_active_download_monitoring(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);client=self.make_client(root,'');received=[];clock=time.monotonic()
+            def run(args,work,stopped,tick,**kwargs):
+                output=Path(args[args.index('--output')+1]);events=Path(args[args.index('--events')+1])
+                events.write_text(json.dumps({'event':'download_start','total':10})+'\n')
+                with patch('telegram_cli.time.monotonic',return_value=clock):tick()
+                with events.open('a') as stream:stream.write(json.dumps({'event':'speed_retest_pending','threshold_bps':20e6,'low_seconds':300})+'\n')
+                with patch('telegram_cli.time.monotonic',return_value=clock+1):tick()
+                with patch('telegram_cli.time.monotonic',return_value=clock+201):tick() # Active limit is 300s, idle is 180s.
+                output.write_bytes(b'0123456789')
+                with events.open('a') as stream:stream.write(json.dumps({'event':'complete','bytes':10,'message_id':100000,'filename':'Artist 2026-09.zip','sha256':hashlib.sha256(b'0123456789').hexdigest()})+'\n')
+                with patch('telegram_cli.time.monotonic',return_value=clock+202):tick()
+            with patch.object(client,'_run',side_effect=run):
+                result=client.download(parse_export(exported(),TOPIC)[0],lambda *a:None,lambda:False,status=received.append)
+            self.assertEqual(result.read_bytes(),b'0123456789')
+            self.assertIn('speed_retest_pending',[e['event'] for e in received])
+
     def test_release_server_comparison_is_once_per_month_artist_and_dc(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);client=self.make_client(root,'');client.config={'server_check_frequency':'release'};calls=[]

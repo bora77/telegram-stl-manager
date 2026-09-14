@@ -354,6 +354,9 @@ class TelegramCLI:
         if retest: args.append('--retest')
         if quick_test: args.append('--quick-test')
         if reuse: args.extend(['--reuse-server', reuse])
+        threshold = self.config.get('server_speed_threshold_mbps', 0)
+        if threshold and server == 'auto' and not probe_only:
+            args.extend(['--min-speed-mbps', threshold])
         offset = 0; pending = b''; complete = None; probed = False; previous = 0; active = False
         last_change = time.monotonic()
         def tick():

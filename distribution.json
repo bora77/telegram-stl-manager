@@ -13,6 +13,7 @@
     "dashboard.js",
     "download_history.py",
     "download_worker.py",
+    "download_plan.py",
     "favicon.svg",
     "file_delivery.py",
     "file_size.py",

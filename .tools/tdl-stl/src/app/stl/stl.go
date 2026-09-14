@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -132,6 +133,7 @@ type Options struct {
 	Filename, Output, Server, Cache, Network string
 	ReuseServer                              string
 	ProbeOnly, Retest, IPv6, QuickTest       bool
+	MinSpeedMBPS                             float64
 }
 type Measurement struct {
 	Endpoint string  `json:"endpoint"`
@@ -141,9 +143,13 @@ type Measurement struct {
 	Failed   bool    `json:"failed"`
 }
 type Selection struct {
-	Endpoint     string        `json:"endpoint"`
-	TestedAt     time.Time     `json:"tested_at"`
-	Measurements []Measurement `json:"measurements"`
+	Endpoint         string        `json:"endpoint"`
+	TestedAt         time.Time     `json:"tested_at"`
+	Measurements     []Measurement `json:"measurements"`
+	Health           *SpeedHealth  `json:"health,omitempty"`
+	LastSlowCheck    time.Time     `json:"last_slow_check,omitempty"`
+	PreviousEndpoint string        `json:"previous_endpoint,omitempty"`
+	Reason           string        `json:"reason,omitempty"`
 }
 type Cache map[string]Selection
 
@@ -214,6 +220,7 @@ type countWriter struct {
 	total, done int64
 	last        time.Time
 	events      *Events
+	speed       *speedMonitor
 }
 
 func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
@@ -228,6 +235,9 @@ func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
 		n, err = w.file.WriteAt(data, off)
 	}
 	w.done += int64(n)
+	if err == nil {
+		err = w.speed.observe(time.Now(), w.done)
+	}
 	if err == nil && w.events != nil && time.Since(w.last) >= 250*time.Millisecond {
 		w.last = time.Now()
 		err = w.events.Emit("progress", map[string]any{"bytes": w.done, "total": w.total})
@@ -298,6 +308,12 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 			candidates = append(candidates, endpoint)
 		}
 	}
+	return chooseEndpoint(ctx, candidates, file, o, e, func(ctx context.Context, key string, duration time.Duration) Measurement {
+		return probe(ctx, c, r, file, key, duration)
+	})
+}
+
+func chooseEndpoint(ctx context.Context, candidates []Endpoint, file *tmedia.Media, o Options, e *Events, measure func(context.Context, string, time.Duration) Measurement) (string, error) {
 	if len(candidates) == 0 {
 		return "", errors.New("no usable Telegram endpoints for this attachment")
 	}
@@ -309,6 +325,39 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 		}
 		return "", errors.New("manual server is unavailable for this file's data center or network; choose Auto")
 	}
+	cacheMu.Lock()
+	cache := readCache(o.Cache)
+	selection := cache[cacheKey(o)]
+	previous := selection.Endpoint
+	if o.ReuseServer != "" {
+		previous = o.ReuseServer
+	}
+	previousAvailable := false
+	for _, candidate := range candidates {
+		if candidate.Key == previous {
+			previousAvailable = true
+		}
+	}
+	now := time.Now().UTC()
+	slowCheck := file.Size >= 64*1024*1024 && !o.ProbeOnly && previousAvailable && slowCheckDue(selection, o.MinSpeedMBPS*1e6, previous, now)
+	if slowCheck {
+		// Claim under the shared cache lock so concurrent jobs do not both test.
+		selection.LastSlowCheck = now
+		selection.Health = nil
+		cache[cacheKey(o)] = selection
+		if err := WriteJSON(o.Cache, cache); err != nil {
+			cacheMu.Unlock()
+			return "", err
+		}
+		o.Retest = true
+		o.QuickTest = false
+	}
+	cacheMu.Unlock()
+	if slowCheck {
+		if err := e.Emit("server_slow_retest", map[string]any{"threshold_bps": o.MinSpeedMBPS * 1e6, "endpoint": previous}); err != nil {
+			return "", err
+		}
+	}
 	// Reuse the release's measured endpoint even if another concurrent job
 	// updates the shared cache. Automatic retry can still compare again.
 	if o.ReuseServer != "" && !o.Retest {
@@ -319,9 +368,6 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 		}
 		o.Retest = true
 	}
-	cacheMu.Lock()
-	cache := readCache(o.Cache)
-	cacheMu.Unlock()
 	if selection, ok := cache[cacheKey(o)]; ok && !o.Retest && time.Since(selection.TestedAt) >= 0 && time.Since(selection.TestedAt) < 6*time.Hour {
 		for _, candidate := range candidates {
 			if candidate.Key == selection.Endpoint {
@@ -339,8 +385,6 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 	if o.QuickTest {
 		duration = 2 * time.Second
 	}
-	best := ""
-	bestBPS := float64(0)
 	for index, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			return "", err
@@ -348,25 +392,38 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 		if err := e.Emit("server_testing", map[string]any{"endpoint": candidate.Key, "index": index + 1, "count": len(candidates)}); err != nil {
 			return "", err
 		}
-		measured := probe(ctx, c, r, file, candidate.Key, duration)
+		measured := measure(ctx, candidate.Key, duration)
 		measurements = append(measurements, measured)
 		if err := e.Emit("server_result", map[string]any{"measurement": measured}); err != nil {
 			return "", err
 		}
-		if measured.BPS > bestBPS {
-			best = candidate.Key
-			bestBPS = measured.BPS
-		}
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
+	}
+	best := measuredEndpoint(measurements, previous, slowCheck)
+	if best == "" && slowCheck {
+		best = previous
+		if err := e.Emit("server_test_fallback", map[string]any{"endpoint": previous}); err != nil {
+			return "", err
+		}
 	}
 	if best == "" {
 		return "", errors.New("all download server tests failed; check the connection and retry")
 	}
 	cacheMu.Lock()
 	cache = readCache(o.Cache)
-	cache[cacheKey(o)] = Selection{Endpoint: best, TestedAt: time.Now().UTC(), Measurements: measurements}
+	selection = cache[cacheKey(o)]
+	selection.PreviousEndpoint = previous
+	selection.Endpoint = best
+	selection.TestedAt = time.Now().UTC()
+	selection.Measurements = measurements
+	selection.Health = nil
+	selection.Reason = "cache_refresh"
+	if slowCheck {
+		selection.Reason = "sustained_slowdown"
+	}
+	cache[cacheKey(o)] = selection
 	err := WriteJSON(o.Cache, cache)
 	cacheMu.Unlock()
 	if err != nil {
@@ -376,6 +433,9 @@ func choose(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, f
 }
 
 func Download(ctx context.Context, c *telegram.Client, kv storage.Storage, r *stltransport.Resolver, o Options, e *Events) error {
+	if math.IsNaN(o.MinSpeedMBPS) || math.IsInf(o.MinSpeedMBPS, 0) || o.MinSpeedMBPS < 0 || o.MinSpeedMBPS > 1000 {
+		return errors.New("invalid download speed threshold")
+	}
 	if o.ChatID <= 0 || o.Topic <= 0 || o.Message <= 0 || o.DC <= 0 || o.DocumentID == 0 || o.Size < 0 || o.Filename == "" || filepath.Base(o.Filename) != o.Filename {
 		return errors.New("invalid attachment request")
 	}
@@ -428,9 +488,12 @@ func Download(ctx context.Context, c *telegram.Client, kv storage.Storage, r *st
 				pool.Close()
 				return err
 			}
-			w := &countWriter{file: f, total: file.Size, events: e}
+			w := &countWriter{file: f, total: file.Size, events: e, speed: newSpeedMonitor(o, key, e, time.Now())}
 			err = transfer(ctx, api, file, w)
 			pool.Close()
+			if flushErr := w.speed.flush(); err == nil {
+				err = flushErr
+			}
 			if err == nil && w.done != file.Size {
 				err = errors.New("download byte count did not match expected size")
 			}

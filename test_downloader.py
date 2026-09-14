@@ -118,6 +118,137 @@ class DownloaderTests(unittest.TestCase):
 
 if __name__=='__main__':unittest.main()
 
+class ResumeTests(unittest.TestCase):
+    def fixture(self, root):
+        store=SubscriptionStore(configure_source(root));base=root/'destination';base.mkdir()
+        state=root/'telegram';state.mkdir()
+        subs=[{'creator':name,'creator_folder':name,'topic_url':f'https://t.me/c/123456789/{topic}',
+               'download_scope':'from_month','start_month':'2026-09'} for name,topic in [('Example A',200),('Example B',300)]]
+        run={'id':'resume-test','state':'starting','started_at':'2026-09-12T12:00:00+00:00','subscriptions':subs,
+             'download_directory':str(base),'warnings':[],'creators_done':0,'plan_version':1}
+        store.atomic_write(store.runs.path,run)
+        store.atomic_write(store.config_path,{'revision':1,'download_directory':str(base),'server_speed_threshold_mbps':20})
+        return store,state,run
+
+    def item(self, sub, mid):
+        return {'filename':sub['creator']+' 2026-09.zip','source_message_id':mid,'topic_url':sub['topic_url'],
+                'message_url':sub['topic_url']+'/'+str(mid),'bytes_total':123,'dc_id':4,'document_id':mid+1000}
+
+    def test_resume_keeps_batch_and_saved_selection_with_current_server_settings(self):
+        with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
+            root=Path(temp);store,state,run=self.fixture(root)
+            run.update(state='stopped',finished_at='2026-09-12T13:00:00+00:00')
+            store.atomic_write(store.runs.path,run);store.runs.stop()
+            # A later subscription edit must not change this saved run.
+            store.atomic_write(store.path,{'revision':2,'subscriptions':[]})
+            resumed=store.runs.resume({'run_id':run['id']})
+            self.assertEqual(resumed['id'],run['id']);self.assertEqual(resumed['subscriptions'],run['subscriptions'])
+            self.assertEqual(resumed['config']['server_speed_threshold_mbps'],20)
+            self.assertEqual(resumed['resume_count'],1);self.assertNotIn('finished_at',resumed)
+            self.assertFalse((root/'data/stop-request').exists());launch.assert_called_once()
+            self.assertEqual(store.runs.status()['state'],'starting') # fresh grace, despite old started_at
+            with self.assertRaises(FileExistsError):store.runs.resume({'run_id':run['id']})
+            launch.assert_called_once()
+
+    def test_resume_rejects_stale_run_busy_worker_changed_folder_and_source(self):
+        with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
+            root=Path(temp);store,state,run=self.fixture(root);run['state']='failed';store.atomic_write(store.runs.path,run)
+            with self.assertRaises(FileExistsError):store.runs.resume({'run_id':'old-run'})
+            with (root/'data/worker.lock').open('a') as worker:
+                fcntl.flock(worker,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                with self.assertRaisesRegex(FileExistsError,'finishing'):store.runs.resume({'run_id':run['id']})
+            config=store.config();store.atomic_write(store.config_path,{**config,'download_directory':str(root)})
+            with self.assertRaisesRegex(ValueError,'destination changed'):store.runs.resume({'run_id':run['id']})
+            store.atomic_write(store.config_path,config)
+            store.atomic_write(root/'data/source.json',{'chat_id':987654321,'toc_message_id':100})
+            with self.assertRaisesRegex(ValueError,'another Telegram source'):store.runs.resume({'run_id':run['id']})
+            launch.assert_not_called()
+
+    def test_launch_failure_keeps_resumable_queue(self):
+        with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen',side_effect=OSError('fixture')):
+            root=Path(temp);store,state,run=self.fixture(root);run['state']='stopped';store.atomic_write(store.runs.path,run)
+            with self.assertRaisesRegex(ValueError,'saved queue was kept'):store.runs.resume({'run_id':run['id']})
+            saved=store.runs.status();self.assertEqual(saved['state'],'failed');self.assertEqual(saved['id'],run['id'])
+            self.assertTrue(store.queue()['can_resume'])
+
+    def test_resume_only_scans_unfinished_artist_and_skips_completed_download(self):
+        import download_worker
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store,state,run=self.fixture(root);a,b=run['subscriptions'];calls=[];transfers=[]
+            class CLI:
+                def list_files(inner,topic,stopped,status,**kwargs):
+                    calls.append(topic)
+                    if topic==b['topic_url']:
+                        store.runs.stop();raise download_worker.WorkerError('Stopped during metadata scan')
+                    return [self.item(a,201)]
+                def close(inner):pass
+            def transfer(worker,sub,item,month):
+                transfers.append(item['source_message_id']);row=store.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],
+                    topic_url=sub['topic_url'],filename=item['filename'],bytes_total=item['bytes_total'])
+                store.history.complete(row['id'],destination=str(root/'moved-away.zip'),verified_size=123,sha256='0'*64)
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=CLI()):
+                worker=download_worker.Worker(run['id']);worker.execute()
+                self.assertEqual(worker.run['state'],'stopped');self.assertEqual(worker.run['creators_checked'],1)
+                self.assertIsNotNone(worker.plan.load(a));self.assertIsNone(worker.plan.load(b))
+                # The organizer can finish A while the downloader is stopped.
+                transfer(worker,a,self.item(a,201),'2026-09');transfers.clear();calls.clear()
+                with patch('run_manager.subprocess.Popen'):store.runs.resume({'run_id':run['id']})
+                cli=CLI()
+                def list_remaining(topic,*args,**kwargs):
+                    calls.append(topic);self.assertEqual(topic,b['topic_url']);return [self.item(b,301)]
+                with patch.object(cli,'list_files',side_effect=list_remaining),patch.object(download_worker,'TelegramCLI',return_value=cli),patch.object(download_worker.Worker,'transfer',transfer):
+                    resumed=download_worker.Worker(run['id']);resumed.execute()
+                self.assertEqual(resumed.run['state'],'completed',resumed.run['message'])
+                self.assertEqual(calls,[b['topic_url']]);self.assertEqual(transfers,[301]);self.assertEqual(resumed.run['creators_done'],2)
+
+    def test_failure_after_all_checks_resumes_without_any_artist_scan(self):
+        import download_worker
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store,state,run=self.fixture(root);subs=run['subscriptions'];calls=[];transfers=[]
+            class CLI:
+                def list_files(inner,topic,*args,**kwargs):
+                    calls.append(topic);index=[s['topic_url'] for s in subs].index(topic);return [self.item(subs[index],201+index*100)]
+                def close(inner):pass
+            cli=CLI()
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=cli):
+                with patch.object(download_worker.Worker,'transfer',side_effect=RuntimeError('Transfer interrupted')):
+                    worker=download_worker.Worker(run['id']);worker.execute()
+                self.assertEqual(worker.run['state'],'failed');self.assertEqual(worker.run['creators_checked'],2)
+                with patch('run_manager.subprocess.Popen'):store.runs.resume({'run_id':run['id']})
+                with patch.object(cli,'list_files',side_effect=AssertionError('Already checked')),patch.object(download_worker.Worker,'transfer',side_effect=lambda sub,item,month:transfers.append(item['source_message_id'])):
+                    resumed=download_worker.Worker(run['id']);resumed.execute()
+                self.assertEqual(resumed.run['state'],'completed',resumed.run['message']);self.assertEqual(transfers,[201,301])
+
+    def test_legacy_checkpoints_use_exact_old_queue_not_newer_catalog_posts(self):
+        from download_plan import DownloadPlan
+        from topic_catalog import TopicCatalog
+        from test_support import TEST_SOURCE
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store,state,run=self.fixture(root);a,b=run['subscriptions'];run.pop('plan_version')
+            run.update(creators_checked=1,creator_results=[{'creator':a['creator']},{'creator':b['creator']}])
+            item=self.item(a,201);newer={**self.item(a,202),'filename':'Example A 2026-09 newer.zip'}
+            TopicCatalog(root,TEST_SOURCE).commit(a['topic_url'],0,202,[item,newer])
+            for sub,mid in [(a,201),(b,301)]:
+                f=self.item(sub,mid);store.history.register(source_message_id=mid,creator=sub['creator'],topic_url=sub['topic_url'],
+                    filename=f['filename'],bytes_total=f['bytes_total'],release_month='2026-09',batch_id=run['id'])
+            plan=DownloadPlan(store,run);plan.seed_legacy()
+            self.assertEqual([r['item']['source_message_id'] for r in plan.load(a)['items']],[201])
+            self.assertIsNone(plan.load(b)) # incomplete scan, even with a partial result
+            run['creators_checked']=2;plan.seed_legacy();self.assertIsNone(plan.load(b)) # missing metadata requires only B to be checked
+
+    def test_checkpoint_rejects_changed_scope_or_attachment_identity(self):
+        from download_plan import DownloadPlan
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store,state,run=self.fixture(root);sub=run['subscriptions'][0];plan=DownloadPlan(store,run)
+            plan.save(sub,[{'item':self.item(sub,201),'month':'2026-09'}],{'creator':sub['creator']},[])
+            original=json.loads(plan.path(sub).read_text())
+            changed=json.loads(json.dumps(original));changed['items'][0]['item']['message_url']='https://t.me/c/987654321/200/201'
+            store.atomic_write(plan.path(sub),changed)
+            with self.assertRaises(ValueError):plan.load(sub)
+            store.atomic_write(plan.path(sub),original);sub['start_month']='2026-10'
+            with self.assertRaises(ValueError):DownloadPlan(store,run).load(sub)
+
+
 class WorkerTests(unittest.TestCase):
     def test_batch_moves_file_records_history_and_skips_completed_id(self):
         import download_worker

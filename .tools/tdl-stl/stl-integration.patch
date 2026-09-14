@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/app/stl/stl.go
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,562 @@
 +// Package stl implements the local application's bounded, machine-readable CLI.
 +package stl
 +
@@ -12,6 +12,7 @@
 +	"errors"
 +	"fmt"
 +	"io"
++	"math"
 +	"os"
 +	"path/filepath"
 +	"sort"
@@ -135,6 +136,7 @@
 +	Filename, Output, Server, Cache, Network string
 +	ReuseServer                              string
 +	ProbeOnly, Retest, IPv6, QuickTest       bool
++	MinSpeedMBPS                             float64
 +}
 +type Measurement struct {
 +	Endpoint string  `json:"endpoint"`
@@ -144,9 +146,13 @@
 +	Failed   bool    `json:"failed"`
 +}
 +type Selection struct {
-+	Endpoint     string        `json:"endpoint"`
-+	TestedAt     time.Time     `json:"tested_at"`
-+	Measurements []Measurement `json:"measurements"`
++	Endpoint         string        `json:"endpoint"`
++	TestedAt         time.Time     `json:"tested_at"`
++	Measurements     []Measurement `json:"measurements"`
++	Health           *SpeedHealth  `json:"health,omitempty"`
++	LastSlowCheck    time.Time     `json:"last_slow_check,omitempty"`
++	PreviousEndpoint string        `json:"previous_endpoint,omitempty"`
++	Reason           string        `json:"reason,omitempty"`
 +}
 +type Cache map[string]Selection
 +
@@ -217,6 +223,7 @@
 +	total, done int64
 +	last        time.Time
 +	events      *Events
++	speed       *speedMonitor
 +}
 +
 +func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
@@ -231,6 +238,9 @@
 +		n, err = w.file.WriteAt(data, off)
 +	}
 +	w.done += int64(n)
++	if err == nil {
++		err = w.speed.observe(time.Now(), w.done)
++	}
 +	if err == nil && w.events != nil && time.Since(w.last) >= 250*time.Millisecond {
 +		w.last = time.Now()
 +		err = w.events.Emit("progress", map[string]any{"bytes": w.done, "total": w.total})
@@ -301,6 +311,12 @@
 +			candidates = append(candidates, endpoint)
 +		}
 +	}
++	return chooseEndpoint(ctx, candidates, file, o, e, func(ctx context.Context, key string, duration time.Duration) Measurement {
++		return probe(ctx, c, r, file, key, duration)
++	})
++}
++
++func chooseEndpoint(ctx context.Context, candidates []Endpoint, file *tmedia.Media, o Options, e *Events, measure func(context.Context, string, time.Duration) Measurement) (string, error) {
 +	if len(candidates) == 0 {
 +		return "", errors.New("no usable Telegram endpoints for this attachment")
 +	}
@@ -312,6 +328,39 @@
 +		}
 +		return "", errors.New("manual server is unavailable for this file's data center or network; choose Auto")
 +	}
++	cacheMu.Lock()
++	cache := readCache(o.Cache)
++	selection := cache[cacheKey(o)]
++	previous := selection.Endpoint
++	if o.ReuseServer != "" {
++		previous = o.ReuseServer
++	}
++	previousAvailable := false
++	for _, candidate := range candidates {
++		if candidate.Key == previous {
++			previousAvailable = true
++		}
++	}
++	now := time.Now().UTC()
++	slowCheck := file.Size >= 64*1024*1024 && !o.ProbeOnly && previousAvailable && slowCheckDue(selection, o.MinSpeedMBPS*1e6, previous, now)
++	if slowCheck {
++		// Claim under the shared cache lock so concurrent jobs do not both test.
++		selection.LastSlowCheck = now
++		selection.Health = nil
++		cache[cacheKey(o)] = selection
++		if err := WriteJSON(o.Cache, cache); err != nil {
++			cacheMu.Unlock()
++			return "", err
++		}
++		o.Retest = true
++		o.QuickTest = false
++	}
++	cacheMu.Unlock()
++	if slowCheck {
++		if err := e.Emit("server_slow_retest", map[string]any{"threshold_bps": o.MinSpeedMBPS * 1e6, "endpoint": previous}); err != nil {
++			return "", err
++		}
++	}
 +	// Reuse the release's measured endpoint even if another concurrent job
 +	// updates the shared cache. Automatic retry can still compare again.
 +	if o.ReuseServer != "" && !o.Retest {
@@ -322,9 +371,6 @@
 +		}
 +		o.Retest = true
 +	}
-+	cacheMu.Lock()
-+	cache := readCache(o.Cache)
-+	cacheMu.Unlock()
 +	if selection, ok := cache[cacheKey(o)]; ok && !o.Retest && time.Since(selection.TestedAt) >= 0 && time.Since(selection.TestedAt) < 6*time.Hour {
 +		for _, candidate := range candidates {
 +			if candidate.Key == selection.Endpoint {
@@ -342,8 +388,6 @@
 +	if o.QuickTest {
 +		duration = 2 * time.Second
 +	}
-+	best := ""
-+	bestBPS := float64(0)
 +	for index, candidate := range candidates {
 +		if err := ctx.Err(); err != nil {
 +			return "", err
@@ -351,25 +395,38 @@
 +		if err := e.Emit("server_testing", map[string]any{"endpoint": candidate.Key, "index": index + 1, "count": len(candidates)}); err != nil {
 +			return "", err
 +		}
-+		measured := probe(ctx, c, r, file, candidate.Key, duration)
++		measured := measure(ctx, candidate.Key, duration)
 +		measurements = append(measurements, measured)
 +		if err := e.Emit("server_result", map[string]any{"measurement": measured}); err != nil {
 +			return "", err
 +		}
-+		if measured.BPS > bestBPS {
-+			best = candidate.Key
-+			bestBPS = measured.BPS
-+		}
 +	}
 +	if err := ctx.Err(); err != nil {
 +		return "", err
++	}
++	best := measuredEndpoint(measurements, previous, slowCheck)
++	if best == "" && slowCheck {
++		best = previous
++		if err := e.Emit("server_test_fallback", map[string]any{"endpoint": previous}); err != nil {
++			return "", err
++		}
 +	}
 +	if best == "" {
 +		return "", errors.New("all download server tests failed; check the connection and retry")
 +	}
 +	cacheMu.Lock()
 +	cache = readCache(o.Cache)
-+	cache[cacheKey(o)] = Selection{Endpoint: best, TestedAt: time.Now().UTC(), Measurements: measurements}
++	selection = cache[cacheKey(o)]
++	selection.PreviousEndpoint = previous
++	selection.Endpoint = best
++	selection.TestedAt = time.Now().UTC()
++	selection.Measurements = measurements
++	selection.Health = nil
++	selection.Reason = "cache_refresh"
++	if slowCheck {
++		selection.Reason = "sustained_slowdown"
++	}
++	cache[cacheKey(o)] = selection
 +	err := WriteJSON(o.Cache, cache)
 +	cacheMu.Unlock()
 +	if err != nil {
@@ -379,6 +436,9 @@
 +}
 +
 +func Download(ctx context.Context, c *telegram.Client, kv storage.Storage, r *stltransport.Resolver, o Options, e *Events) error {
++	if math.IsNaN(o.MinSpeedMBPS) || math.IsInf(o.MinSpeedMBPS, 0) || o.MinSpeedMBPS < 0 || o.MinSpeedMBPS > 1000 {
++		return errors.New("invalid download speed threshold")
++	}
 +	if o.ChatID <= 0 || o.Topic <= 0 || o.Message <= 0 || o.DC <= 0 || o.DocumentID == 0 || o.Size < 0 || o.Filename == "" || filepath.Base(o.Filename) != o.Filename {
 +		return errors.New("invalid attachment request")
 +	}
@@ -431,9 +491,12 @@
 +				pool.Close()
 +				return err
 +			}
-+			w := &countWriter{file: f, total: file.Size, events: e}
++			w := &countWriter{file: f, total: file.Size, events: e, speed: newSpeedMonitor(o, key, e, time.Now())}
 +			err = transfer(ctx, api, file, w)
 +			pool.Close()
++			if flushErr := w.speed.flush(); err == nil {
++				err = flushErr
++			}
 +			if err == nil && w.done != file.Size {
 +				err = errors.New("download byte count did not match expected size")
 +			}
@@ -650,7 +713,7 @@
 +}
 --- /dev/null
 +++ b/cmd/stl.go
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,114 @@
 +package cmd
 +
 +import (
@@ -755,6 +818,7 @@
 +	f.StringVar(&o.Network, "network", "default", "Network cache identity")
 +	f.BoolVar(&o.IPv6, "ipv6", false, "IPv6 route available")
 +	f.BoolVar(&o.Retest, "retest", false, "Ignore cached server comparison")
++	f.Float64Var(&o.MinSpeedMBPS, "min-speed-mbps", 0, "Schedule an Auto comparison after five minutes below this speed; zero disables")
 +	f.BoolVar(&o.QuickTest, "quick-test", false, "Use two-second samples per endpoint")
 +	f.StringVar(&o.ReuseServer, "reuse-server", "", "Reuse this release's automatic selection; retest on failure")
 +	f.BoolVar(&o.ProbeOnly, "probe-only", false, "Only compare servers; retain no payload")
@@ -1181,7 +1245,7 @@
 +}
 --- /dev/null
 +++ b/cmd/stl_service.go
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,138 @@
 +package cmd
 +
 +import (
@@ -1271,6 +1335,7 @@
 +		f.StringVar(&o.Network, "network", "default", "")
 +		f.BoolVar(&o.IPv6, "ipv6", false, "")
 +		f.BoolVar(&o.Retest, "retest", false, "")
++		f.Float64Var(&o.MinSpeedMBPS, "min-speed-mbps", 0, "")
 +		f.BoolVar(&o.QuickTest, "quick-test", false, "")
 +		f.StringVar(&o.ReuseServer, "reuse-server", "", "")
 +		f.BoolVar(&o.ProbeOnly, "probe-only", false, "")
@@ -1330,3 +1395,396 @@
 @@ -44 +44 @@
 -		}, r.backoff, func(err error, duration time.Duration) {
 +		}, backoff.WithContext(r.backoff(), ctx), func(err error, duration time.Duration) {
+--- /dev/null
++++ b/app/stl/speed.go
+@@ -0,0 +1,154 @@
++package stl
++
++import "time"
++
++const speedWarmup = 10 * time.Second
++const speedWindow = 30 * time.Second
++const slowdownMinimum = 5 * time.Minute
++const slowdownCooldown = 10 * time.Minute
++const speedHistoryAge = 30 * time.Minute
++
++// SpeedHealth counts observed download time only, across consecutive files.
++// Extraction, moves, startup, idle time and probes never add to LowSeconds.
++type SpeedHealth struct {
++	Endpoint     string    `json:"endpoint"`
++	ThresholdBPS float64   `json:"threshold_bps"`
++	BPS          float64   `json:"bps"`
++	LowSeconds   float64   `json:"low_seconds"`
++	ObservedAt   time.Time `json:"observed_at"`
++}
++
++type speedPoint struct {
++	at    time.Time
++	bytes int64
++}
++type speedWatch struct {
++	start  time.Time
++	last   time.Time
++	points []speedPoint
++	health SpeedHealth
++}
++
++func newSpeedWatch(now time.Time, endpoint string, threshold float64, saved *SpeedHealth) *speedWatch {
++	w := &speedWatch{start: now, health: SpeedHealth{Endpoint: endpoint, ThresholdBPS: threshold}}
++	if saved != nil && saved.Endpoint == endpoint && saved.ThresholdBPS == threshold && now.Sub(saved.ObservedAt) >= 0 && now.Sub(saved.ObservedAt) < speedHistoryAge {
++		w.health.LowSeconds = saved.LowSeconds
++	}
++	return w
++}
++
++func (w *speedWatch) observe(now time.Time, done int64) bool {
++	if now.Sub(w.start) < speedWarmup || (len(w.points) > 0 && now.Sub(w.points[len(w.points)-1].at) < time.Second) {
++		return false
++	}
++	w.points = append(w.points, speedPoint{now, done})
++	cutoff := now.Add(-speedWindow)
++	for len(w.points) > 1 && !w.points[1].at.After(cutoff) {
++		w.points = w.points[1:]
++	}
++	first := w.points[0]
++	if now.Sub(first.at) < speedWindow {
++		return false
++	}
++	w.health.BPS = float64(done-first.bytes) / now.Sub(first.at).Seconds()
++	duration := now.Sub(w.last).Seconds()
++	if w.last.IsZero() {
++		duration = 0
++	}
++	if w.health.BPS < w.health.ThresholdBPS {
++		w.health.LowSeconds += duration
++	} else {
++		w.health.LowSeconds = 0
++	}
++	w.last = now
++	w.health.ObservedAt = now.UTC()
++	return true
++}
++
++func slowCheckDue(s Selection, threshold float64, endpoint string, now time.Time) bool {
++	h := s.Health
++	return threshold > 0 && h != nil && h.Endpoint == endpoint && h.ThresholdBPS == threshold && h.BPS < threshold && h.LowSeconds >= slowdownMinimum.Seconds() &&
++		now.Sub(h.ObservedAt) >= 0 && now.Sub(h.ObservedAt) < speedHistoryAge &&
++		(s.LastSlowCheck.IsZero() || now.Sub(s.LastSlowCheck) >= slowdownCooldown)
++}
++
++type speedMonitor struct {
++	watch      *speedWatch
++	options    Options
++	generation time.Time
++	events     *Events
++	saved      time.Time
++	announced  bool
++}
++
++func newSpeedMonitor(o Options, endpoint string, events *Events, now time.Time) *speedMonitor {
++	if o.MinSpeedMBPS <= 0 || o.Server != "auto" || o.ProbeOnly {
++		return nil
++	}
++	cacheMu.Lock()
++	s := readCache(o.Cache)[cacheKey(o)]
++	cacheMu.Unlock()
++	return &speedMonitor{watch: newSpeedWatch(now, endpoint, o.MinSpeedMBPS*1e6, s.Health), options: o, generation: s.TestedAt, events: events}
++}
++
++func (m *speedMonitor) observe(now time.Time, done int64) error {
++	if m == nil || !m.watch.observe(now, done) {
++		return nil
++	}
++	if now.Sub(m.saved) < 30*time.Second {
++		return nil
++	}
++	return m.flush()
++}
++
++func (m *speedMonitor) flush() error {
++	if m == nil || m.watch.health.ObservedAt.IsZero() {
++		return nil
++	}
++	h := m.watch.health
++	cacheMu.Lock()
++	cache := readCache(m.options.Cache)
++	s := cache[cacheKey(m.options)]
++	// An older in-flight request must not overwrite a newer server comparison.
++	if s.Endpoint != h.Endpoint || !s.TestedAt.Equal(m.generation) || (s.Health != nil && s.Health.ObservedAt.After(h.ObservedAt)) {
++		cacheMu.Unlock()
++		return nil
++	}
++	s.Health = &h
++	cache[cacheKey(m.options)] = s
++	err := WriteJSON(m.options.Cache, cache)
++	due := slowCheckDue(s, h.ThresholdBPS, h.Endpoint, h.ObservedAt)
++	cacheMu.Unlock()
++	if err != nil {
++		return err
++	}
++	m.saved = h.ObservedAt
++	if due && !m.announced {
++		m.announced = true
++		return m.events.Emit("speed_retest_pending", map[string]any{"bps": h.BPS, "threshold_bps": h.ThresholdBPS, "low_seconds": h.LowSeconds, "endpoint": h.Endpoint})
++	}
++	return nil
++}
++
++// Avoid changing endpoints for a marginal difference in short samples.
++func measuredEndpoint(measurements []Measurement, previous string, slowCheck bool) string {
++	best := ""
++	bestBPS := float64(0)
++	previousBPS := float64(0)
++	for _, m := range measurements {
++		if m.Failed {
++			continue
++		}
++		if m.Endpoint == previous {
++			previousBPS = m.BPS
++		}
++		if m.BPS > bestBPS {
++			best = m.Endpoint
++			bestBPS = m.BPS
++		}
++	}
++	if slowCheck && previousBPS > 0 && bestBPS < previousBPS*1.1 {
++		return previous
++	}
++	return best
++}
+--- /dev/null
++++ b/app/stl/speed_test.go
+@@ -0,0 +1,233 @@
++package stl
++
++import (
++	"context"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"testing"
++	"time"
++
++	"github.com/iyear/tdl/core/tmedia"
++)
++
++func TestSlowdownRequiresFiveMinutesAndHealthySpeedResets(t *testing.T) {
++	start := time.Unix(1700000000, 0)
++	w := newSpeedWatch(start, "server", 20e6, nil)
++	for second := 0; second < 340; second++ {
++		w.observe(start.Add(time.Duration(second)*time.Second), int64(second)*11_000_000)
++		if w.health.LowSeconds >= 300 {
++			t.Fatalf("triggered before five measured minutes: %d", second)
++		}
++	}
++	w.observe(start.Add(340*time.Second), 340*11_000_000)
++	if w.health.LowSeconds != 300 {
++		t.Fatalf("low duration=%v", w.health.LowSeconds)
++	}
++	for second := 341; second <= 380; second++ {
++		w.observe(start.Add(time.Duration(second)*time.Second), 340*11_000_000+int64(second-340)*30_000_000)
++	}
++	if w.health.LowSeconds != 0 {
++		t.Fatal("recovery did not reset the slowdown")
++	}
++	// Brief dips cannot create five minutes of low-speed evidence.
++	w = newSpeedWatch(start, "server", 20e6, nil)
++	done := int64(0)
++	for second := 0; second <= 600; second++ {
++		speed := int64(30_000_000)
++		if second%60 < 5 {
++			speed = 1_000_000
++		}
++		done += speed
++		w.observe(start.Add(time.Duration(second)*time.Second), done)
++		if w.health.LowSeconds >= 300 {
++			t.Fatal("brief dips triggered retest")
++		}
++	}
++}
++
++func TestSlowdownCarriesAcrossFilesWithoutCountingMoveTime(t *testing.T) {
++	start := time.Unix(1700000000, 0)
++	w := newSpeedWatch(start, "server", 20e6, nil)
++	for second := 0; second <= 220; second++ {
++		w.observe(start.Add(time.Duration(second)*time.Second), int64(second)*11_000_000)
++	}
++	if w.health.LowSeconds != 180 {
++		t.Fatalf("first file=%v", w.health.LowSeconds)
++	}
++	// Ten minutes of extraction/moving adds no slow download time.
++	next := start.Add(820 * time.Second)
++	following := newSpeedWatch(next, "server", 20e6, &w.health)
++	for second := 0; second < 160; second++ {
++		following.observe(next.Add(time.Duration(second)*time.Second), int64(second)*11_000_000)
++		if following.health.LowSeconds >= 300 {
++			t.Fatal("idle time counted as a slowdown")
++		}
++	}
++	following.observe(next.Add(160*time.Second), 160*11_000_000)
++	if following.health.LowSeconds != 300 {
++		t.Fatal("consecutive files did not accumulate active time")
++	}
++	for _, changed := range []*speedWatch{
++		newSpeedWatch(next, "another-server", 20e6, &w.health),
++		newSpeedWatch(next, "server", 10e6, &w.health),
++		newSpeedWatch(start.Add(60*time.Minute), "server", 20e6, &w.health),
++	} {
++		if changed.health.LowSeconds != 0 {
++			t.Fatal("stale or unrelated evidence reused")
++		}
++	}
++}
++
++func speedFixture(t *testing.T) (Options, *Events, []Endpoint, Selection) {
++	t.Helper()
++	directory := t.TempDir()
++	o := Options{Server: "auto", Cache: filepath.Join(directory, "cache.json"), Network: "network-a", DC: 4, Size: 1 << 30, MinSpeedMBPS: 20}
++	e, err := OpenEvents(filepath.Join(directory, "events.jsonl"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { e.Close() })
++	now := time.Now().UTC()
++	s := Selection{Endpoint: "old", TestedAt: now.Add(-time.Hour), Health: &SpeedHealth{Endpoint: "old", ThresholdBPS: 20e6, BPS: 11e6, LowSeconds: 300, ObservedAt: now}}
++	if err := WriteJSON(o.Cache, Cache{cacheKey(o): s}); err != nil {
++		t.Fatal(err)
++	}
++	return o, e, []Endpoint{{Key: "old", DC: 4}, {Key: "new", DC: 4}}, s
++}
++
++func TestSlowdownBypassesCacheAndReleasePinButHonorsCooldown(t *testing.T) {
++	o, e, endpoints, _ := speedFixture(t)
++	o.ReuseServer = "old"
++	o.QuickTest = true
++	count := 0
++	measure := func(ctx context.Context, key string, duration time.Duration) Measurement {
++		count++
++		if duration != 4*time.Second {
++			t.Error("slowdown used noisy shortened samples")
++		}
++		speed := 11e6
++		if key == "new" {
++			speed = 28e6
++		}
++		return Measurement{Endpoint: key, BPS: speed}
++	}
++	key, err := chooseEndpoint(context.Background(), endpoints, &tmedia.Media{Size: o.Size}, o, e, measure)
++	if err != nil || key != "new" || count != 2 {
++		t.Fatalf("choice=%s tests=%d error=%v", key, count, err)
++	}
++	cache := readCache(o.Cache)
++	s := cache[cacheKey(o)]
++	if s.PreviousEndpoint != "old" || s.Reason != "sustained_slowdown" || s.LastSlowCheck.IsZero() || s.Health != nil {
++		t.Fatalf("missing decision record: %+v", s)
++	}
++	s.Health = &SpeedHealth{Endpoint: "new", ThresholdBPS: 20e6, BPS: 11e6, LowSeconds: 300, ObservedAt: time.Now().UTC()}
++	cache[cacheKey(o)] = s
++	WriteJSON(o.Cache, cache)
++	o.ReuseServer = ""
++	key, err = chooseEndpoint(context.Background(), endpoints, &tmedia.Media{Size: o.Size}, o, e, measure)
++	if err != nil || key != "new" || count != 2 {
++		t.Fatal("repeated test inside cooldown", err)
++	}
++	s.LastSlowCheck = time.Now().Add(-11 * time.Minute)
++	cache[cacheKey(o)] = s
++	WriteJSON(o.Cache, cache)
++	_, err = chooseEndpoint(context.Background(), endpoints, &tmedia.Media{Size: o.Size}, o, e, measure)
++	if err != nil || count != 4 {
++		t.Fatal("did not retest after cooldown", err)
++	}
++}
++
++func TestSlowChecksRespectDisabledManualTinyAndOtherNetwork(t *testing.T) {
++	for _, mode := range []string{"disabled", "manual", "tiny", "network", "duration", "threshold", "stale"} {
++		t.Run(mode, func(t *testing.T) {
++			o, e, endpoints, s := speedFixture(t)
++			switch mode {
++			case "disabled":
++				o.MinSpeedMBPS = 0
++			case "manual":
++				o.Server = "old"
++			case "tiny":
++				o.Size = 10
++			case "network":
++				o.Network = "network-b"
++				WriteJSON(o.Cache, Cache{cacheKey(o): {Endpoint: "old", TestedAt: time.Now().UTC()}})
++			case "duration":
++				s.Health.LowSeconds = 299
++				WriteJSON(o.Cache, Cache{cacheKey(o): s})
++			case "threshold":
++				o.MinSpeedMBPS = 10
++			case "stale":
++				s.Health.ObservedAt = time.Now().Add(-time.Hour)
++				WriteJSON(o.Cache, Cache{cacheKey(o): s})
++			}
++			key, err := chooseEndpoint(context.Background(), endpoints, &tmedia.Media{Size: o.Size}, o, e, func(context.Context, string, time.Duration) Measurement {
++				t.Fatal("unnecessary comparison")
++				return Measurement{}
++			})
++			if err != nil || key != "old" {
++				t.Fatal(key, err)
++			}
++		})
++	}
++}
++
++func TestMarginalOrFailedTestsKeepWorkingServer(t *testing.T) {
++	for _, mode := range []string{"marginal", "failed", "cancelled"} {
++		t.Run(mode, func(t *testing.T) {
++			o, e, endpoints, _ := speedFixture(t)
++			ctx, cancel := context.WithCancel(context.Background())
++			defer cancel()
++			key, err := chooseEndpoint(ctx, endpoints, &tmedia.Media{Size: o.Size}, o, e, func(ctx context.Context, key string, d time.Duration) Measurement {
++				if mode == "cancelled" {
++					cancel()
++				}
++				speed := 11e6
++				if key == "new" {
++					speed = 11.5e6
++				}
++				return Measurement{Endpoint: key, BPS: speed, Failed: mode != "marginal"}
++			})
++			if mode == "cancelled" {
++				if err == nil {
++					t.Fatal("cancellation was swallowed")
++				}
++				return
++			}
++			if err != nil || key != "old" {
++				t.Fatal("discarded working endpoint", key, err)
++			}
++		})
++	}
++}
++
++func TestSpeedMonitorPersistsAndDoesNotOverwriteNewComparison(t *testing.T) {
++	o, e, _, s := speedFixture(t)
++	s.Health = nil
++	WriteJSON(o.Cache, Cache{cacheKey(o): s})
++	start := time.Now()
++	monitor := newSpeedMonitor(o, "old", e, start)
++	for second := 0; second <= 341; second++ {
++		if err := monitor.observe(start.Add(time.Duration(second)*time.Second), int64(second)*11_000_000); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := monitor.flush(); err != nil {
++		t.Fatal(err)
++	}
++	saved := readCache(o.Cache)[cacheKey(o)]
++	if saved.Health.LowSeconds < 300 || !monitor.announced {
++		t.Fatal("slowdown not retained for the next file")
++	}
++	var decoded Cache
++	data, _ := os.ReadFile(o.Cache)
++	if json.Unmarshal(data, &decoded) != nil || decoded[cacheKey(o)].Health.LowSeconds < 300 {
++		t.Fatal("not durable")
++	}
++	newer := Selection{Endpoint: "new", TestedAt: start.Add(time.Hour)}
++	WriteJSON(o.Cache, Cache{cacheKey(o): newer})
++	monitor.flush()
++	if readCache(o.Cache)[cacheKey(o)].Health != nil {
++		t.Fatal("old transfer overwrote new selection")
++	}
++}

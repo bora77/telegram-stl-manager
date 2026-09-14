@@ -554,10 +554,25 @@ Configure the application:
    Those tests use two-second samples per server, plus connection setup; a
    comparison can take more than ten seconds. Another data center or a failed
    connection can require another comparison.
+   For a speed-triggered comparison, set **Retest when download speed stays below (MB/s)** in
+   Configuration, for example `20`. Zero (the default on a fresh installation)
+   disables it. Auto requires at least five minutes below the threshold using
+   a 30-second rolling average after each file's first ten seconds. Only active
+   download time counts, including across consecutive files; speed recovery
+   resets it and observations expire after 30 minutes. The current file finishes
+   before the next suitable file triggers a comparison. These tests have a
+   ten-minute cooldown and require a 10% improvement to switch working servers.
 6. Check download speed, extraction progress, image delivery and archive moves.
    Delivered images belong directly in `creator/YYYY-MM/release_images/`, with
    stable name suffixes to avoid collisions. History persists if releases move
    out of Incoming later.
+   If a run stops or fails, **Resume download queue** reuses its saved artist
+   checks and pending files. It skips completed identities and reuses verified
+   staging; incomplete file transfers restart. Only unchecked or interrupted
+   creator checks run again. Resume keeps the original artists, scopes and
+   folders, requires the same source and destination, and uses current server
+   settings. Resolve any persistent error before retrying. Use a new
+   **Download all subscriptions** run to check all selected creators for new posts.
 7. To organize existing files, choose an artist/folder under **Organize folders**
    and run **Preview** first. **Apply ready files** changes the selected folder and
    records matches. It also extracts missing images from already organized
@@ -673,6 +688,7 @@ wanted, simply run `python3 catalog-server.py` in an open Ubuntu terminal instea
 | `data/collages.sqlite3`, `data/collages/` | Private collage selections, preview recipes, cached thumbnails and export recovery; keep local and out of Git. |
 | `data/source.json`, `data/creators.json`, `data/incoming-folders.json` | Private source IDs, local catalog and folder inventory. Never include in Git or a downloadable release. |
 | Project `data/download-history.sqlite3` | Download/import history and image manifests. Back up for continuity. |
+| `data/run.json`, `data/download-plans/` | Private download run and completed artist checks for Resume. Keep with the original staging, source and destination; do not publish or transplant unfinished runs. |
 | `data/settings.json`, `data/subscriptions.json` | Destination settings, creator choices and scopes. Optional migration; review paths. |
 | `data/run.json`, `data/organizer-apply.json`, `data/organizer-jobs/`, `data/organizer-work/` | Machine/job-specific state. Keep for recovery on the original machine. Do not transplant unfinished jobs to a different mount or machine. |
 | `data/telegram-servers.json`, `data/telegram-server-speeds.json` | Rebuildable endpoint lists and comparisons; refresh on a new machine. |

@@ -90,6 +90,8 @@ func transferAttempt(ctx context.Context, api downloader.Client, file *tmedia.Me
 
 func transferWithSwitches(ctx context.Context, file *tmedia.Media, o Options, e *Events, f *os.File, key string, hooks transferHooks) error {
 	w := &countWriter{file: f, total: file.Size, events: e, chunks: map[int64]int{}}
+	downloadTraffic.start(time.Now())
+	defer downloadTraffic.finish()
 	started, retried := false, false
 	for {
 		if err := ctx.Err(); err != nil {

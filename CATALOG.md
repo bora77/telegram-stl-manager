@@ -22,6 +22,9 @@ content for locally configured source references before creating an archive.
 
 1. Set the destination in Configuration. Use a local Linux directory or a NAS
    mounted inside Linux; Windows installations use WSL2.
+   Set **Target total download speed (MB/s)** to your connection’s practical
+   capacity. The queue compares combined transfer speed with this configurable
+   target; changing it does not start downloads or impose a speed cap.
 2. Refresh the server list after logging in to the CLI. Auto compares advertised
    Telegram endpoints for a suitable attachment and caches the fastest result.
    A manual endpoint can be selected per data center. Auto normally reuses
@@ -39,6 +42,7 @@ content for locally configured source references before creating an archive.
    immediately, then resumes using its saved chunks. At a 20 MB/s threshold,
    the immediate rule applies below 10 MB/s. Both rules use the same warmup
    and rolling average.
+   Overlapping transfers use combined throughput for slowdown checks.
    Both slowdown rules have a ten-minute cooldown and keep the current server unless
    another measures at least 10% faster (or the current server fails its test).
    Zero disables this monitor; it only affects Auto selections.

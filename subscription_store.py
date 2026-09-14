@@ -28,6 +28,7 @@ class SubscriptionStore:
         data.setdefault('download_servers',{})
         data.setdefault('server_check_frequency','cached')
         data.setdefault('server_speed_threshold_mbps',0)
+        data.setdefault('download_bandwidth_target_mbps',30)
         return data
 
     def atomic_write(self, path, data):
@@ -59,7 +60,10 @@ class SubscriptionStore:
             threshold=payload.get('server_speed_threshold_mbps',current['server_speed_threshold_mbps'])
             if type(threshold) not in (int,float) or not 0<=threshold<=1000 or not math.isfinite(threshold):
                 raise ValueError('Enter a speed threshold between 0 and 1000 MB/s. Zero disables slowdown checks.')
-            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold}
+            target=payload.get('download_bandwidth_target_mbps',current['download_bandwidth_target_mbps'])
+            if type(target) not in (int,float) or not 0<target<=1000 or not math.isfinite(target):
+                raise ValueError('Enter a total download bandwidth target greater than 0 and at most 1000 MB/s.')
+            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target}
             self.atomic_write(self.config_path,data)
             return data
 
@@ -140,7 +144,12 @@ class SubscriptionStore:
         active=run['state'] in ('starting','scanning','downloading','extracting','copying','stopping')
         organizer_active=Organizer(self).status()['state'] in ACTIVE
         count=len(self.read()['subscriptions'])
-        return {**self.history.queue(run.get('id')),'worker_state':run['state'],
+        queue=self.history.queue(run.get('id'))
+        transferring=[f for f in queue['files'] if f['state']=='downloading' and f.get('download_finished_at') is None] if active and run['state']=='downloading' else []
+        measured=[f['download_speed_bps'] for f in transferring if type(f.get('download_speed_bps')) in (int,float) and math.isfinite(f['download_speed_bps']) and f['download_speed_bps']>=0]
+        target=self.config()['download_bandwidth_target_mbps']
+        bandwidth={'target_mbps':target,'speed_bps':sum(measured) if measured else None,'active_files':len(transferring)}
+        return {**queue,'bandwidth':bandwidth,'worker_state':run['state'],
                 'trigger_mode':'manual','can_start':not active and count>0,'active':active,'organizer_active':organizer_active,
                 'can_resume':not active and run['state'] in ('failed','stopped','interrupted') and bool(run.get('id') and run.get('subscriptions')),
                 'run':run,'subscriptions_saved':count}

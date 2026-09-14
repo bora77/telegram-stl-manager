@@ -99,6 +99,15 @@ func (m *speedMonitor) observe(now time.Time, done int64) error {
 	if m == nil || !m.watch.observe(now, done) {
 		return nil
 	}
+	if count, combined, valid := downloadTraffic.sample(now); count > 1 {
+		if !valid {
+			return nil
+		}
+		m.watch.health.BPS = combined
+		if combined >= m.watch.health.ThresholdBPS {
+			m.watch.health.LowSeconds = 0
+		}
+	}
 	if now.Sub(m.saved) < 30*time.Second && m.watch.health.BPS >= m.watch.health.ThresholdBPS/2 {
 		return nil
 	}
@@ -110,6 +119,18 @@ func (m *speedMonitor) flush() error {
 		return nil
 	}
 	h := m.watch.health
+	if count, combined, valid := downloadTraffic.sample(h.ObservedAt); count > 1 {
+		// Concurrent files share the connection capacity. Wait for a complete
+		// aggregate window; a single file's share must not trigger retesting.
+		if !valid {
+			return nil
+		}
+		h.BPS = combined
+		if combined >= h.ThresholdBPS {
+			h.LowSeconds = 0
+			m.watch.health.LowSeconds = 0
+		}
+	}
 	cacheMu.Lock()
 	cache := readCache(m.options.Cache)
 	s := cache[cacheKey(m.options)]

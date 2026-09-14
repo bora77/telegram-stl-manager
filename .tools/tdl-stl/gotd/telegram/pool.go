@@ -118,7 +118,10 @@ func (c *Client) dc(ctx context.Context, dcID int, max int64, dialer mtproto.Dia
 	// transfer errors from DC pool creation. Setup callback remains enabled for
 	// future reconnections when keys are re-generated inside the pool.
 	suppressSetup.Store(true)
-	_, err = c.transfer(ctx, tg.NewClient(p), dcID)
+	err = c.authorizeDCOnce(ctx, dcID, func() error {
+		_, err := c.transfer(ctx, tg.NewClient(p), dcID)
+		return err
+	})
 	suppressSetup.Store(false)
 	if err != nil {
 		// Ignore case then we are not authorized.

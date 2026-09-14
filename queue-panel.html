@@ -9,6 +9,7 @@
   <p id="queue-message" aria-live="polite">Loading queue status…</p>
   <small id="history-summary">Download history is retained when files are moved.</small>
   <p id="download-speed" aria-live="polite"></p>
+  <div id="bandwidth-panel" hidden><small id="bandwidth-status" aria-live="polite"></small><progress id="bandwidth-progress" max="100" value="0" aria-label="Download bandwidth utilization"></progress></div>
   <div id="extraction-panel" class="move-panel" hidden><strong id="extraction-title">Extracting release images locally</strong><progress id="extraction-progress" max="100" aria-label="Image extraction progress"></progress><p id="extraction-status" aria-live="polite"></p><small id="extraction-help">Images go into release_images inside the monthly release folder. Archive files remain intact.</small></div>
   <div id="move-panel" class="move-panel" hidden><strong id="move-title">Moving from local disk to Kronos</strong><progress id="move-progress" max="100" value="0" aria-label="Move to Kronos progress"></progress><p id="move-status" aria-live="polite"></p><small>The local file is removed after destination verification and history recording.</small></div><details id="review-details"><summary id="review-summary">Items needing review</summary><ul id="run-warnings"></ul></details>
   <div id="queue-list"></div>

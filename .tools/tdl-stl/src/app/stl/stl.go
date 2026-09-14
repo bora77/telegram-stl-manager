@@ -201,7 +201,7 @@ func verifyMessage(m *tg.Message, o Options) (*tmedia.Media, error) {
 	return file, nil
 }
 
-func poolClient(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, dc int, key string) (telegram.CloseInvoker, *tg.Client, error) {
+func openPoolClient(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, dc int, key string) (telegram.CloseInvoker, *tg.Client, error) {
 	pool, err := c.MediaOnlyWithResolver(ctx, dc, 8, r.Selected(key))
 	if err != nil {
 		return nil, nil, err
@@ -246,6 +246,9 @@ func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
 	}
 	if err == nil {
 		w.done += int64(n)
+		if w.file != nil {
+			downloadTraffic.record(time.Now(), int64(n))
+		}
 		if w.chunks != nil {
 			w.chunks[off] = n
 		}

@@ -100,10 +100,12 @@ type Client struct {
 	restart chan struct{} // immutable
 
 	// Connections to non-primary DC.
-	subConns    map[int]CloseInvoker
-	subConnsMux sync.Mutex
-	sessions    map[int]*pool.SyncSession
-	sessionsMux sync.Mutex
+	subConns          map[int]CloseInvoker
+	subConnsMux       sync.Mutex
+	sessions          map[int]*pool.SyncSession
+	sessionsMux       sync.Mutex
+	dcAuthorizationMu sync.Mutex
+	dcAuthorizations  map[int][8]byte
 
 	// Wrappers for external world, like logs or PRNG.
 	rand  io.Reader   // immutable

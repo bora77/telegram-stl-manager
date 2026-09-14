@@ -81,6 +81,11 @@ are recorded independently so retries can reuse completed work.
    when the proposed changes are ready.
 5. Open **Collages** to select extracted images and save a release overview.
 
+Configuration also lets you set a **target total download speed** in MB/s
+(default `30`). The queue displays combined transfer speed and utilization of
+that target. This is a reference for your connection capacity, not a rate limit
+or an automatic change to the number of simultaneous downloads.
+
 Auto normally keeps its server comparisons for up to six hours on the current
 network. The optional speed threshold uses a 30-second average after each file's
 first ten seconds. After **two minutes of observed download time** below the
@@ -93,6 +98,7 @@ If measured speed falls **below half the threshold**, Auto pauses the current
 file and compares immediately, without waiting two minutes. For a `20` MB/s
 threshold, this means below `10` MB/s. The file resumes with its saved chunks;
 progress does not restart from zero. Failed comparisons keep the previous server.
+When files overlap, slowdown checks use their combined throughput.
 Both slowdown rules have a ten-minute cooldown between comparisons. Auto changes
 working servers only when another measures at least 10% faster. Set the threshold
 to `0` to disable monitoring. Connection failures can still trigger retesting.

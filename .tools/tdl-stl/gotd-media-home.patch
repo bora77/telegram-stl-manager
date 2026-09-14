@@ -1,11 +1,17 @@
 --- a/telegram/pool.go
 +++ b/telegram/pool.go
-@@ -145,3 +145 @@
+@@ -121 +121,4 @@
+-	_, err = c.transfer(ctx, tg.NewClient(p), dcID)
++	err = c.authorizeDCOnce(ctx, dcID, func() error {
++		_, err := c.transfer(ctx, tg.NewClient(p), dcID)
++		return err
++	})
+@@ -145,3 +148 @@
 -	return c.dc(ctx, dc, max, func(ctx context.Context) (transport.Conn, error) {
 -		return c.resolver.MediaOnly(ctx, dc, c.dcList())
 -	})
 +	return c.MediaOnlyWithResolver(ctx, dc, max, c.resolver)
-@@ -148,0 +147,27 @@
+@@ -148,0 +150,27 @@
 +
 +// MediaOnlyWithResolver pins the endpoint for this pool, including reconnects.
 +func (c *Client) MediaOnlyWithResolver(ctx context.Context, dc int, max int64, resolver dcs.Resolver) (CloseInvoker, error) {
@@ -32,4 +38,127 @@
 +		})
 +	}
 +	return c.dc(ctx, dc, max, dialer)
++}
+--- a/telegram/client.go
++++ b/telegram/client.go
+@@ -103,4 +103,6 @@
+-	subConns    map[int]CloseInvoker
+-	subConnsMux sync.Mutex
+-	sessions    map[int]*pool.SyncSession
+-	sessionsMux sync.Mutex
++	subConns          map[int]CloseInvoker
++	subConnsMux       sync.Mutex
++	sessions          map[int]*pool.SyncSession
++	sessionsMux       sync.Mutex
++	dcAuthorizationMu sync.Mutex
++	dcAuthorizations  map[int][8]byte
+--- /dev/null
++++ b/telegram/dc_authorization.go
+@@ -0,0 +1,39 @@
++package telegram
++
++import "context"
++
++// File pools share a DC's permanent key. Import authorization once for that
++// key, rather than importing it again while other file pools are using it.
++// The guard also prevents two first pools from initializing the DC together.
++func (c *Client) authorizeDCOnce(ctx context.Context, dc int, authorize func() error) error {
++	c.dcAuthorizationMu.Lock()
++	defer c.dcAuthorizationMu.Unlock()
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	c.sessionsMux.Lock()
++	session := c.sessions[dc]
++	c.sessionsMux.Unlock()
++	if session != nil {
++		key := session.Load().AuthKey
++		if previous, ok := c.dcAuthorizations[dc]; ok && !key.Zero() && previous == key.ID {
++			return nil
++		}
++	}
++	if err := authorize(); err != nil {
++		return err
++	}
++	c.sessionsMux.Lock()
++	session = c.sessions[dc]
++	c.sessionsMux.Unlock()
++	if session != nil {
++		key := session.Load().AuthKey
++		if !key.Zero() {
++			if c.dcAuthorizations == nil {
++				c.dcAuthorizations = map[int][8]byte{}
++			}
++			c.dcAuthorizations[dc] = key.ID
++		}
++	}
++	return nil
++}
+--- /dev/null
++++ b/telegram/dc_authorization_test.go
+@@ -0,0 +1,65 @@
++package telegram
++
++import (
++	"context"
++	"errors"
++	"sync"
++	"sync/atomic"
++	"testing"
++
++	"github.com/gotd/td/crypto"
++	"github.com/gotd/td/pool"
++)
++
++func TestConcurrentFilePoolsAuthorizeEachDCKeyOnce(t *testing.T) {
++	var key crypto.Key
++	key[0] = 1
++	session := pool.NewSyncSession(pool.Session{DC: 1, AuthKey: key.WithID()})
++	c := &Client{sessions: map[int]*pool.SyncSession{1: session}}
++	var calls atomic.Int32
++	var group sync.WaitGroup
++	for n := 0; n < 20; n++ {
++		group.Add(1)
++		go func() {
++			defer group.Done()
++			if err := c.authorizeDCOnce(context.Background(), 1, func() error { calls.Add(1); return nil }); err != nil {
++				t.Error(err)
++			}
++		}()
++	}
++	group.Wait()
++	if calls.Load() != 1 {
++		t.Fatal("reimported authorization for an active key", calls.Load())
++	}
++	// A replaced key needs its own import; the old receipt must not bypass it.
++	key[0] = 2
++	session.Store(pool.Session{DC: 1, AuthKey: key.WithID()})
++	if err := c.authorizeDCOnce(context.Background(), 1, func() error { calls.Add(1); return nil }); err != nil {
++		t.Fatal(err)
++	}
++	if calls.Load() != 2 {
++		t.Fatal("replacement key was not authorized")
++	}
++}
++
++func TestFailedOrCancelledDCInitializationIsNeverCached(t *testing.T) {
++	var key crypto.Key
++	key[0] = 1
++	c := &Client{sessions: map[int]*pool.SyncSession{1: pool.NewSyncSession(pool.Session{DC: 1, AuthKey: key.WithID()})}}
++	sentinel := errors.New("import failed")
++	if err := c.authorizeDCOnce(context.Background(), 1, func() error { return sentinel }); !errors.Is(err, sentinel) {
++		t.Fatal(err)
++	}
++	calls := 0
++	if err := c.authorizeDCOnce(context.Background(), 1, func() error { calls++; return nil }); err != nil {
++		t.Fatal(err)
++	}
++	if calls != 1 {
++		t.Fatal("failed import was cached")
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if err := c.authorizeDCOnce(ctx, 2, func() error { t.Error("cancelled setup ran"); return nil }); !errors.Is(err, context.Canceled) {
++		t.Fatal(err)
++	}
 +}

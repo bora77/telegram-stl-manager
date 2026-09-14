@@ -33,6 +33,20 @@ class DownloaderTests(unittest.TestCase):
             (root/'data/stop-request').unlink();Organizer(store).stop()
             self.assertTrue((root/'data/organizer-stop').exists());self.assertFalse((root/'data/stop-request').exists())
 
+    def test_bandwidth_counts_live_downloads_and_excludes_processing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=SubscriptionStore(configure_source(temp))
+            files=[{'state':'downloading','download_finished_at':None,'download_speed_bps':15e6},
+                   {'state':'downloading','download_finished_at':None,'download_speed_bps':14e6},
+                   {'state':'downloading','download_finished_at':'finished','download_speed_bps':30e6},
+                   {'state':'queued','download_finished_at':None,'download_speed_bps':30e6}]
+            with patch.object(store.history,'queue',return_value={'files':files}),patch.object(store.runs,'status',return_value={'id':'batch','state':'downloading'}):
+                status=store.queue()['bandwidth']
+                self.assertEqual(status,{'target_mbps':30,'speed_bps':29e6,'active_files':2})
+            for phase in ('extracting','copying','stopped'):
+                with patch.object(store.history,'queue',return_value={'files':files}),patch.object(store.runs,'status',return_value={'id':'batch','state':phase}):
+                    self.assertEqual(store.queue()['bandwidth'],{'target_mbps':30,'speed_bps':None,'active_files':0})
+
     def test_waiting_on_same_month_can_stop_without_releasing_other_worker(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);cancelled=False

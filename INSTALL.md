@@ -554,6 +554,9 @@ Configure the application:
    Those tests use two-second samples per server, plus connection setup; a
    comparison can take more than ten seconds. Another data center or a failed
    connection can require another comparison.
+   Set **Target total download speed (MB/s)** in Configuration to your practical
+   connection capacity (default 30). The queue shows combined speed and target
+   utilization. This is a display target, not a speed cap or concurrency setting.
    For a speed-triggered comparison, set **Retest when download speed stays below (MB/s)** in
    Configuration, for example `20`. Zero (the default on a fresh installation)
    disables it. Auto requires at least two minutes below the threshold using
@@ -564,7 +567,8 @@ Configure the application:
    file triggers this comparison. If the measured average is below half the
    threshold (below 10 MB/s when set to 20), Auto pauses the current file and
    compares immediately, without the two-minute wait. It resumes using chunks
-   already saved locally. Both slowdown rules have a ten-minute cooldown and
+   already saved locally. Overlapping transfers use combined throughput for slowdown checks.
+   Both slowdown rules have a ten-minute cooldown and
    require a 10% improvement to switch working servers. Failed comparisons
    keep the previous server.
 6. Check download speed, extraction progress, image delivery and archive moves.

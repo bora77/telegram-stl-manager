@@ -56,6 +56,18 @@ class StoreTests(unittest.TestCase):
         for revision,value in [(2,25.5),(3,0)]:
             saved=self.store.save_config(dict(revision=revision,download_directory=str(self.root),server_speed_threshold_mbps=value))
             self.assertEqual(saved['server_speed_threshold_mbps'],value)
+    def test_bandwidth_target_roundtrip_validation_and_older_clients(self):
+        self.assertEqual(self.store.config()['download_bandwidth_target_mbps'],30)
+        self.store.save_config(dict(revision=0,download_directory=str(self.root),download_bandwidth_target_mbps=45.5))
+        self.assertEqual(SubscriptionStore(self.root).config()['download_bandwidth_target_mbps'],45.5)
+        self.store.save_config(dict(revision=1,download_directory=str(self.root)))
+        self.assertEqual(self.store.config()['download_bandwidth_target_mbps'],45.5)
+        before=self.store.config_path.read_bytes()
+        for value in (0,-1,1001,10**1000,True,None,'30',float('nan'),float('inf')):
+            with self.subTest(value=repr(value)),self.assertRaises(ValueError):
+                self.store.save_config(dict(revision=2,download_directory=str(self.root),download_bandwidth_target_mbps=value))
+            self.assertEqual(self.store.config_path.read_bytes(),before)
+
     def test_custom_month_survives_save_and_invalid_month_is_rejected(self):
         saved=self.save(download_scope='from_month',start_month='2025-03')
         self.assertEqual(saved['subscriptions'][0]['start_month'],'2025-03')

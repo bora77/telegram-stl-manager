@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/app/stl/stl.go
-@@ -0,0 +1,566 @@
+@@ -0,0 +1,569 @@
 +// Package stl implements the local application's bounded, machine-readable CLI.
 +package stl
 +
@@ -204,7 +204,7 @@
 +	return file, nil
 +}
 +
-+func poolClient(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, dc int, key string) (telegram.CloseInvoker, *tg.Client, error) {
++func openPoolClient(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, dc int, key string) (telegram.CloseInvoker, *tg.Client, error) {
 +	pool, err := c.MediaOnlyWithResolver(ctx, dc, 8, r.Selected(key))
 +	if err != nil {
 +		return nil, nil, err
@@ -249,6 +249,9 @@
 +	}
 +	if err == nil {
 +		w.done += int64(n)
++		if w.file != nil {
++			downloadTraffic.record(time.Now(), int64(n))
++		}
 +		if w.chunks != nil {
 +			w.chunks[off] = n
 +		}
@@ -1401,7 +1404,7 @@
 +		}, backoff.WithContext(r.backoff(), ctx), func(err error, duration time.Duration) {
 --- /dev/null
 +++ b/app/stl/speed.go
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,182 @@
 +package stl
 +
 +import (
@@ -1503,6 +1506,15 @@
 +	if m == nil || !m.watch.observe(now, done) {
 +		return nil
 +	}
++	if count, combined, valid := downloadTraffic.sample(now); count > 1 {
++		if !valid {
++			return nil
++		}
++		m.watch.health.BPS = combined
++		if combined >= m.watch.health.ThresholdBPS {
++			m.watch.health.LowSeconds = 0
++		}
++	}
 +	if now.Sub(m.saved) < 30*time.Second && m.watch.health.BPS >= m.watch.health.ThresholdBPS/2 {
 +		return nil
 +	}
@@ -1514,6 +1526,18 @@
 +		return nil
 +	}
 +	h := m.watch.health
++	if count, combined, valid := downloadTraffic.sample(h.ObservedAt); count > 1 {
++		// Concurrent files share the connection capacity. Wait for a complete
++		// aggregate window; a single file's share must not trigger retesting.
++		if !valid {
++			return nil
++		}
++		h.BPS = combined
++		if combined >= h.ThresholdBPS {
++			h.LowSeconds = 0
++			m.watch.health.LowSeconds = 0
++		}
++	}
 +	cacheMu.Lock()
 +	cache := readCache(m.options.Cache)
 +	s := cache[cacheKey(m.options)]
@@ -1872,7 +1896,7 @@
 +}
 --- /dev/null
 +++ b/app/stl/transfer_session.go
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,155 @@
 +package stl
 +
 +import (
@@ -1965,6 +1989,8 @@
 +
 +func transferWithSwitches(ctx context.Context, file *tmedia.Media, o Options, e *Events, f *os.File, key string, hooks transferHooks) error {
 +	w := &countWriter{file: f, total: file.Size, events: e, chunks: map[int64]int{}}
++	downloadTraffic.start(time.Now())
++	defer downloadTraffic.finish()
 +	started, retried := false, false
 +	for {
 +		if err := ctx.Err(); err != nil {
@@ -2284,4 +2310,251 @@
 +	if !errors.Is(err, context.Canceled) || !closed {
 +		t.Fatal("stop did not cancel/close", err)
 +	}
++}
+--- /dev/null
++++ b/app/stl/shared_pool.go
+@@ -0,0 +1,78 @@
++package stl
++
++import (
++	"context"
++	"sync"
++
++	"github.com/gotd/td/bin"
++	"github.com/gotd/td/telegram"
++	"github.com/gotd/td/tg"
++	"github.com/iyear/tdl/core/stltransport"
++)
++
++type poolIdentity struct {
++	client   *telegram.Client
++	dc       int
++	endpoint string
++}
++type sharedPool struct {
++	pool       telegram.CloseInvoker
++	api        *tg.Client
++	references int
++}
++type poolRegistry struct {
++	mu      sync.Mutex
++	entries map[poolIdentity]*sharedPool
++}
++type poolLease struct {
++	registry *poolRegistry
++	key      poolIdentity
++	entry    *sharedPool
++	once     sync.Once
++}
++
++var downloadPools poolRegistry
++
++func (p *poolLease) Invoke(ctx context.Context, in bin.Encoder, out bin.Decoder) error {
++	return p.entry.pool.Invoke(ctx, in, out)
++}
++func (p *poolLease) Close() error {
++	var err error
++	p.once.Do(func() {
++		p.registry.mu.Lock()
++		p.entry.references--
++		last := p.entry.references == 0
++		if last {
++			delete(p.registry.entries, p.key)
++		}
++		p.registry.mu.Unlock()
++		if last {
++			err = p.entry.pool.Close()
++		}
++	})
++	return err
++}
++func (r *poolRegistry) acquire(ctx context.Context, key poolIdentity, open func() (telegram.CloseInvoker, *tg.Client, error)) (*poolLease, *tg.Client, error) {
++	r.mu.Lock()
++	defer r.mu.Unlock()
++	if err := ctx.Err(); err != nil {
++		return nil, nil, err
++	}
++	entry := r.entries[key]
++	if entry == nil {
++		pool, api, err := open()
++		if err != nil {
++			return nil, nil, err
++		}
++		entry = &sharedPool{pool: pool, api: api}
++		if r.entries == nil {
++			r.entries = map[poolIdentity]*sharedPool{}
++		}
++		r.entries[key] = entry
++	}
++	entry.references++
++	return &poolLease{registry: r, key: key, entry: entry}, entry.api, nil
++}
++func poolClient(ctx context.Context, c *telegram.Client, r *stltransport.Resolver, dc int, key string) (telegram.CloseInvoker, *tg.Client, error) {
++	return downloadPools.acquire(ctx, poolIdentity{c, dc, key}, func() (telegram.CloseInvoker, *tg.Client, error) { return openPoolClient(ctx, c, r, dc, key) })
++}
+--- /dev/null
++++ b/app/stl/shared_pool_test.go
+@@ -0,0 +1,102 @@
++package stl
++
++import (
++	"context"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/gotd/td/bin"
++	"github.com/gotd/td/telegram"
++	"github.com/gotd/td/tg"
++)
++
++type fakeSharedPool struct{ closes atomic.Int32 }
++
++func (p *fakeSharedPool) Invoke(context.Context, bin.Encoder, bin.Decoder) error { return nil }
++func (p *fakeSharedPool) Close() error                                           { p.closes.Add(1); return nil }
++func TestFinishingOneFileDoesNotCloseAnotherFilesPool(t *testing.T) {
++	registry := poolRegistry{}
++	pool := &fakeSharedPool{}
++	opens := 0
++	open := func() (telegram.CloseInvoker, *tg.Client, error) { opens++; return pool, nil, nil }
++	key := poolIdentity{dc: 1, endpoint: "server"}
++	a, _, err := registry.acquire(context.Background(), key, open)
++	if err != nil {
++		t.Fatal(err)
++	}
++	b, _, err := registry.acquire(context.Background(), key, open)
++	if err != nil {
++		t.Fatal(err)
++	}
++	a.Close()
++	a.Close()
++	if opens != 1 || pool.closes.Load() != 0 {
++		t.Fatal("completed file disrupted its peer")
++	}
++	c, _, err := registry.acquire(context.Background(), key, open)
++	if err != nil {
++		t.Fatal(err)
++	}
++	b.Close()
++	if pool.closes.Load() != 0 {
++		t.Fatal("next file lost reused pool")
++	}
++	c.Close()
++	if pool.closes.Load() != 1 || len(registry.entries) != 0 {
++		t.Fatal("final pool not released")
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if _, _, err := registry.acquire(ctx, key, open); err == nil || opens != 1 {
++		t.Fatal("cancelled operation opened a pool")
++	}
++}
++func TestParallelTrafficMeasuresCombinedUniquePayload(t *testing.T) {
++	var traffic trafficWindow
++	start := time.Unix(1700000000, 0)
++	traffic.start(start)
++	traffic.start(start)
++	for second := 1; second <= 40; second++ {
++		now := start.Add(time.Duration(second) * time.Second)
++		traffic.record(now, 15_000_000)
++		traffic.record(now, 14_000_000)
++	}
++	active, bps, valid := traffic.sample(start.Add(40 * time.Second))
++	if active != 2 || !valid || bps < 28e6 || bps > 30e6 {
++		t.Fatal("incorrect combined speed", active, bps, valid)
++	}
++	traffic.finish()
++	traffic.finish()
++	traffic.start(start.Add(time.Hour))
++	_, _, valid = traffic.sample(start.Add(time.Hour + 5*time.Second))
++	if valid {
++		t.Fatal("idle period reused old traffic")
++	}
++	traffic.finish()
++}
++func TestHealthyCombinedTrafficSuppressesFalseCriticalRetest(t *testing.T) {
++	o, e, _, s := speedFixture(t)
++	s.Health = nil
++	WriteJSON(o.Cache, Cache{cacheKey(o): s})
++	start := time.Now()
++	downloadTraffic.start(start)
++	downloadTraffic.start(start)
++	defer downloadTraffic.finish()
++	defer downloadTraffic.finish()
++	m := newSpeedMonitor(o, "old", e, start)
++	for second := 1; second <= 100; second++ {
++		now := start.Add(time.Duration(second) * time.Second)
++		downloadTraffic.record(now, 30_000_000)
++		if err := m.observe(now, int64(second)*15_000_000); err != nil {
++			t.Fatal("healthy parallel traffic triggered a check", err)
++		}
++		if m.watch.health.LowSeconds != 0 {
++			t.Fatal("parallel time was counted as a slowdown between cache writes")
++		}
++	}
++	h := readCache(o.Cache)[cacheKey(o)].Health
++	if h == nil || h.LowSeconds != 0 || h.BPS < 29e6 {
++		t.Fatal("parallel health not retained", h)
++	}
++}
+--- /dev/null
++++ b/app/stl/traffic.go
+@@ -0,0 +1,58 @@
++package stl
++
++import (
++	"sync"
++	"time"
++)
++
++type trafficWindow struct {
++	mu     sync.Mutex
++	active int
++	bytes  int64
++	points []speedPoint
++}
++
++var downloadTraffic trafficWindow
++
++func (t *trafficWindow) start(now time.Time) {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if t.active == 0 {
++		t.bytes = 0
++		t.points = []speedPoint{{at: now, bytes: 0}}
++	}
++	t.active++
++}
++func (t *trafficWindow) finish() { t.mu.Lock(); defer t.mu.Unlock(); t.active-- }
++func (t *trafficWindow) record(now time.Time, n int64) {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if t.active == 0 {
++		return
++	}
++	t.bytes += n
++	if len(t.points) == 0 || now.Sub(t.points[len(t.points)-1].at) >= time.Second {
++		t.points = append(t.points, speedPoint{now, t.bytes})
++	}
++	cutoff := now.Add(-speedWindow)
++	for len(t.points) > 1 && !t.points[1].at.After(cutoff) {
++		t.points = t.points[1:]
++	}
++}
++func (t *trafficWindow) sample(now time.Time) (int, float64, bool) {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if len(t.points) == 0 {
++		return t.active, 0, false
++	}
++	first := t.points[0]
++	elapsed := now.Sub(first.at)
++	if elapsed < speedWindow {
++		return t.active, 0, false
++	}
++	// Tick-only observations also account for stalls after the last write.
++	if now.Sub(t.points[len(t.points)-1].at) > speedWindow {
++		return t.active, 0, true
++	}
++	return t.active, float64(t.bytes-first.bytes) / elapsed.Seconds(), true
 +}

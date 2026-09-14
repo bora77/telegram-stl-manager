@@ -55,7 +55,9 @@
     "test_collages.py",
     ".gitattributes",
     ".githooks/pre-commit",
-    "test_git_privacy.py"
+    "test_git_privacy.py",
+    "adaptive_downloads.py",
+    "test_adaptive_downloads.py"
   ],
   "trees": [
     "templates",

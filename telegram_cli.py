@@ -131,6 +131,26 @@ def read_json(path, default):
         return default
 
 
+def completed_transfer_receipt(item, state=CLI_STATE):
+    """Recognize a saved receipt without hashing its payload during queue scans.
+
+    The download adapter still checks the full checksum before reuse.
+    """
+    directory = Path(state) / 'transfers' / str(item['source_message_id'])
+    marker, output, proof = (directory / name for name in ('item.json', 'payload.part', 'complete.json'))
+    try:
+        if directory.is_symlink() or any(p.is_symlink() for p in (marker, output, proof)): return None
+        receipt = read_json(proof, {})
+        if not isinstance(receipt,dict):return None
+        size = item['bytes_total']
+        if (read_json(marker, None) == item and receipt.get('bytes') == receipt.get('total') == size
+                and receipt.get('message_id') == item['source_message_id'] and receipt.get('filename') == item['filename']
+                and re.fullmatch('[0-9a-f]{64}', receipt.get('sha256', '')) and output.stat().st_size == size):
+            return receipt
+    except (OSError, ValueError, TypeError): pass
+    return None
+
+
 def server_view(root=ROOT):
     return {**read_json(Path(root) / 'data/telegram-servers.json', {'endpoints': []}),
             'comparisons': read_json(Path(root) / 'data/telegram-server-speeds.json', {})}
@@ -307,14 +327,14 @@ class TelegramCLI:
                 or item.get('unsafe_filename')):
             raise CLIError('Unsafe attachment filename or message identity.')
         size = item['bytes_total']
-        if shutil.disk_usage(self.state).free < (0 if probe_only else size) + 1024**3:
-            raise CLIError('Not enough local staging space for this file plus 1 GiB reserve.')
         directory = directory or self.state / 'transfers' / str(item['source_message_id'])
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         if directory.is_symlink():
             raise CLIError('Invalid local transfer directory.')
         marker = directory / 'item.json'; output = directory / 'payload.part'; events = directory / 'events.jsonl'
         proof = directory / 'complete.json'
+        if any(p.is_symlink() for p in (marker,output,events,proof)):
+            raise CLIError('Invalid local transfer output.')
         if marker.exists() and read_json(marker, None) != item:
             raise CLIError('Local transfer metadata changed; its staged data needs review.')
         from subscription_store import SubscriptionStore
@@ -325,6 +345,8 @@ class TelegramCLI:
             if result.get('bytes') == size and output.stat().st_size == size and digest(output) == result.get('sha256'):
                 progress(size, size); return output
             raise CLIError('Previously completed local transfer failed verification.')
+        if shutil.disk_usage(self.state).free < (0 if probe_only else size) + 1024**3:
+            raise CLIError('Not enough local staging space for this file plus 1 GiB reserve.')
         if not marker.exists() and any(directory.iterdir()):
             raise CLIError('Unrecognized local transfer files need review.')
         store.atomic_write(marker, item)

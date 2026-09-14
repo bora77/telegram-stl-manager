@@ -42,10 +42,24 @@ class DownloaderTests(unittest.TestCase):
                    {'state':'queued','download_finished_at':None,'download_speed_bps':30e6}]
             with patch.object(store.history,'queue',return_value={'files':files}),patch.object(store.runs,'status',return_value={'id':'batch','state':'downloading'}):
                 status=store.queue()['bandwidth']
-                self.assertEqual(status,{'target_mbps':30,'speed_bps':29e6,'active_files':2})
+                self.assertEqual(status,{'target_mbps':28,'speed_bps':29e6,'active_files':2})
             for phase in ('extracting','copying','stopped'):
                 with patch.object(store.history,'queue',return_value={'files':files}),patch.object(store.runs,'status',return_value={'id':'batch','state':phase}):
-                    self.assertEqual(store.queue()['bandwidth'],{'target_mbps':30,'speed_bps':None,'active_files':0})
+                    self.assertEqual(store.queue()['bandwidth'],{'target_mbps':28,'speed_bps':None,'active_files':0})
+
+    def test_adaptive_speed_stays_visible_during_processing_and_ignores_old_batches(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=SubscriptionStore(configure_source(temp))
+            status={'batch_id':'batch','active':True,'target_mbps':28,'transfers':[
+                {'phase':'downloading','speed_bps':9e6},{'phase':'downloading','speed_bps':19e6},
+                {'phase':'verifying','speed_bps':20e6}]}
+            store.atomic_write(store.root/'data/download-scheduler.json',status)
+            run={'id':'batch','state':'extracting','adaptive_scheduler':True}
+            with patch.object(store.history,'queue',return_value={'files':[]}),patch.object(store.runs,'status',return_value=run):
+                result=store.queue();self.assertIsNotNone(result['scheduler'])
+                self.assertEqual(result['bandwidth'],{'target_mbps':28,'speed_bps':28e6,'active_files':2})
+                run['id']='another-batch';self.assertIsNone(store.queue()['scheduler'])
+                run.update(id='batch',state='stopped');self.assertIsNone(store.queue()['scheduler'])
 
     def test_waiting_on_same_month_can_stop_without_releasing_other_worker(self):
         with tempfile.TemporaryDirectory() as temp:

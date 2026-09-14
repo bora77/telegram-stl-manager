@@ -23,8 +23,13 @@ content for locally configured source references before creating an archive.
 1. Set the destination in Configuration. Use a local Linux directory or a NAS
    mounted inside Linux; Windows installations use WSL2.
    Set **Target total download speed (MB/s)** to your connection’s practical
-   capacity. The queue compares combined transfer speed with this configurable
-   target; changing it does not start downloads or impose a speed cap.
+   capacity (default 28 MB/s). The gauge beside total progress shows combined
+   speed. Adaptive mode adds a file after a 30-second observation window below
+   95% of target, up to three transfers. It favors other data centers while
+   keeping older work progressing. Completed releases can be extracted and
+   moved before slower downloads finish. One file at a time disables additional
+   parallel work; active transfers finish. These settings apply within five
+   seconds to an existing run and never start a new run or impose a speed cap.
 2. Refresh the server list after logging in to the CLI. Auto compares advertised
    Telegram endpoints for a suitable attachment and caches the fastest result.
    A manual endpoint can be selected per data center. Auto normally reuses

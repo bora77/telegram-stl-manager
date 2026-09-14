@@ -12,7 +12,7 @@ import tempfile
 import time
 from datetime import datetime,timezone
 from subscription_store import SubscriptionStore
-from telegram_cli import TelegramCLI, CLIError as WorkerError, STATE, safe_filename
+from telegram_cli import TelegramCLI, CLIError as WorkerError, STATE, CLI_STATE, safe_filename, completed_transfer_receipt
 from release_rules import release_month,in_scope
 from download_plan import DownloadPlan
 from transfer_metrics import TransferMeter
@@ -54,7 +54,7 @@ class Worker:
         with self.history.connect() as db:
             for record in records:
                 db.execute("UPDATE downloads SET state='paused',error=? WHERE id=? AND state!='downloaded'",(str(error),record['id']))
-    def transfer(self,sub,item,month):
+    def transfer(self,sub,item,month,downloaded=None):
         filename=item['filename']
         if self.history.was_downloaded(item['source_message_id']):return
         row=self.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=sub['topic_url'],filename=filename,bytes_total=item.get('bytes_total'),release_month=month,batch_id=self.batch)
@@ -98,7 +98,7 @@ class Worker:
                         self.update('downloading','Connection failed; comparing servers again before retrying.',server_stage='retrying')
                     elif kind=='download_finished':
                         self.update('downloading','Verifying downloaded file · '+filename)
-                source=self.telegram.download(item,progress,self.stopped,cli_status)
+                source=downloaded if downloaded is not None else self.telegram.download(item,progress,self.stopped,cli_status)
                 os.rename(source,staged)
                 self.store.atomic_write(receipt,{'message_url':item['message_url'],'size':staged.stat().st_size,'sha256':digest(staged)})
                 if hasattr(self.telegram,'cleanup_transfer'):self.telegram.cleanup_transfer(item)
@@ -243,13 +243,17 @@ class Worker:
         valid_hash=digest(inputs/filename)==checksum.hexdigest() if imported_without_hash else checksum.hexdigest()==row['sha256']
         if done!=row['bytes_total'] or not unchanged or not valid_hash:
             raise ExtractionError('Previously downloaded archive part failed checksum verification: '+filename)
-    def finish_pending(self,sub):
+    def finish_pending(self,sub,month=None,keep_going=False):
         groups={}
         for record in self.pending:
-            if record['sub']['topic_url']==sub['topic_url']:
+            if record['sub']['topic_url']==sub['topic_url'] and (month is None or record['month']==month):
                 groups.setdefault((record['month'],self.archive_key(record['filename'],sub,record['month'])[0]),[]).append(record)
-        for records in groups.values():self.finish_release(records)
-        self.pending=[r for r in self.pending if r['sub']['topic_url']!=sub['topic_url']]
+        for records in groups.values():
+            try:self.finish_release(records)
+            except Exception as error:
+                if self.stopped() or not keep_going:raise
+                self.warn(sub['creator']+' · '+records[0]['filename']+': '+str(error))
+        self.pending=[r for r in self.pending if r['sub']['topic_url']!=sub['topic_url'] or (month is not None and r['month']!=month)]
     def scan(self,sub):
         topic=sub['topic_url'];received=0;started=time.monotonic()
         def status(message):
@@ -289,7 +293,8 @@ class Worker:
         if row['filename']!=item['filename'] or row['topic_url']!=sub['topic_url']:
             raise WorkerError('Previously queued attachment identity changed; review required.')
         stagedir=STATE/'staging'/str(row['id']);staged=stagedir/item['filename'];receipt=stagedir/'receipt.json'
-        reuse=row.get('download_finished_at') and staged.is_file() and not staged.is_symlink() and receipt.is_file() and not receipt.is_symlink()
+        local=staged.is_file() and not staged.is_symlink() and receipt.is_file() and not receipt.is_symlink()
+        reuse=row.get('download_finished_at') and (local or completed_transfer_receipt(item,getattr(self.telegram,'state',CLI_STATE)))
         with self.history.connect() as db:
             reset='' if reuse else ',bytes_downloaded=0,download_started_at=NULL,download_finished_at=NULL,download_seconds=NULL,download_speed_bps=NULL,download_average_bps=NULL'
             db.execute("UPDATE downloads SET batch_id=?,state='queued',error=NULL,bytes_total=?"+reset+" WHERE id=? AND state!='downloaded'",(self.batch,item['bytes_total'],row['id']))
@@ -305,44 +310,92 @@ class Worker:
             directory=STATE/'staging'/str(row['id']);staged=directory/row['filename'];receipt=directory/'receipt.json'
             if staged.is_file() and not staged.is_symlink() and receipt.is_file() and digest(staged)==row['sha256']:
                 staged.unlink();receipt.unlink();directory.rmdir()
+    def reuse_staged(self,job):
+        directory=STATE/'staging'/str(job.row_id)
+        staged=directory/job.item['filename'];receipt=directory/'receipt.json'
+        return staged.is_file() and not staged.is_symlink() and receipt.is_file() and not receipt.is_symlink()
+    def execute_adaptive(self):
+        from adaptive_downloads import AdaptiveDownloads
+        from collections import Counter
+        planned=[]
+        for sub in self.run['subscriptions']:
+            planned.extend(sorted((p for p in self.planned if p[0]['topic_url']==sub['topic_url']),
+                                  key=lambda p:(p[2],self.archive_key(p[1]['filename'],sub,p[2]))))
+        remaining=Counter((sub['topic_url'],month) for sub,_,month in planned)
+        artists=Counter(sub['topic_url'] for sub,_,_ in planned)
+        self.run['creators_done']=sum(sub['topic_url'] not in artists for sub in self.run['subscriptions'])
+        self.update('downloading','Starting adaptive downloads from the saved queue.',adaptive_scheduler=True)
+        with AdaptiveDownloads(self.store,self.run,planned,self.stopped,self.reuse_staged,
+                               cli_factory=TelegramCLI,state=self.telegram.state) as scheduler:
+            while (job:=scheduler.next_ready()) is not None:
+                sub,item,month=job.sub,job.item,job.month
+                try:
+                    if job.error:self.warn(sub['creator']+' · '+item['filename']+': '+job.error)
+                    else:
+                        def waiting():self.update('downloading','Waiting for organization of '+sub['creator']+' · '+month,current_creator=sub['creator'])
+                        with release_lock(ROOT,self.run['download_directory'],sub['creator_folder'],month,self.stopped,waiting):
+                            self.transfer(sub,item,month,downloaded=job.source)
+                    remaining[sub['topic_url'],month]-=1
+                    if not remaining[sub['topic_url'],month]:
+                        with release_lock(ROOT,self.run['download_directory'],sub['creator_folder'],month,self.stopped):
+                            self.finish_pending(sub,month,keep_going=True)
+                except Exception as error:
+                    if self.stopped():raise
+                    self.warn(sub['creator']+' · '+item['filename']+': '+str(error))
+                finally:
+                    artists[sub['topic_url']]-=1
+                    self.run['creators_done']=sum(artists[sub['topic_url']]==0 for sub in self.run['subscriptions'])
+                    scheduler.handled(job)
+                self.update('downloading','Downloading queued releases; completed files are processed as they arrive.')
+            # A delivery error must not strand unrelated completed archive sets.
+            for sub in self.run['subscriptions']:
+                months={r['month'] for r in self.pending if r['sub']['topic_url']==sub['topic_url']}
+                for month in sorted(months):
+                    with release_lock(ROOT,self.run['download_directory'],sub['creator_folder'],month,self.stopped):
+                        self.finish_pending(sub,month,keep_going=True)
     def execute(self):
         try:
             self.cleanup_completed()
             self.telegram=TelegramCLI(root=ROOT,config=self.run.get('config',self.store.config()))
             if self.run.get('resume_requested'):self.plan.seed_legacy()
             self.run.update(plan_version=1,creator_results=[],creators_done=0,creators_checked=0)
-            for sub in self.run['subscriptions']:
-                if self.stopped():raise WorkerError('Stopped by request.')
-                saved=self.plan.load(sub)
-                if saved is None:self.scan(sub)
-                else:
-                    for entry in saved['items']:
-                        if self.stopped():raise WorkerError('Stopped by request.')
-                        self.queue_item(sub,entry['item'],entry['month'])
-                    self.run['creator_results'].append(saved['result'])
-                    self.run['warnings']=list(dict.fromkeys(self.run['warnings']+saved['warnings']))
-                    self.update('scanning','Using saved queue · '+sub['creator'],creators_checked=len(self.run['creator_results']),files_listed=0)
-            for sub in self.run['subscriptions']:
-                planned=sorted((p for p in self.planned if p[0]['topic_url']==sub['topic_url']),key=lambda p:(p[2],self.archive_key(p[1]['filename'],sub,p[2])))
-                from itertools import groupby
-                for month,monthly in groupby(planned,key=lambda p:p[2]):
-                    def waiting():self.update('downloading','Waiting for organization of '+sub['creator']+' · '+month,current_creator=sub['creator'])
-                    with release_lock(ROOT,self.run['download_directory'],sub['creator_folder'],month,self.stopped,waiting):
-                        group=None
-                        for _,item,_ in monthly:
-                            next_group=self.archive_key(item['filename'],sub,month)[0]
-                            if group is not None and group!=next_group:self.finish_pending(sub)
-                            # transfer checks history again after acquiring the
-                            # month: the organizer may have completed it meanwhile.
-                            self.transfer(sub,item,month)
-                            group=self.archive_key(item['filename'],sub,month)[0]
-                        self.finish_pending(sub)
-                self.run['creators_done']+=1
+            self.prepare_plan()
+            if getattr(self.telegram,'use_service',False):self.execute_adaptive()
+            else:self.execute_sequential()
             self.update('needs_review' if self.run['warnings'] else 'completed', 'Manual run finished. '+('Some items need review; see details below.' if self.run['warnings'] else 'All eligible discovered files are handled.'),finished_at=datetime.now(timezone.utc).isoformat())
         except Exception as error:
             self.update('stopped' if self.stopped() else 'failed',str(error),finished_at=datetime.now(timezone.utc).isoformat())
         finally:
             if self.telegram:self.telegram.close()
+    def prepare_plan(self):
+        for sub in self.run['subscriptions']:
+            if self.stopped():raise WorkerError('Stopped by request.')
+            saved=self.plan.load(sub)
+            if saved is None:self.scan(sub)
+            else:
+                for entry in saved['items']:
+                    if self.stopped():raise WorkerError('Stopped by request.')
+                    self.queue_item(sub,entry['item'],entry['month'])
+                self.run['creator_results'].append(saved['result'])
+                self.run['warnings']=list(dict.fromkeys(self.run['warnings']+saved['warnings']))
+                self.update('scanning','Using saved queue · '+sub['creator'],creators_checked=len(self.run['creator_results']),files_listed=0)
+    def execute_sequential(self):
+        for sub in self.run['subscriptions']:
+            planned=sorted((p for p in self.planned if p[0]['topic_url']==sub['topic_url']),key=lambda p:(p[2],self.archive_key(p[1]['filename'],sub,p[2])))
+            from itertools import groupby
+            for month,monthly in groupby(planned,key=lambda p:p[2]):
+                def waiting():self.update('downloading','Waiting for organization of '+sub['creator']+' · '+month,current_creator=sub['creator'])
+                with release_lock(ROOT,self.run['download_directory'],sub['creator_folder'],month,self.stopped,waiting):
+                    group=None
+                    for _,item,_ in monthly:
+                        next_group=self.archive_key(item['filename'],sub,month)[0]
+                        if group is not None and group!=next_group:self.finish_pending(sub)
+                        # transfer checks history again after acquiring the
+                        # month: the organizer may have completed it meanwhile.
+                        self.transfer(sub,item,month)
+                        group=self.archive_key(item['filename'],sub,month)[0]
+                    self.finish_pending(sub)
+            self.run['creators_done']+=1
 
 if __name__=='__main__':
     os.umask(0o077)

@@ -23,6 +23,8 @@
 !/download_history.py
 !/download_worker.py
 !/download_plan.py
+!/adaptive_downloads.py
+!/test_adaptive_downloads.py
 !/favicon.svg
 !/file_delivery.py
 !/file_size.py

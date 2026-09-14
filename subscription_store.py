@@ -28,7 +28,8 @@ class SubscriptionStore:
         data.setdefault('download_servers',{})
         data.setdefault('server_check_frequency','cached')
         data.setdefault('server_speed_threshold_mbps',0)
-        data.setdefault('download_bandwidth_target_mbps',30)
+        data.setdefault('download_bandwidth_target_mbps',28)
+        data.setdefault('adaptive_downloads',True)
         return data
 
     def atomic_write(self, path, data):
@@ -63,7 +64,9 @@ class SubscriptionStore:
             target=payload.get('download_bandwidth_target_mbps',current['download_bandwidth_target_mbps'])
             if type(target) not in (int,float) or not 0<target<=1000 or not math.isfinite(target):
                 raise ValueError('Enter a total download bandwidth target greater than 0 and at most 1000 MB/s.')
-            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target}
+            adaptive=payload.get('adaptive_downloads',current['adaptive_downloads'])
+            if type(adaptive) is not bool:raise ValueError('Choose whether adaptive parallel downloads are enabled.')
+            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive}
             self.atomic_write(self.config_path,data)
             return data
 
@@ -149,7 +152,16 @@ class SubscriptionStore:
         measured=[f['download_speed_bps'] for f in transferring if type(f.get('download_speed_bps')) in (int,float) and math.isfinite(f['download_speed_bps']) and f['download_speed_bps']>=0]
         target=self.config()['download_bandwidth_target_mbps']
         bandwidth={'target_mbps':target,'speed_bps':sum(measured) if measured else None,'active_files':len(transferring)}
-        return {**queue,'bandwidth':bandwidth,'worker_state':run['state'],
+        scheduler=None
+        if active and run.get('adaptive_scheduler'):
+            try:
+                saved=json.loads((self.root/'data/download-scheduler.json').read_text())
+                if saved.get('batch_id')==run.get('id') and saved.get('active'):
+                    scheduler=saved
+                    live=[t for t in saved['transfers'] if t['phase']=='downloading']
+                    bandwidth.update(speed_bps=sum(t['speed_bps'] for t in live),active_files=len(live),target_mbps=saved['target_mbps'])
+            except (OSError,ValueError,KeyError,TypeError):pass
+        return {**queue,'bandwidth':bandwidth,'scheduler':scheduler,'worker_state':run['state'],
                 'trigger_mode':'manual','can_start':not active and count>0,'active':active,'organizer_active':organizer_active,
                 'can_resume':not active and run['state'] in ('failed','stopped','interrupted') and bool(run.get('id') and run.get('subscriptions')),
                 'run':run,'subscriptions_saved':count}

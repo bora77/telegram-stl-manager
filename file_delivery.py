@@ -13,7 +13,7 @@ from contextlib import contextmanager
 class DeliveryError(RuntimeError):pass
 
 @contextmanager
-def release_lock(root, base, folder, month, stopped=lambda:False, waiting=lambda:None):
+def release_lock(root, base, folder, month, stopped=lambda:False, waiting=lambda:None, *, blocking=True):
     """Serialize work on one destination month, across independent workers."""
     identity=json.dumps([str(Path(base).resolve()).casefold(),folder.casefold(),month])
     directory=Path(root)/'data/release-locks';directory.mkdir(parents=True,exist_ok=True)
@@ -23,6 +23,7 @@ def release_lock(root, base, folder, month, stopped=lambda:False, waiting=lambda
             if stopped():raise DeliveryError('Stopped while waiting for another operation on this release.')
             try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);break
             except BlockingIOError:
+                if not blocking:raise
                 now=time.monotonic()
                 if now-last>=1:waiting();last=now
                 time.sleep(.2)

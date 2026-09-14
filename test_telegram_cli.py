@@ -447,7 +447,8 @@ with events.open('w') as e:
             source=client.download(item,lambda done,total:samples.append((done,total)),lambda:False)
             self.assertIn((4,10),samples);self.assertEqual(samples[-1],(10,10))
             self.assertEqual(source.read_bytes(),b'0123456789')
-            with patch.object(client,'_run',side_effect=AssertionError('must reuse verified completion')):
+            with patch.object(client,'_run',side_effect=AssertionError('must reuse verified completion')), \
+                 patch('telegram_cli.shutil.disk_usage',return_value=type('Usage',(),{'free':0})()):
                 self.assertEqual(client.download(item,lambda *a:None,lambda:False),source)
 
     def test_time_waiting_for_another_command_does_not_count_as_stalled_download(self):

@@ -20,6 +20,10 @@ schedule.
 - **Download all selected subscriptions.** The queue shows actual received
   bytes, progress, current and average speed, verification, image extraction and
   transfers to your destination. Split archives are collected before extraction.
+- **Fill spare download capacity.** Adaptive mode gradually runs up to three
+  files, favoring other data centers when an archive is slow. An oldest-first
+  download keeps the queue progressing, while faster completed releases can
+  be extracted and moved ahead. The speed gauge shows combined throughput.
 - **Check for new files quickly.** After the first complete creator scan, later
   download runs request only newer messages. Previously discovered files remain
   available for unfinished downloads or a change of scope.
@@ -81,10 +85,24 @@ are recorded independently so retries can reuse completed work.
    when the proposed changes are ready.
 5. Open **Collages** to select extracted images and save a release overview.
 
-Configuration also lets you set a **target total download speed** in MB/s
-(default `30`). The queue displays combined transfer speed and utilization of
-that target. This is a reference for your connection capacity, not a rate limit
-or an automatic change to the number of simultaneous downloads.
+Set **Target total download speed** in Configuration to your connection’s
+practical capacity in MB/s (default `28`). During a manual run, adaptive mode
+starts with one file and adds at most one every 30 seconds while combined
+measured speed is below 95% of the target, up to three transfers. It favors
+unused data centers, available archive companions and faster observed sources.
+File age alone does not determine speed. Slow files are never cancelled just
+to change order, and the oldest pending work retains a download lane.
+
+Completed files are extracted and moved while other downloads continue. Parts
+of one archive wait for their companions. Failed items remain available for
+review while unrelated releases continue. The scheduler reserves remaining
+space for active transfers plus a 2 GiB margin and limits completed files
+waiting for processing to about 8 GiB (the final file may exceed that limit).
+
+The target is not a rate cap. Target and adaptive-mode changes apply within
+five seconds during an existing run. Choose **One file at a time** to stop
+adding parallel work; existing transfers finish normally. Saving settings does
+not start a run, and no new attachments are added to its saved plan.
 
 Auto normally keeps its server comparisons for up to six hours on the current
 network. The optional speed threshold uses a 30-second average after each file's

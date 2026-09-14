@@ -555,8 +555,15 @@ Configure the application:
    comparison can take more than ten seconds. Another data center or a failed
    connection can require another comparison.
    Set **Target total download speed (MB/s)** in Configuration to your practical
-   connection capacity (default 30). The queue shows combined speed and target
-   utilization. This is a display target, not a speed cap or concurrency setting.
+   connection capacity (default 28). The speed gauge appears beside total progress.
+   Adaptive mode runs up to three transfers, adding a file after a 30-second
+   window below 95% of target and favoring another data center when possible.
+   Slow downloads keep running; faster completed releases can be processed first.
+   Choose **One file at a time** to stop adding parallel work. Target and mode
+   changes apply to an active run within five seconds. This is not a speed cap.
+   Allow local space for simultaneous files, queued archive parts and extraction;
+   the scheduler reserves active transfers’ remaining sizes plus 2 GiB. It pauses
+   new starts when completed files waiting for processing reach about 8 GiB.
    For a speed-triggered comparison, set **Retest when download speed stays below (MB/s)** in
    Configuration, for example `20`. Zero (the default on a fresh installation)
    disables it. Auto requires at least two minutes below the threshold using

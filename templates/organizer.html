@@ -124,7 +124,7 @@ function renderTable(){
  for(const [label,count] of [['Files',files.length],['Matched',files.filter(f=>f.telegram_status==='matched').length],['To move',files.filter(toMove).length],['To record',files.filter(toRecord).length],['Recorded',files.filter(recorded).length],['Needs review',files.filter(needsReview).length]]){
   const box=node('div','','metric');box.append(node('strong',String(count)),node('span',label));el('metrics').append(box);
  }
- const rows=document.createDocumentFragment();
+ const rows=document.createDocumentFragment(),shownImageGroups=new Set();
  for(const f of files){
   const filter=el('filter').value;
   if(filter==='move'&&!toMove(f)||filter==='record'&&!toRecord(f)||filter==='recorded'&&!recorded(f)||filter==='keep'&&f.action!=='keep'&&!f.outcome?.moved||filter==='review'&&!needsReview(f))continue;
@@ -141,8 +141,15 @@ function renderTable(){
   const localSize=node('td',(f.size/1048576).toFixed(1)+' MiB');localSize.append(node('small',f.size.toLocaleString()+' bytes'));
   const telegramSize=node('td',f.telegram_size||'Not read');if(f.telegram_size)telegramSize.append(node('small','Exact Telegram metadata'));
   const record=node('td',f.outcome?.recorded?'Recorded':f.already_recorded?'Already recorded':skipped?'Not recorded; needs review':f.would_record?(f.outcome?'Pending recording':'Would record as downloaded'):'No history change proposed');
-  const imageStatus=f.outcome?.image_status||f.image_status,imageCount=f.outcome?.image_status?f.outcome.image_count:f.image_count;
-  if(imageStatus){const label=imageCount?`Images extracted (${imageCount})`:'Checked: no images found';record.append(node('small',label+(imageStatus==='complete_with_warnings'?' · warnings':'')))}
+  const images=f.outcome?.image_status?f.outcome:f;
+  if(images.image_status){
+   const group=f.outcome?.image_group||f.image_group||f.source,parts=f.outcome?.image_group_parts||f.image_group_parts||1;
+   const shared=parts>1&&shownImageGroups.has(group);
+   const total=(images.image_count?`Images extracted (${images.image_count})`:'Checked: no images found')+(parts>1?` · ${parts}-part archive`:'');
+   const label=shared?(images.image_count?'Images shared with this archive set':'Checked with this archive set'):total;
+   const result=node('small',label+(images.image_status==='complete_with_warnings'?' · warnings':''),'image-result');
+   result.title=total;record.append(result);shownImageGroups.add(group);
+  }
   row.append(name,destination,action,localSize,telegramSize,match,record);rows.append(row);
  }
  el('rows').replaceChildren(rows);

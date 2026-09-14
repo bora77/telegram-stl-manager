@@ -68,6 +68,7 @@ def application_status(store):
             result['files'].append({'source': record['source'], 'destination': record['destination'],
                                     'moved': bool(record.get('moved')), 'recorded': recorded, 'state': state,
                                     'image_status':group.get('image_status'), 'image_count':len(group.get('images') or []),
+                                    'image_group':group['key'], 'image_group_parts':len(group['records']),
                                     'images_extracted_at':group.get('images_extracted_at'),
                                     'error': group.get('error', '')})
     if job.get('plan_id') and plan.get('id')!=job['plan_id']:

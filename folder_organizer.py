@@ -7,12 +7,14 @@ import subprocess
 import sys
 import time
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from functools import lru_cache
 
 from file_delivery import mount_identity
 from file_size import display_size, matches_size
+from release_images import volume_key
 from release_rules import release_month
 from subscription_store import SubscriptionStore
 from telegram_cli import TelegramCLI
@@ -150,6 +152,12 @@ class Organizer:
         if not self.path.exists():
             plan={'state': 'idle', 'dry_run': True, 'files': [], 'message': 'Choose an artist and folder to preview.'}
         else:plan = json.loads(self.path.read_text())
+        # Extraction totals belong to an archive set, including all its volumes.
+        # Publish the grouping for display without changing per-file receipts.
+        for file in plan.get('files',[]):
+            file['image_group']=(file.get('month') or '')+'/'+volume_key(file['filename'])[0]
+        image_parts=Counter(file['image_group'] for file in plan.get('files',[]))
+        for file in plan.get('files',[]):file['image_group_parts']=image_parts[file['image_group']]
         # Show durable extraction results even for a preview saved before this
         # feature, without reading archives or their image directories again.
         if plan.get('topic_url'):

@@ -29,6 +29,12 @@ document.getElementById('save-subscriptions').onclick=async()=>{
 function bytes(value){if(value==null)return 'Size pending';const units=['B','KiB','MiB','GiB','TiB'];let i=0;while(value>=1024&&i<units.length-1){value/=1024;i++}return value.toFixed(i?1:0)+' '+units[i]}
 function duration(value){if(value==null)return 'Timing unavailable';const secs=Math.max(0,Math.round(value));return secs<60?secs+' s':Math.floor(secs/60)+' min '+secs%60+' s'}
 function speed(value){return value==null?'Speed unavailable':(value/1e6).toFixed(1)+' MB/s'}
+function compactTransfer(file,details){
+  const row=element('div');row.className='queue-file queue-file-compact';
+  const name=element('strong',file.filename),info=element('span',details);info.className='transfer-summary';
+  name.title=file.filename;info.title=details;row.append(name,info);return row;
+}
+function receivedFile(file){return Boolean(file.download_finished_at)||(file.bytes_total>0&&file.bytes_downloaded>=file.bytes_total)}
 function progress(bar,done,total){if(total>0){bar.value=Math.min(100,100*done/total)}else if(total===0){bar.value=0}else{bar.removeAttribute('value')}}
 function runMessage(run){
   const message=String(run.message||'');
@@ -46,6 +52,7 @@ function renderRunActivity(queue){
   document.getElementById('run-elapsed').textContent=seconds==null?'':(queue.active?'Elapsed: ':'Run duration: ')+duration(seconds);
   const scanning=state==='scanning';
   document.getElementById('run-detail').textContent=scanning?`${run.creators_checked||0} / ${run.creators_total||0} artists checked · ${run.message||'Checking new messages…'}${run.files_listed?' · '+run.files_listed+' new file records':''}`:ended&&queue.total_files===0?'No matching releases were queued for download.'+(run.warnings?.length?' Some entries could not be classified; review them below.':''):runMessage(run);
+  if(state==='downloading'&&run.download_server&&!queue.scheduler)document.getElementById('run-detail').textContent+=' · Server: '+run.download_server;
   document.getElementById('review-summary').textContent=`Items needing review (${run.warnings?.length||0})`;
 }
 let resumableRunId=null,runRequestPending=false;
@@ -69,7 +76,6 @@ async function refreshQueue(){
     document.getElementById('queue-files').textContent=`${queue.completed_files} / ${queue.total_files} files complete`;
     document.getElementById('history-summary').textContent=`${queue.history_completed||0} completed downloads in permanent history · retained when files move`;
     document.getElementById('queue-bytes').textContent=queue.total_files?bytes(queue.bytes_downloaded)+' / '+(queue.total_is_estimate?'≈ ':'')+bytes(total):checking?'Scanning before downloading':emptyFinished?'No data transferred':'No transfers yet';
-    document.getElementById('queue-message').textContent=runMessage(queue.run)+(queue.worker_state==='downloading'&&queue.run.download_server?' · Server: '+queue.run.download_server:'');
     const warnings=document.getElementById('run-warnings');warnings.replaceChildren();for(const text of queue.run.warnings||[])warnings.append(element('li',text));
     const moving=queue.worker_state==='copying';document.getElementById('move-panel').hidden=!moving;
     const extracting=queue.worker_state==='extracting';document.getElementById('extraction-panel').hidden=!extracting;
@@ -90,16 +96,24 @@ async function refreshQueue(){
     if(scheduler){
       document.getElementById('parallel-status').textContent=`${scheduler.transfers.length} / ${scheduler.max_transfers} transfers · ${scheduler.target_mbps} MB/s target${scheduler.ready_files?' · '+scheduler.ready_files+' files ready for processing':''}`;
       const files=document.getElementById('parallel-files');files.replaceChildren();
-      for(const file of scheduler.transfers){const row=element('div');row.className='queue-file';row.append(element('strong',file.filename),element('small',`${file.creator} · ${file.look_ahead?'Look-ahead download':'Queue download'} · Data center ${file.dc_id}`),element('small',`${bytes(file.bytes)} / ${bytes(file.total)} · ${file.phase==='downloading'?speed(file.speed_bps):file.detail||file.phase.replaceAll('_',' ')}`));const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' live download progress');progress(bar,file.bytes,file.total);row.append(bar);files.append(row)}
+      for(const file of scheduler.transfers){
+        if(file.phase==='verifying'||file.phase==='staged'||file.total>0&&file.bytes>=file.total){files.append(compactTransfer(file,`${file.creator} · ${file.detail||'Verifying download'} · ${bytes(file.total)}`));continue}
+        const row=element('div');row.className='queue-file';row.append(element('strong',file.filename),element('small',`${file.creator} · ${file.look_ahead?'Look-ahead download':'Queue download'} · Data center ${file.dc_id}`),element('small',`${bytes(file.bytes)} / ${bytes(file.total)} · ${file.phase==='downloading'?speed(file.speed_bps):file.detail||file.phase.replaceAll('_',' ')}`));const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' live download progress');progress(bar,file.bytes,file.total);row.append(bar);files.append(row)
+      }
       if(!scheduler.transfers.length)files.append(element('small',scheduler.message));
     }
     const bandwidth=queue.bandwidth,bandwidthPanel=document.getElementById('bandwidth-panel');
     bandwidthPanel.hidden=!bandwidth;
     if(bandwidth){const rate=bandwidth.active_files?bandwidth.speed_bps:0,target=bandwidth.target_mbps,usage=rate==null?0:Math.min(100,Math.max(0,100*rate/(target*1e6)));document.getElementById('bandwidth-value').textContent=rate==null?'—':(rate/1e6).toFixed(1);document.getElementById('bandwidth-scale').textContent=target;document.getElementById('bandwidth-status').textContent=`${target} MB/s target`;document.getElementById('bandwidth-arc').setAttribute('stroke-dasharray',`${usage} 100`);document.getElementById('bandwidth-needle').setAttribute('transform',`rotate(${-90+1.8*usage} 100 102)`);document.getElementById('bandwidth-gauge').setAttribute('aria-label',`Combined download speed: ${speed(rate)}; target ${target} MB/s`)}
     const list=document.getElementById('queue-list');list.replaceChildren();
-    for(const file of queue.files){const row=element('div');row.className='queue-file';row.append(element('strong',file.filename),element('small',`${file.creator} · ${file.state} · ${bytes(file.bytes_downloaded)} / ${file.total_is_estimate?'≈ ':''}${bytes(file.progress_total??file.bytes_total)}`));const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' download progress');progress(bar,file.bytes_downloaded,file.progress_total??file.bytes_total);if(file.download_started_at)row.append(element('small',`Download: ${duration(file.download_seconds)} · average ${speed(file.download_average_bps)}`));row.append(bar);list.append(row)}
-    const recent=document.getElementById('recent-transfers');recent.replaceChildren();for(const file of queue.recent_completed||[]){const row=element('div');row.className='queue-file';row.append(element('strong',file.filename),element('small',file.download_finished_at?`Moved to destination · Download ${duration(file.download_seconds)} · average ${speed(file.download_average_bps)}`:'Moved to destination · Download timing was not recorded'));if(file.move_seconds!=null)row.append(element('small',`Move to destination: ${duration(file.move_seconds)} · average ${speed(file.move_average_bps)}`));if(file.image_count!=null)row.append(element('small',`${file.image_count} release images saved`));recent.append(row)}
-  }catch{document.getElementById('worker-state').textContent='Status unavailable';document.getElementById('queue-message').textContent='Cannot reach the local service. Last displayed progress may be out of date.'}
+    const activeIds=new Set((scheduler?.transfers||[]).map(file=>file.id));
+    for(const file of queue.files){
+      if(activeIds.has(file.id))continue;
+      if(receivedFile(file)){const status=['paused','failed','needs_review'].includes(file.state)?'Needs review':file.state==='downloading'?'Verifying download':'Downloaded';const details=[status,bytes(file.bytes_total)];if(file.download_seconds!=null)details.push(duration(file.download_seconds),speed(file.download_average_bps));list.append(compactTransfer(file,details.join(' · ')));continue}
+      const row=element('div');row.className='queue-file';row.append(element('strong',file.filename),element('small',`${file.creator} · ${file.state} · ${bytes(file.bytes_downloaded)} / ${file.total_is_estimate?'≈ ':''}${bytes(file.progress_total??file.bytes_total)}`));const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' download progress');progress(bar,file.bytes_downloaded,file.progress_total??file.bytes_total);if(file.download_started_at)row.append(element('small',`Download: ${duration(file.download_seconds)} · average ${speed(file.download_average_bps)}`));row.append(bar);list.append(row)
+    }
+    const recent=document.getElementById('recent-transfers');recent.replaceChildren();for(const file of queue.recent_completed||[]){const details=['Moved to destination',bytes(file.bytes_total)];if(file.download_finished_at)details.push(`Download ${duration(file.download_seconds)} at ${speed(file.download_average_bps)}`);if(file.move_seconds!=null)details.push(`Move ${duration(file.move_seconds)} at ${speed(file.move_average_bps)}`);if(file.image_count!=null)details.push(`${file.image_count} images`);recent.append(compactTransfer(file,details.join(' · ')))}
+  }catch{document.getElementById('worker-state').textContent='Status unavailable';document.getElementById('run-detail').textContent='Cannot reach the local service. Last displayed progress may be out of date.'}
 }
 async function initialize(){
   try{
@@ -120,9 +134,9 @@ document.getElementById('download-all').onclick=async()=>{
   if(runRequestPending)return;
   const button=document.getElementById('download-all');button.disabled=true;runRequestPending=true;
   document.getElementById('resume-downloads').disabled=true;
-  document.getElementById('run-phase').textContent='Starting run…';document.getElementById('run-detail').textContent='Sending your manual download request.';document.getElementById('run-activity').dataset.active='true';document.getElementById('queue-message').textContent='Starting…';
+  document.getElementById('run-phase').textContent='Starting run…';document.getElementById('run-detail').textContent='Sending your manual download request.';document.getElementById('run-activity').dataset.active='true';
   try{await api('/api/run',{revision:serverRevision,config_revision:configRevision});await refreshQueue()}
-  catch(error){document.getElementById('queue-message').textContent=error.message;document.getElementById('run-phase').textContent='Could not start';document.getElementById('run-detail').textContent=error.message;document.getElementById('run-activity').dataset.active='false';button.disabled=false}
+  catch(error){document.getElementById('run-phase').textContent='Could not start';document.getElementById('run-detail').textContent=error.message;document.getElementById('run-activity').dataset.active='false';button.disabled=false}
   finally{runRequestPending=false}
 };
 document.getElementById('resume-downloads').onclick=async()=>{
@@ -131,9 +145,9 @@ document.getElementById('resume-downloads').onclick=async()=>{
   document.getElementById('download-all').disabled=true;
   document.getElementById('run-phase').textContent='Resuming queue…';document.getElementById('run-detail').textContent='Loading saved checks and pending files.';
   try{await api('/api/run/resume',{run_id:resumableRunId});await refreshQueue()}
-  catch(error){document.getElementById('queue-message').textContent=error.message;document.getElementById('run-phase').textContent='Could not resume';document.getElementById('run-detail').textContent=error.message;button.disabled=false}
+  catch(error){document.getElementById('run-phase').textContent='Could not resume';document.getElementById('run-detail').textContent=error.message;button.disabled=false}
   finally{runRequestPending=false}
 };
 document.getElementById('stop-downloads').onclick=async()=>{
-  try{const result=await api('/api/stop',{});document.getElementById('queue-message').textContent=result.message}catch(error){document.getElementById('queue-message').textContent=error.message}
+  try{const result=await api('/api/stop',{});document.getElementById('run-detail').textContent=result.message}catch(error){document.getElementById('run-detail').textContent=error.message}
 };

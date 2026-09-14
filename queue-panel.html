@@ -3,7 +3,7 @@
   <p>Manual downloads only. One run checks all saved subscriptions using each creator’s download scope, skips completed items, and then stops.</p>
   <div class="queue-actions"><button id="resume-downloads" hidden disabled aria-describedby="download-start-help">Resume download queue</button><button id="download-all" disabled aria-describedby="download-start-help">Download all subscriptions</button><span class="queue-secondary-actions"><button id="stop-downloads" disabled>Stop run</button><a class="queue-nav" href="#artists">Manage artists</a></span></div>
   <small id="download-start-help">Save subscriptions, then start a manual run.</small>
-  <div id="run-activity" class="run-activity" aria-live="polite"><strong id="run-phase">Ready</strong><span id="run-elapsed"></span><p id="run-detail">Press Download all subscriptions to begin.</p></div>
+  <div id="run-activity" class="run-activity" aria-live="polite"><strong id="run-phase">Ready</strong><span id="run-elapsed"></span><p id="run-detail">Press Download all subscriptions to begin.</p>
   <div class="queue-overview"><div class="queue-total">
     <div class="queue-metrics"><strong id="queue-percent">0%</strong><span id="queue-files">0 files</span><span id="queue-bytes">No transfers yet</span></div>
     <progress id="queue-progress" max="100" value="0" aria-label="Overall download progress"></progress>
@@ -18,9 +18,9 @@
       <text x="100" y="98" class="gauge-unit" text-anchor="middle">MB/s</text>
     </svg><small id="bandwidth-status">28 MB/s target</small>
   </div></div>
-  <p id="queue-message" aria-live="polite">Loading queue status…</p>
-  <small id="history-summary">Download history is retained when files are moved.</small>
   <p id="download-speed" aria-live="polite"></p>
+  </div>
+  <small id="history-summary">Download history is retained when files are moved.</small>
   <div id="parallel-panel" class="move-panel" hidden><strong>Active downloads</strong><p id="parallel-status" aria-live="polite"></p><div id="parallel-files"></div></div>
   <div id="extraction-panel" class="move-panel" hidden><strong id="extraction-title">Extracting release images locally</strong><progress id="extraction-progress" max="100" aria-label="Image extraction progress"></progress><p id="extraction-status" aria-live="polite"></p><small id="extraction-help">Images go into release_images inside the monthly release folder. Archive files remain intact.</small></div>
   <div id="move-panel" class="move-panel" hidden><strong id="move-title">Moving from local disk to Kronos</strong><progress id="move-progress" max="100" value="0" aria-label="Move to Kronos progress"></progress><p id="move-status" aria-live="polite"></p><small>The local file is removed after destination verification and history recording.</small></div><details id="review-details"><summary id="review-summary">Items needing review</summary><ul id="run-warnings"></ul></details>
@@ -28,6 +28,8 @@
   <details><summary>Recently completed files</summary><div id="recent-transfers"></div></details>
 </section>
 <style>
+.queue-file.queue-file-compact{display:flex;align-items:center;gap:16px;padding:9px 0;min-width:0;font-size:13px}.queue-file-compact>strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queue-file-compact .transfer-summary{max-width:65%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#776c81}@media(max-width:600px){.queue-file.queue-file-compact{gap:8px;font-size:12px}.queue-file-compact .transfer-summary{max-width:48%;font-size:11px}}
+.run-activity .queue-overview{margin-top:14px}.run-activity #download-speed:empty{display:none}.run-activity .gauge-value{stroke:#fff}
 .queue-overview{display:grid;grid-template-columns:minmax(0,1fr) 200px;align-items:center;gap:28px}.queue-total{min-width:0}.speed-gauge{text-align:center;min-width:0}.speed-gauge svg{display:block;width:100%;overflow:visible}.gauge-label{font-size:12px;font-weight:650;color:#716679}.gauge-track,.gauge-arc{fill:none;stroke-width:10;stroke-linecap:round}.gauge-track{stroke:#e6deee}.gauge-arc{stroke:#37a5b9;transition:stroke-dasharray .7s}#bandwidth-needle{fill:#7651a6;transition:transform .7s}.gauge-value{fill:#513476;font:700 27px system-ui;paint-order:stroke;stroke:#f7f3fb;stroke-width:5px}.gauge-unit,.gauge-tick{fill:#776c81;font:11px system-ui}.speed-gauge small{margin:0;font-size:11px}@media(max-width:600px){.queue-overview{grid-template-columns:minmax(0,1fr) 120px;gap:12px}.queue-overview .queue-metrics{display:flex;flex-direction:column;align-items:flex-start;gap:6px}.queue-overview .queue-metrics span{font-size:11px}.gauge-label{font-size:11px}}@media(prefers-reduced-motion:reduce){.gauge-arc,#bandwidth-needle{transition:none}}
 .queue-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.queue-secondary-actions{display:inline-flex;gap:8px;align-items:center}.queue-nav{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border:1px solid #d8cbe7;border-radius:9px;background:#fff;color:#654091;text-decoration:none;font:600 14px system-ui}.queue-nav:hover{background:#eee8f5}#download-start-help[hidden]{display:none}#resume-downloads{background:#7651a6;color:white;border-color:#7651a6}#resume-downloads[hidden]{display:none}
 .queue-panel{overflow-wrap:anywhere}

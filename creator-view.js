@@ -8,11 +8,21 @@ function setSaveStatus(message,error=false){
 }
 function persist(){
   try{localStorage.setItem('telegram-stl-selection',JSON.stringify(selected))}catch{}
-  setSaveStatus('Unsaved changes. Press Save subscriptions to apply them.');
+  setSaveStatus(hasSubscriptionChanges()?'Unsaved changes. Press Save subscriptions to apply them.':'');
+  renderSelections();
+}
+function hasSubscriptionChanges(){
+  if(Object.keys(selected).length!==savedSubscriptions.length)return true;
+  return savedSubscriptions.some(record=>{
+    const saved=SelectionRules.migrate({...record,selection_version:2},inventory),draft=selected[saved.topic_url];
+    return !draft||draft.creator_folder!==saved.creator_folder||draft.layout!==saved.layout||
+      draft.download_scope!==saved.download_scope||
+      (draft.download_scope==='from_month'&&draft.start_month!==saved.start_month);
+  });
 }
 function renderSelections(){
   document.getElementById('selected-count').textContent=`${Object.keys(selected).length} creators selected`;
-  document.getElementById('save-subscriptions').disabled=!serverReady||saving;
+  document.getElementById('save-subscriptions').disabled=!serverReady||saving||!hasSubscriptionChanges();
 }
 function subscriptionMatches(url, mode, saved){return !mode||(mode==='subscribed'?saved.has(url):!saved.has(url))}
 function render(reset=false){
@@ -26,9 +36,12 @@ function render(reset=false){
     const draft=selected[r.topic_url],isSaved=saved.has(r.topic_url);
     const checkbox=element('input');checkbox.type='checkbox';checkbox.checked=!!draft;checkbox.setAttribute('aria-label','Subscribe to '+r.name);
     checkbox.onchange=()=>{
-      if(checkbox.checked)selected[r.topic_url]={selection_version:2,creator:r.name,topic_url:r.topic_url,creator_folder:SelectionRules.suggest(r.name,inventory.folders),layout:'monthly',download_scope:'from_month',start_month:SelectionRules.defaultStartMonth()};
+      if(checkbox.checked){
+        const saved=savedSubscriptions.find(record=>record.topic_url===r.topic_url);
+        selected[r.topic_url]=saved?SelectionRules.migrate({...saved,selection_version:2},inventory):{selection_version:2,creator:r.name,topic_url:r.topic_url,creator_folder:SelectionRules.suggest(r.name,inventory.folders),layout:'monthly',download_scope:'from_month',start_month:SelectionRules.defaultStartMonth()};
+      }
       else delete selected[r.topic_url];
-      persist();render();renderSelections();
+      persist();render();
     };
     const membership=element('small',isSaved?(draft?'Subscribed':'Removal pending'):(draft?'Not saved yet':'Not subscribed'));
     if(!!draft!==isSaved)membership.className='changed';choice.append(checkbox,membership);

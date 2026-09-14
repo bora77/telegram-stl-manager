@@ -9,10 +9,11 @@ function applySaved(){
   render();renderSelections();setSaveStatus('Loaded saved subscriptions.');
 }
 document.getElementById('load-subscriptions').onclick=async()=>{
-  try{const data=await api('/api/subscriptions');savedSubscriptions=data.subscriptions;serverRevision=data.revision;const config=await api('/api/config');configRevision=config.revision;downloadBase=config.download_directory;document.getElementById('download-base').textContent=downloadBase;applySaved();savedSummary()}
+  try{const data=await api('/api/subscriptions');savedSubscriptions=data.subscriptions;serverRevision=data.revision;const config=await api('/api/config');configRevision=config.revision;applySaved();savedSummary()}
   catch(error){setSaveStatus(error.message,true)}
 };
 document.getElementById('save-subscriptions').onclick=async()=>{
+  if(!serverReady||saving||!hasSubscriptionChanges())return;
   const entries=Object.values(selected),allowed=new Set(all.map(r=>r.topic_url));
   const bad=entries.find(r=>SelectionRules.validate(r,allowed));
   if(bad){setSaveStatus('Not saved: '+bad.creator+': '+SelectionRules.validate(bad,allowed),true);return}
@@ -130,7 +131,7 @@ async function refreshQueue(){
 async function initialize(){
   try{
     const [config,data]=await Promise.all([api('/api/config'),api('/api/subscriptions')]);
-    configRevision=config.revision;downloadBase=config.download_directory;document.getElementById('download-base').textContent=downloadBase;
+    configRevision=config.revision;
     inventory.folders=config.folders;const list=document.getElementById('incoming-folders');list.replaceChildren();for(const name of inventory.folders)list.append(new Option(name,name));
     serverRevision=data.revision;savedSubscriptions=data.subscriptions;serverReady=true;
     let hasDraft=false;try{hasDraft=localStorage.getItem('telegram-stl-selection')!==null}catch{}

@@ -27,21 +27,35 @@ template = r'''<!doctype html>
 <section id="artists-view" aria-labelledby="artists-tab" hidden>
 <p>Creators from your configured Table of Contents.</p>
 <p class="notice">Choose a starting month or All (archiving) for each creator, then save your subscriptions. Start downloads manually with Download all subscriptions on the queue page.</p>
+<div class="artist-controls">
 <div class="filters"><label>Search creators<input id="search" type="search" placeholder="Creator name"></label><label>Subscription<select id="subscription-filter" disabled><option value="">All creators</option><option value="subscribed">Subscribed</option><option value="not_subscribed">Not subscribed</option></select></label></div>
-<div class="subscription-toolbar"><div><span id="selected-count"></span><small id="saved-summary"></small></div><div><button id="save-subscriptions" disabled>Save subscriptions</button> <button id="load-subscriptions" disabled>Load saved subscriptions</button></div></div>
+<div class="subscription-toolbar"><div><span id="selected-count"></span><small id="saved-summary"></small></div><div class="subscription-buttons"><button id="save-subscriptions" disabled>Save subscriptions</button><button id="load-subscriptions" disabled>Load saved subscriptions</button></div></div>
 <style>#save-status.save-error{color:#a12632;background:#fff0f1;border:1px solid #e4acb3;border-left:5px solid #bd283b;border-radius:8px;padding:12px 16px;font-weight:600;overflow-wrap:anywhere}</style>
-<p id="save-status" aria-live="polite"></p><p class="destination-note">Download base: <strong id="download-base">/mnt/kronos-stl/!! 3D STLs - INCOMING</strong> · <a href="/config">Change</a><br>Each creator uses monthly release folders: <strong>YYYY-MM</strong>.</p><datalist id="incoming-folders"></datalist>
+<p id="save-status" aria-live="polite"></p><datalist id="incoming-folders"></datalist>
+</div>
+<style>
+.artist-controls{background:white;border:1px solid #e3dfe9;border-radius:16px;padding:24px;margin:24px 0}
+.artist-controls .filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;margin:0}
+.artist-controls label{min-width:0;gap:8px;font-size:13px}
+.artist-controls input,.artist-controls select{width:100%;min-width:0;height:44px;padding:11px 14px;font-size:14px}
+.artist-controls .subscription-toolbar{margin-top:20px;padding:0;background:transparent;border-radius:0}
+.subscription-buttons{display:flex;flex-wrap:wrap;gap:12px}
+.artist-controls button{height:44px;padding:11px 14px;font-size:14px}
+.artist-controls button:disabled,#save-subscriptions:disabled{background:#f3f1f6;color:#908896;border-color:#e3dfe9;cursor:default}
+.artist-controls #save-status:empty{display:none}
+@media(max-width:850px){.artist-controls{padding:20px}.artist-controls .filters{grid-template-columns:1fr}}
+</style>
 <div id="count" aria-live="polite"></div><div class="table"><table><thead><tr><th>Subscribe</th><th>Creator</th><th>Creator folder</th><th>Download scope</th></tr></thead><tbody id="rows"></tbody></table></div><nav><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></nav>
 </section>
 __QUEUE__
-<style>[hidden]{display:none!important}input[type=checkbox]{min-width:0;width:18px;height:18px;accent-color:#7651a6}section{margin:40px 0}.subscription-toolbar{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eeE8f5;border-radius:12px;padding:16px 20px}.destination-note{font-size:12px;overflow-wrap:anywhere}.table input[type=text]{min-width:200px;width:100%}.table select{width:100%;min-width:220px}.table input[type=month]{min-width:180px;width:100%;margin-top:8px}.table td:nth-child(2){min-width:250px}.table td:nth-child(3){min-width:270px}.table small{max-width:350px;overflow-wrap:anywhere}.table input:disabled,.table select:disabled{background:#f8f7fa;color:#908896}.changed{color:#936217}</style>
+<style>[hidden]{display:none!important}input[type=checkbox]{min-width:0;width:18px;height:18px;accent-color:#7651a6}section{margin:40px 0}.subscription-toolbar{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eeE8f5;border-radius:12px;padding:16px 20px}.table input[type=text]{min-width:200px;width:100%}.table select{width:100%;min-width:220px}.table input[type=month]{min-width:180px;width:100%;margin-top:8px}.table td:nth-child(2){min-width:250px}.table td:nth-child(3){min-width:270px}.table small{max-width:350px;overflow-wrap:anywhere}.table input:disabled,.table select:disabled{background:#f8f7fa;color:#908896}.changed{color:#936217}</style>
 </main><script id="catalog-data" type="application/json">__DATA__</script><script id="folder-data" type="application/json">__FOLDERS__</script><script>__RULES__</script><script>
 const catalog=JSON.parse(document.getElementById('catalog-data').textContent);
 const inventory=JSON.parse(document.getElementById('folder-data').textContent);
 for(const folder of inventory.folders)document.getElementById('incoming-folders').append(new Option(folder,folder));
 const all=catalog.creators.filter(r=>r.within_approved_group).sort((a,b)=>a.name.localeCompare(b.name));
 const search=document.getElementById('search');
-let offset=0,filtered=[];let serverReady=false,serverRevision=0,configRevision=0,saving=false;let downloadBase='/mnt/kronos-stl/'+SelectionRules.root;let savedSubscriptions=[];
+let offset=0,filtered=[];let serverReady=false,serverRevision=0,configRevision=0,saving=false;let savedSubscriptions=[];
 let selected={};try{const saved=JSON.parse(localStorage.getItem('telegram-stl-selection')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))for(const [url,r] of Object.entries(saved))if(r&&typeof r==='object')selected[url]=SelectionRules.migrate(r,inventory)}catch{}
 __CREATORVIEW__
 __DASHBOARD__

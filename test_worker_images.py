@@ -314,7 +314,7 @@ class WorkerImageTests(unittest.TestCase):
             self.assertEqual(len(delivered),1);self.assertEqual(delivered[0].read_bytes(),image.read_bytes())
             for part in parts:self.assertEqual((base/'Example/2026-09'/part.name).read_bytes(),part.read_bytes())
 
-    def test_renamed_images_are_delivered_flat_and_name_changes_saved_in_history(self):
+    def test_renamed_images_are_delivered_flat_without_warnings_and_reused(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);worker,store,sub,state,base=self.setup_worker(root)
             fixture=state/'fixture.zip'
@@ -332,8 +332,8 @@ class WorkerImageTests(unittest.TestCase):
             self.assertEqual(len(images),1);self.assertTrue(images[0].is_file());self.assertNotIn(':',images[0].name)
             self.assertEqual(images[0].read_bytes(),b'original image bytes');self.assertEqual((folder/item['filename']).read_bytes(),original)
             with store.history.connect() as db:row=dict(db.execute('SELECT * FROM downloads WHERE source_message_id=1').fetchone())
-            self.assertEqual(row['state'],'downloaded');self.assertEqual(row['image_status'],'complete_with_warnings')
-            self.assertTrue(any('renders' in message and 'safe name' in message for message in json.loads(row['image_warnings'])))
+            self.assertEqual(row['state'],'downloaded');self.assertEqual(row['image_status'],'complete')
+            self.assertEqual(json.loads(row['image_warnings']),[]);self.assertEqual(worker.run['warnings'],[])
             with patch.object(download_worker,'extract_images',side_effect=AssertionError('Already complete')):
                 worker.transfer(sub,item,'2026-09')
 

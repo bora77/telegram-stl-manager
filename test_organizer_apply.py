@@ -385,6 +385,42 @@ class OrganizerApplyTests(unittest.TestCase):
                 self.assertEqual(self.job(store)['releases_review'],0,self.job(store)['message'])
                 self.assertTrue(store.history.was_downloaded(100))
 
+    def test_old_name_repair_warnings_are_normalized_without_reextracting(self):
+        notice="release.zip: extracted 'bad:name.jpg' using safe name 'bad_name.jpg'."
+        for legacy in (False,True):
+            for problems in ([],['Damaged image skipped']):
+                with self.subTest(legacy=legacy,problems=problems),tempfile.TemporaryDirectory() as temporary:
+                    store,folder=self.setup_store(Path(temporary));self.archive(folder/'Example 2026-01.zip')
+                    self.preview(store,folder);ApplyWorker(store,self.start(store)).execute()
+                    self.preview(store,folder)
+                    job=self.job(store);group=job['groups'][0];warnings=[notice]+problems
+                    group.update(image_warnings=warnings,image_status='complete_with_warnings')
+                    job['message']+=' '+str(len(warnings))+' image warning(s); recoverable images were kept and original archives remain intact.'
+                    path=store.root/'data/organizer-apply.json';store.atomic_write(path,job);before=path.read_bytes()
+                    with store.history.connect() as db:
+                        db.execute("UPDATE downloads SET image_warnings=?,image_status='complete_with_warnings'",(json.dumps(warnings),))
+                        db.execute("UPDATE image_extractions SET warnings=?,state='complete_with_warnings'",(json.dumps(warnings),))
+                        if legacy:db.execute('DELETE FROM image_extractions')
+                    status=Organizer(store).status();application=status['application']
+                    expected='complete_with_warnings' if problems else 'complete'
+                    self.assertEqual(status['files'][0]['image_status'],expected)
+                    self.assertEqual(application['files'][0]['image_status'],expected)
+                    self.assertEqual(application['warnings'],[group['key']+' · '+w for w in problems])
+                    self.assertEqual('1 image warning(s)' in application['message'],bool(problems))
+                    self.assertNotIn('2 image warning(s)',application['message'])
+                    self.assertEqual(path.read_bytes(),before)
+                    destination=folder/'2026-01/release_images'
+                    saved=store.history.image_extraction(TOPIC,group['records'],destination)
+                    self.assertEqual(saved['images'],group['images']);self.assertEqual(saved['warnings'],problems)
+                    self.assertEqual(saved['state'],expected)
+                    # Old receipts compare equal after notice filtering and can
+                    # be reused without reading or delivering any image again.
+                    receipt=store.history.record_image_extraction(TOPIC,group['records'],saved['images'],destination,warnings=problems)
+                    self.assertEqual(receipt['warnings'],problems);self.assertEqual(receipt['state'],expected)
+                    worker=ApplyWorker(store,job['id'])
+                    self.assertEqual(worker.job['groups'][0]['image_warnings'],problems)
+                    self.assertEqual(worker.job['groups'][0]['image_status'],expected)
+
     def test_extraction_receipt_requires_the_same_source_parts_sizes_and_destination(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);store,folder=self.setup_store(root);destination=folder/'2026-01/release_images'

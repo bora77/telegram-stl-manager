@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 
 from file_delivery import deliver, digest, mount_identity, release_lock
-from release_images import extract_images, flat_image_name, is_image_attachment, volume_key
+from release_images import extract_images, flat_image_name, is_image_attachment, volume_key, image_warnings
 from subscription_store import SubscriptionStore
 from telegram_cli import safe_filename
 from transfer_metrics import TransferMeter
@@ -33,10 +33,24 @@ def identity(info):
             'device': info.st_dev, 'inode': info.st_ino}
 
 
+def normalize_image_results(job):
+    """Reclassify old name-repair notices without changing extraction receipts."""
+    for group in job.get('groups',[]):
+        if 'image_warnings' not in group:continue
+        group['image_warnings']=image_warnings(group['image_warnings'])
+        if group.get('image_status')=='complete_with_warnings' and not group['image_warnings']:
+            group['image_status']='complete'
+    if job.get('state')=='completed':
+        count=sum(len(group.get('image_warnings',[])) for group in job.get('groups',[]))
+        suffix=' image warning(s); recoverable images were kept and original archives remain intact.'
+        job['message']=re.sub(r' \d+'+re.escape(suffix)+r'$', ' '+str(count)+suffix if count else '',job.get('message',''))
+
+
 def application_status(store):
     path = store.root / 'data/organizer-apply.json'
     if not path.exists():return None
     job = json.loads(path.read_text())
+    normalize_image_results(job)
     from organizer_repair import candidates
     plan_path=store.root/'data/organizer-plan.json'
     plan=json.loads(plan_path.read_text()) if plan_path.exists() else {}
@@ -346,6 +360,7 @@ class ApplyWorker:
         self.path = store.root / 'data/organizer-apply.json'
         self.job = json.loads(self.path.read_text())
         if self.job['id'] != job_id:raise ValueError('Organization job was replaced.')
+        normalize_image_results(self.job)
         self.work = store.root / 'data/organizer-work' / job_id
         self.last_update = 0
 

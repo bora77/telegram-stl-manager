@@ -9,7 +9,7 @@ from unittest.mock import patch
 import zipfile
 import struct
 
-from release_images import extract_images, ExtractionError, MissingVolumeError, archive_error, complete_split_7z, listing, volume_key, flat_image_name
+from release_images import extract_images, ExtractionError, MissingVolumeError, archive_error, complete_split_7z, listing, volume_key, flat_image_name, image_warnings
 from file_delivery import deliver, DeliveryError
 
 
@@ -178,8 +178,8 @@ class ExtractionTests(unittest.TestCase):
                 z.writestr('./',b'');z.writestr('./gallery/',b'')
                 for name in names:z.writestr(name,name.encode())
                 z.writestr(r'models\unselected.stl',b'model payload')
-            original=archive.read_bytes();changes=[]
-            images=extract_images(archive,root/'work',name_changes=changes)
+            original=archive.read_bytes();changes=[];warnings=[]
+            images=extract_images(archive,root/'work',name_changes=changes,warnings=warnings)
             self.assertEqual({p.read_bytes() for p in images},{n.encode() for n in names})
             self.assertEqual(len(images),len(names));self.assertEqual(outside.read_bytes(),b'keep me')
             self.assertEqual(archive.read_bytes(),original);self.assertFalse(list((root/'work').rglob('*.stl')))
@@ -187,8 +187,16 @@ class ExtractionTests(unittest.TestCase):
                 self.assertTrue(path.is_relative_to(root/'work/output'))
                 self.assertNotRegex(str(path.relative_to(root/'work/output')),r'[\\:?*]')
             self.assertTrue(any('renders' in message for message in changes))
+            self.assertEqual(warnings,[])
             again=extract_images(archive,root/'again')
             self.assertEqual([p.relative_to(root/'work/output') for p in images],[p.relative_to(root/'again/output') for p in again])
+
+    def test_historical_safe_name_notices_do_not_hide_extraction_failures(self):
+        notices=['release.zip: extracted '+repr(name)+' using safe name '+repr('safe_image.jpg')+'.'
+                 for name in [r'renders\preview:front.jpg',"artist's preview.jpg",'both\'"quotes.jpg','line\nbreak.jpg']]
+        failures=["release.zip / 'bad:name.jpg': skipped; renamed member could not be decoded or failed its checksum.",
+                  'Could not extract image using safe name.',notices[0]+' Checksum failed.']
+        self.assertEqual(image_warnings(notices+failures),failures)
 
     def test_7zip_streams_exact_renamed_member_bytes(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -17,7 +17,7 @@ from release_rules import release_month,in_scope
 from download_plan import DownloadPlan
 from transfer_metrics import TransferMeter
 from file_delivery import deliver,mount_identity,digest,release_lock
-from release_images import extract_images,ExtractionError,MissingVolumeError,volume_key,flat_image_name,listing,is_image_attachment
+from release_images import extract_images,ExtractionError,MissingVolumeError,volume_key,flat_image_name,listing,is_image_attachment,image_warnings
 
 ROOT=Path(__file__).resolve().parent
 class Worker:
@@ -192,9 +192,7 @@ class Worker:
                         last_update=now;last_stage=stage
                         label={'listing':'Reading archive contents','checking_parts':'Checking split archive integrity','extracting':'Extracting release images','complete':'Image extraction complete'}[stage]
                         self.update('extracting',label+' · '+first,current_creator=sub['creator'],extraction_stage=stage,images_done=count,images_total=total,extraction_bytes=done,extraction_total=expected,extraction_seconds=now-started)
-                    name_changes=[]
-                    images=extract_images(inputs/first,work/'images',extraction_progress,self.stopped,name_changes=name_changes)
-                    for message in name_changes:self.warn(message)
+                    images=extract_images(inputs/first,work/'images',extraction_progress,self.stopped)
                     manifest=[]
                     for image in images:
                         relative=image.relative_to(work/'images'/'output')
@@ -202,7 +200,7 @@ class Worker:
                         result=self.move_one(image,sub,month,name,('release_images',))
                         manifest.append({'path':name,'source_path':str(relative),'size':result['size'],'sha256':result['sha256']})
             self.history.record_image_extraction(sub['topic_url'],archives,manifest,image_destination,
-                                                 warnings=saved['warnings'] if saved else name_changes)
+                                                 warnings=saved['warnings'] if saved else ())
             delivered=[]
             for record in records:
                 result=self.move_one(record['staged'],sub,month,record['filename'])
@@ -377,6 +375,7 @@ class Worker:
             self.prepare_plan()
             if getattr(self.telegram,'use_service',False):self.execute_adaptive()
             else:self.execute_sequential()
+            self.run['warnings']=image_warnings(self.run['warnings'])
             self.update('needs_review' if self.run['warnings'] else 'completed', 'Manual run finished. '+('Some items need review; see details below.' if self.run['warnings'] else 'All eligible discovered files are handled.'),finished_at=datetime.now(timezone.utc).isoformat())
         except Exception as error:
             self.update('stopped' if self.stopped() else 'failed',str(error),finished_at=datetime.now(timezone.utc).isoformat())

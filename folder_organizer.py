@@ -14,7 +14,7 @@ from functools import lru_cache
 
 from file_delivery import mount_identity
 from file_size import display_size, matches_size
-from release_images import is_image_attachment, volume_key
+from release_images import is_image_attachment, volume_key, image_warnings
 from release_rules import release_month
 from subscription_store import SubscriptionStore
 from telegram_cli import TelegramCLI
@@ -169,7 +169,7 @@ class Organizer:
         if plan.get('topic_url'):
             with self.store.history.connect() as db:
                 images={(r['filename'],r['bytes_total'],r['images_destination']):dict(r) for r in db.execute(
-                    '''SELECT filename,bytes_total,images_destination,image_status,image_count,images_extracted_at
+                    '''SELECT filename,bytes_total,images_destination,image_status,image_count,images_extracted_at,image_warnings
                        FROM downloads WHERE topic_url=? AND images_extracted_at IS NOT NULL''',(plan['topic_url'],))}
             for file in plan.get('files',[]):
                 if file.get('archive_version'):
@@ -177,6 +177,8 @@ class Organizer:
                     continue
                 destination=str(Path(plan.get('base',''))/plan.get('creator_folder','')/(file.get('month') or '')/'release_images')
                 row=images.get((file['filename'],file['size'],destination),{})
+                if row.get('image_status')=='complete_with_warnings' and not image_warnings(json.loads(row['image_warnings'])):
+                    row['image_status']='complete'
                 file.update({k:row.get(k) for k in ('image_status','image_count','images_extracted_at')})
             for group in plan.get('version_groups',{}).values():
                 destination=Path(plan.get('base',''))/plan.get('creator_folder','')/group['month']/'release_images'

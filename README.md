@@ -43,7 +43,8 @@ schedule.
   collected in one flat `release_images` directory. Extraction status is saved
   so completed releases do not need to be opened again on every run.
   Unusual member names, including Windows backslashes, receive safe local names;
-  image bytes and original release archives stay intact.
+  image bytes and original release archives stay intact. Successful filename
+  repairs finish normally; skipped, damaged or unreadable images still raise warnings.
 - **Organize an existing collection.** Preview a creator's flat folder, match
   archives against Telegram filenames and exact sizes, and review proposed
   monthly destinations. The separate **Apply** action moves matched files,

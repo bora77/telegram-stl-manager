@@ -9,7 +9,8 @@ import threading
 from datetime import datetime, timezone
 from download_history import DownloadHistory
 from release_rules import baseline_month
-from run_manager import RunManager
+from run_manager import RunManager, normalize_run_warnings
+from release_images import image_warnings
 from source_scope import load_source
 
 INCOMING = '!! 3D STLs - INCOMING'
@@ -150,11 +151,12 @@ class SubscriptionStore:
                 with path.open() as stream:
                     data=json.load(stream);version=str(os.fstat(stream.fileno()).st_mtime_ns)
             except FileNotFoundError:data={};version='0'
+            if kind=='download':normalize_run_warnings(data)
             tasks[kind]={key:data.get(key) for key in ('id','state','started_at','finished_at','creator')}
             tasks[kind]['state']=data.get('state','idle')
             tasks[kind]['version']=version
-            tasks[kind]['needs_review']=bool(data.get('state')=='needs_review' or data.get('warnings') or data.get('releases_review')
-                or any(group.get('image_warnings') for group in data.get('groups',[])))
+            tasks[kind]['needs_review']=bool(data.get('state')=='needs_review' or image_warnings(data.get('warnings')) or data.get('releases_review')
+                or any(image_warnings(group.get('image_warnings')) or group.get('error') for group in data.get('groups',[])))
         return {'tasks':tasks}
 
     def queue(self):

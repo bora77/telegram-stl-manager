@@ -20,6 +20,13 @@ ARCHIVES = {'.7z', '.zip', '.zipx', '.rar', '.tar', '.gz', '.bz2', '.xz', '.tgz'
 RESERVE = 1024 ** 3
 MAX_LISTING = 64 * 1024 ** 2
 BUNDLED_7ZIP = Path(__file__).resolve().parent / '.tools/7zip/runtime/usr/lib/7zip/7z'
+_REPR_STRING = r'''(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")'''
+_SAFE_NAME_NOTICE = re.compile(r'.+: extracted '+_REPR_STRING+r' using safe name '+_REPR_STRING+r'\.')
+
+
+def image_warnings(values):
+    """Keep extraction problems, excluding historical successful name repairs."""
+    return [value for value in (values or ()) if not _SAFE_NAME_NOTICE.fullmatch(value)]
 
 
 def is_image_attachment(item):
@@ -441,7 +448,6 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
                     continue
                 kept.append(entry)
                 message=source.name+': extracted '+repr(entry['name'])+' using safe name '+repr(entry['disk_name'])+'.'
-                warn(message)
                 if name_changes is not None and message not in name_changes:name_changes.append(message)
             selected=ordinary+kept
             image_entries=[e for e in selected if Path(e['name']).suffix.lower() in IMAGES]

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 from contextlib import contextmanager
 from source_scope import load_source
+from release_images import image_warnings as actual_image_warnings
 
 class DownloadHistory:
     def __init__(self, path, source=None):
@@ -71,8 +72,9 @@ class DownloadHistory:
         with self.connect() as db:
             row=db.execute('SELECT * FROM image_extractions WHERE identity=?',(identity,)).fetchone()
             if row:
-                return {'images':json.loads(row['manifest']),'warnings':json.loads(row['warnings']),
-                        'state':row['state'],'completed_at':row['completed_at']}
+                warnings=actual_image_warnings(json.loads(row['warnings']))
+                return {'images':json.loads(row['manifest']),'warnings':warnings,
+                        'state':'complete_with_warnings' if warnings else 'complete','completed_at':row['completed_at']}
             if any(r.get('archive_version') for r in records):return None
             # Existing installations already saved successful manifests. Reuse
             # those too, but only when every archive has the same saved result.
@@ -85,13 +87,14 @@ class DownloadHistory:
                 saved.append(row)
             images=json.loads(saved[0]['images_manifest'])
             if not isinstance(images,list) or any(json.loads(r['images_manifest'])!=images for r in saved):return None
-            warnings=list(dict.fromkeys(w for r in saved for w in json.loads(r['image_warnings'])))
+            warnings=actual_image_warnings(list(dict.fromkeys(w for r in saved for w in json.loads(r['image_warnings']))))
             return {'images':images,'warnings':warnings,'state':'complete_with_warnings' if warnings else 'complete',
                     'completed_at':saved[0]['images_extracted_at'] or saved[0]['completed_at']}
 
     def record_image_extraction(self, topic, records, images, destination, *, warnings=()):
         """Called only after every extracted image has been delivered and verified."""
         identity,archives,destination=self.image_identity(topic,records,destination)
+        warnings=actual_image_warnings(warnings)
         state='complete_with_warnings' if warnings else 'complete'
         manifest=json.dumps(images);warning_json=json.dumps(list(warnings))
         with self.connect() as db:
@@ -99,7 +102,7 @@ class DownloadHistory:
                 VALUES(?,?,?,?,?,?,?) ON CONFLICT(identity) DO NOTHING''',
                 (identity,topic,archives,destination,manifest,warning_json,state))
             receipt=db.execute('SELECT * FROM image_extractions WHERE identity=?',(identity,)).fetchone()
-            if json.loads(receipt['manifest'])!=images or json.loads(receipt['warnings'])!=list(warnings):
+            if json.loads(receipt['manifest'])!=images or actual_image_warnings(json.loads(receipt['warnings']))!=warnings:
                 raise ValueError('Extraction differs from the saved completed result.')
             for name,size in json.loads(archives):
                 suffix='';values=[]
@@ -114,6 +117,7 @@ class DownloadHistory:
     def import_organized(self, job, records, images, images_destination, *, image_warnings=()):
         """Import exact CLI identities after NAS renames, without inventing transfer checksums."""
         import json
+        image_warnings=actual_image_warnings(image_warnings)
         chat=str(self.source.chat_id)
         if self.source.topic_id(job['topic_url']) is None:
             raise ValueError('Organization is outside the approved group.')

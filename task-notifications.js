@@ -99,6 +99,12 @@
             const warning=Boolean(task.needs_review);
             state.alerts[kind]={token,at:Date.parse(task.finished_at)||Date.now(),warning,seen:false,sounded:!soundEnabled(),message:info.label+(task.creator?' · '+task.creator:'')+(warning?' · review warnings':'')};
           }
+          // Reclassified saved warnings update an existing badge without
+          // creating another completion event or replaying its sound.
+          if(token&&state.alerts[kind]?.token===token){
+            const warning=Boolean(task.needs_review);
+            Object.assign(state.alerts[kind],{warning,message:info.label+(task.creator?' · '+task.creator:'')+(warning?' · review warnings':'')});
+          }
           if(!finished&&task.id&&(task.id!==previous?.id||previous?.token))delete state.alerts[kind];
           state.observed[kind]={id:task.id,state:task.state,token,version:task.version};
         }

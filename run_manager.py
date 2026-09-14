@@ -7,6 +7,15 @@ import subprocess
 import threading
 import uuid
 from datetime import datetime,timezone
+from release_images import image_warnings
+
+
+def normalize_run_warnings(data):
+    previous=data.get('warnings',[])
+    data['warnings']=image_warnings(previous)
+    if data.get('state')=='needs_review' and previous and not data['warnings']:
+        data.update(state='completed',message='Manual run finished. All eligible discovered files are handled.')
+
 
 class RunManager:
     def __init__(self,store):
@@ -14,6 +23,7 @@ class RunManager:
     def status(self):
         if not self.path.exists():return {'state':'idle','message':'Ready for a manual run.','warnings':[]}
         data=json.loads(self.path.read_text())
+        normalize_run_warnings(data)
         if data['state'] in ('starting','scanning','downloading','extracting','copying','stopping'):
             lockpath=self.root/'data/worker.lock'
             with lockpath.open('a') as stream:

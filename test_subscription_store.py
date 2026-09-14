@@ -42,6 +42,24 @@ class StoreTests(unittest.TestCase):
         (self.root/'data/run.json').write_text('{partial')
         with self.assertRaises(ValueError):self.store.task_status()
 
+    def test_saved_name_repairs_complete_normally_but_real_warnings_need_review(self):
+        notice="release.zip: extracted 'bad:name.jpg' using safe name 'bad_name.jpg'."
+        for problems in ([],['Damaged image skipped']):
+            with self.subTest(problems=problems):
+                run={'id':'run','state':'needs_review','warnings':[notice]+problems,'message':'Some items need review.'}
+                job={'id':'job','state':'completed','groups':[{'image_warnings':[notice]+problems}]}
+                self.store.atomic_write(self.root/'data/run.json',run)
+                self.store.atomic_write(self.root/'data/organizer-apply.json',job)
+                before={name:(self.root/'data'/name).read_bytes() for name in ('run.json','organizer-apply.json')}
+                status=self.store.runs.status();tasks=self.store.task_status()['tasks']
+                self.assertEqual(status['warnings'],problems)
+                self.assertEqual(status['state'],'needs_review' if problems else 'completed')
+                self.assertEqual(tasks['download']['state'],status['state'])
+                self.assertEqual(tasks['download']['needs_review'],bool(problems))
+                self.assertEqual(tasks['organize_apply']['needs_review'],bool(problems))
+                if not problems:self.assertNotIn('review',status['message'])
+                self.assertEqual(before,{name:(self.root/'data'/name).read_bytes() for name in before})
+
     def test_save_survives_reopen_and_rejects_stale_updates(self):
         saved = self.save()
         self.assertEqual(SubscriptionStore(configure_source(self.root)).read(),saved)

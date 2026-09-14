@@ -29,9 +29,12 @@ schedule.
 - **Check for new files quickly.** After the first complete creator scan, later
   download runs request only newer messages. Previously discovered files remain
   available for unfinished downloads or a change of scope.
-- **Resume a stopped queue.** Each completed artist check is saved. Resume keeps
+- **Resume a stopped or unfinished queue.** Each completed artist check is saved. Resume keeps
   that run's artists, scopes and folders, skips completed checks and files, and
   reuses verified local downloads. An interrupted check resumes at that artist.
+  Runs with unfinished files offer Resume and show received bytes separately
+  from completed files. The review panel shows the latest attempt's unresolved
+  issues instead of replaying warnings from earlier attempts.
 - **Remember completed work.** SQLite records attachment identities, exact
   sizes, destinations and transfer results. Moving a completed release out of
   Incoming later does not cause it to be downloaded again.
@@ -45,6 +48,7 @@ schedule.
   Unusual member names, including Windows backslashes, receive safe local names;
   image bytes and original release archives stay intact. Successful filename
   repairs finish normally; skipped, damaged or unreadable images still raise warnings.
+  macOS archive metadata is ignored, and legacy ZIP filename encodings are handled.
 - **Organize an existing collection.** Preview a creator's flat folder, match
   archives against Telegram filenames and exact sizes, and review proposed
   monthly destinations. The separate **Apply** action moves matched files,

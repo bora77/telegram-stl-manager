@@ -68,6 +68,8 @@ def volume_key(name):
     if match:return (match[1] + '.rar').casefold(), int(match[2])
     match = re.fullmatch(r'(.+)\.([rz])(\d{2,})', name, re.I)
     if match:return (match[1] + ('.rar' if match[2].lower() == 'r' else '.zip')).casefold(), int(match[3]) + 1
+    match = re.fullmatch(r'(.+)\.(\d{3,})', name, re.I)
+    if match:return match[1].casefold(),int(match[2])
     return name.casefold(), 0
 
 
@@ -102,7 +104,7 @@ def mapped_member_name(name):
     basename=next((p for p in reversed(parts) if p not in ('','.','..')),'image')
     # Keep multipart suffixes together: changing each part's basename hash
     # separately would prevent the archive reader from finding its companions.
-    match=re.fullmatch(r'(.+)(\.(?:7z|zip|rar)\.\d{3,}|[._ -]part\d+\.rar|\.[rz]\d{2,})',basename,re.I)
+    match=re.fullmatch(r'(.+)(\.(?:7z|zip|rar)\.\d{3,}|[._ -]part\d+\.rar|\.[rz]\d{2,}|\.\d{3,})',basename,re.I)
     clean=safe_component(match[1])+match[2] if match else safe_component(basename)
     identity=volume_key(name)[0] if volume_key(name)[1] else name
     return '__renamed_'+hashlib.sha256(identity.encode()).hexdigest()[:16]+'/'+clean
@@ -135,12 +137,13 @@ def _limits():
 
 def command(args, work, stopped, tick=lambda: None, percent=None, *, executable=None, timeout=3600):
     if stopped():raise ExtractionError('Stopped by request; downloaded archives kept locally.')
+    encoding_args=[] if executable else ['-sccUTF-8']
     # Ubuntu's base 7zip package can list RAR files but needs the separate
     # 7zip-rar codec to decompress them. Prefer our matched local package pair.
     executable = executable or (str(BUNDLED_7ZIP) if BUNDLED_7ZIP.is_file() else shutil.which('7z') or shutil.which('7zz'))
     if not executable:raise ExtractionError('7-Zip is required for image extraction; archive kept locally.')
     with tempfile.TemporaryFile(dir=work) as log:
-        child = subprocess.Popen([executable, *args], stdin=subprocess.DEVNULL, stdout=log,
+        child = subprocess.Popen([executable, *encoding_args, *args], stdin=subprocess.DEVNULL, stdout=log,
                                  stderr=subprocess.STDOUT, env=dict(os.environ, LC_ALL='C.UTF-8'), preexec_fn=_limits)
         started = time.monotonic()
         offset = 0
@@ -178,7 +181,21 @@ def command(args, work, stopped, tick=lambda: None, percent=None, *, executable=
 
 
 def listing(archive, work, stopped, tick=lambda: None):
-    text = command(['l', '-slt', '-bd', '-p-', '--', str(archive)], work, stopped, tick)
+    native_zip=False
+    try:text = command(['l', '-slt', '-bd', '-p-', '--', str(archive)], work, stopped, tick)
+    except UnicodeDecodeError:
+        # Some ZIPs store legacy filename bytes which 7-Zip prints unchanged.
+        # Read their central directory using the ZIP encoding rules, and stream
+        # selected members by exact identity instead of lossy text selectors.
+        if not zipfile.is_zipfile(archive):raise ExtractionError('Archive listing has unreadable filename encoding; local archive retained.')
+        native_zip=True;blocks=[]
+        with zipfile.ZipFile(archive) as source:
+            for info in source.infolist():
+                name=info.orig_filename;mode=(info.external_attr>>16)&0xffff
+                if re.search(r'[\x00-\x1f]',name):raise ExtractionError('Archive member name cannot be read unambiguously: '+repr(name))
+                special=stat.S_IFMT(mode) not in (0,stat.S_IFREG,stat.S_IFDIR)
+                blocks.append(f"Path = {name}\nSize = {info.file_size}\nFolder = {'+' if info.is_dir() else '-'}\nEncrypted = {'+' if info.flag_bits&1 else '-'}\nAttributes = {'l' if special else ''}")
+        text='Type = zip\n----------\n'+'\n\n'.join(blocks)
     if '----------\n' not in text:raise ExtractionError('Archive contents could not be identified.')
     header, members = text.split('----------\n', 1)
     # 7-Zip can successfully detect an archive whose extension is wrong. Its
@@ -191,12 +208,14 @@ def listing(archive, work, stopped, tick=lambda: None):
     # meaningful separator space. Strip only newlines, never field whitespace.
     for block in members.strip('\n').split('\n\n'):
         item = {}
-        for line in block.splitlines():
+        for line in block.split('\n'):
             if ' = ' not in line:raise ExtractionError('Archive has an ambiguous member name or listing.')
             key, value = line.split(' = ', 1)
             if key in item:raise ExtractionError('Archive listing contains ambiguous metadata.')
             item[key] = value
         name = item.get('Path', '')
+        parts=name.replace('\\','/').split('/')
+        if '__MACOSX' in parts or any(part.startswith('._') for part in parts):continue
         attributes = item.get('Attributes', '').split()
         if any(v.startswith('l') for v in attributes) or any('Link' in k and v for k, v in item.items()) or item.get('Anti') == '+':
             raise ExtractionError(archive.name+': link or special entry requires review: '+repr(name))
@@ -212,7 +231,7 @@ def listing(archive, work, stopped, tick=lambda: None):
         except (KeyError, ValueError):raise ExtractionError('Archive member size could not be read.')
         if size < 0:raise ExtractionError('Invalid archive member size.')
         entry={'name': name, 'size': size}
-        if disk_name!=name:entry['disk_name']=disk_name
+        if disk_name!=name or native_zip:entry['disk_name']=disk_name
         entries.append(entry)
     return header, entries
 
@@ -228,7 +247,7 @@ def complete_split_7z(archive, header):
               for block in re.split(r'\n-{2,}\n', header)]
     split = next((b for b in blocks if b.get('Type') == 'Split'), None)
     inner = next((b for b in blocks if b.get('Type') == '7z'), None)
-    match = re.fullmatch(r'(.+\.7z\.)(0+1)', archive.name, re.I)
+    match = re.fullmatch(r'(.+\.)(0+1)', archive.name, re.I)
     if not split or not inner or not match:return False
     try:
         count = int(split['Volumes'])

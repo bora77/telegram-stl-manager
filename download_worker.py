@@ -26,6 +26,7 @@ class Worker:
         self.path=ROOT/'data/run.json';self.run=json.loads(self.path.read_text())
         if self.run['id']!=batch:raise RuntimeError('Run was replaced before start.')
         self.batch=batch;self.telegram=None;self.pending=[];self.planned=[];self.numbered_rars=set();self.image_exclusion_ids=None
+        self.archive_versions={};self.selected_archive_ids={}
         self.plan=DownloadPlan(self.store,self.run)
     def archive_key(self,name,sub,month):
         match=re.fullmatch(r'(.+)[ _.-](\d+)\.rar',name,re.I)
@@ -41,7 +42,7 @@ class Worker:
         self.numbered_rars.add((record['sub']['topic_url'],record['month'],first[1].casefold()))
         return True
     def stage_part(self,record):
-        self.pending.append(record)
+        if not any(r['id']==record['id'] for r in self.pending):self.pending.append(record)
         with self.history.connect() as db:db.execute("UPDATE downloads SET state='queued',error=NULL,bytes_downloaded=? WHERE id=?",(record['staged'].stat().st_size,record['id']))
         self.update('downloading','Archive part ready locally; collecting the remaining parts · '+record['filename'])
     def stopped(self):return (ROOT/'data/stop-request').exists()
@@ -63,7 +64,7 @@ class Worker:
         with self.history.connect() as db:db.execute("UPDATE downloads SET batch_id=?,state='queued',error=NULL WHERE id=? AND state!='downloaded'",(self.batch,item_id))
         stagedir=STATE/'staging'/str(item_id);stagedir.mkdir(parents=True,exist_ok=True,mode=0o700)
         staged=stagedir/filename;receipt=stagedir/'receipt.json'
-        record={'id':item_id,'staged':staged,'receipt':receipt,'filename':filename,'month':month,'sub':sub}
+        record={'id':item_id,'source_message_id':item['source_message_id'],'staged':staged,'receipt':receipt,'filename':filename,'month':month,'sub':sub}
         try:
             mount_identity(self.run['download_directory'])
             if not (staged.is_file() and receipt.is_file()):
@@ -152,6 +153,8 @@ class Worker:
         sub=records[0]['sub'];month=records[0]['month'];key=lambda name:self.archive_key(name,sub,month)
         records=sorted(records,key=lambda r:key(r['filename'])[1]);first=records[0]['filename']
         try:
+            if len({r['filename'] for r in records})!=len(records):
+                raise ExtractionError('Multiple uploads contain the same archive part name. Resume to select one complete upload; local files retained.')
             # A companion may have completed before image extraction was added.
             # Reuse its verified NAS copy without downloading or moving it again.
             companions=[];names={r['filename'] for r in records}
@@ -160,6 +163,8 @@ class Worker:
                 with self.history.connect() as db:
                     completed=[dict(r) for r in db.execute("SELECT * FROM downloads WHERE state='downloaded' AND topic_url=? AND release_month=?",(sub['topic_url'],month))]
                 for row in completed:
+                    selected=self.selected_archive_ids.get((sub['topic_url'],month,group_key))
+                    if selected is not None and row['source_message_id'] not in selected:continue
                     if row['filename'] not in names and key(row['filename'])[0]==group_key:
                         companions.append(row);names.add(row['filename'])
                 first=min(names,key=lambda name:key(name)[1])
@@ -167,6 +172,9 @@ class Worker:
             image_destination=Path(self.run['download_directory'])/sub['creator_folder']/month/'release_images'
             archives=[{'filename':r['filename'],'size':r['staged'].stat().st_size} for r in records]
             archives.extend({'filename':r['filename'],'size':r['bytes_total']} for r in companions)
+            for archive,record in zip(archives,records+companions):
+                mid=record['source_message_id'];version=self.archive_versions.get(mid)
+                if version:archive.update(archive_version=version,source_message_ids=[mid])
             saved=self.history.image_extraction(sub['topic_url'],archives,image_destination)
             if saved:
                 manifest=saved['images']
@@ -267,7 +275,7 @@ class Worker:
         self.run.setdefault('creator_results',[]).append(result)
         with self.history.connect() as db:
             downloaded={r['source_message_id'] for r in db.execute("SELECT source_message_id FROM downloads WHERE topic_url=? AND state='downloaded'",(topic,))}
-        warnings=[]
+        warnings=[];entries=[]
         for item in items:
             if self.stopped():raise WorkerError('Stopped by request.')
             if is_image_attachment(item):result['ignored_images']+=1;self.exclude_image(sub,item);continue
@@ -279,11 +287,15 @@ class Worker:
             result['latest_release_month']=max(result['latest_release_month'] or month,month)
             if not in_scope(sub,month):result['outside_scope']+=1;continue
             result['eligible_files']+=1
-            if item['source_message_id'] in downloaded:
-                result['already_downloaded']+=1;continue
-            self.queue_item(sub,item,month)
+            entries.append({'item':{**item,'topic_url':topic},'month':month})
+        all_entries=entries;entries=self.select_uploads(sub,entries)
+        result['eligible_files']=len(entries)
+        for entry in entries:
+            if entry['item']['source_message_id'] in downloaded:result['already_downloaded']+=1
+            else:self.queue_item(sub,entry['item'],entry['month'])
         self.run['warnings']=list(dict.fromkeys(self.run['warnings']+warnings))
-        self.plan.save(sub,[{'item':item,'month':month} for saved_sub,item,month in self.planned if saved_sub['topic_url']==topic],result,warnings)
+        self.run.setdefault('scan_warnings',[]).extend(warnings)
+        self.plan.save(sub,all_entries,result,warnings)
         self.update('scanning',f"{sub['creator']} · check complete",files_listed=received,telegram_file_count=len(items),creators_checked=len(self.run['creator_results']))
     def exclude_image(self,sub,item):
         # Remove pending images from this batch without claiming they were
@@ -297,6 +309,29 @@ class Worker:
             db.execute("UPDATE downloads SET batch_id=?,state='paused',error='Skipped: direct image attachments are excluded.' WHERE batch_id=? AND topic_url=? AND source_message_id=? AND state!='downloaded'",
                        ('excluded-images-'+self.batch,self.batch,sub['topic_url'],item['source_message_id']))
         self.image_exclusion_ids.discard(key)
+    def select_uploads(self,sub,entries):
+        from organizer_versions import uploads,complete
+        from release_images import is_archive
+        groups={};excluded=set()
+        for entry in entries:
+            item=entry['item']
+            if is_archive(item['filename']):groups.setdefault((entry['month'],self.archive_key(item['filename'],sub,entry['month'])[0]),[]).append(item)
+        for (month,family),items in groups.items():
+            variants=uploads(items)
+            if len(variants)<2:continue
+            candidates=[v for v in variants if complete(v)]
+            if not candidates:continue
+            preferred=max(candidates,key=lambda v:(sum(a['bytes_total'] for a in v),max(a['source_message_id'] for a in v)))
+            ids={a['source_message_id'] for a in preferred};token=str(max(ids))
+            self.selected_archive_ids[sub['topic_url'],month,family]=ids
+            self.archive_versions.update({mid:token for mid in ids})
+            excluded.update(a['source_message_id'] for a in items if a['source_message_id'] not in ids)
+        if excluded:
+            with self.history.connect() as db:
+                for mid in excluded:
+                    db.execute("UPDATE downloads SET batch_id=?,state='paused',error='Superseded by the preferred complete upload; local files retained.' WHERE batch_id=? AND topic_url=? AND source_message_id=? AND state!='downloaded'",
+                               ('superseded-'+self.batch,self.batch,sub['topic_url'],mid))
+        return [entry for entry in entries if entry['item']['source_message_id'] not in excluded]
     def queue_item(self,sub,item,month):
         if is_image_attachment(item):self.exclude_image(sub,item);return
         if self.history.was_downloaded(item['source_message_id']):return
@@ -371,12 +406,16 @@ class Worker:
             self.cleanup_completed()
             self.telegram=TelegramCLI(root=ROOT,config=self.run.get('config',self.store.config()))
             if self.run.get('resume_requested'):self.plan.seed_legacy()
-            self.run.update(plan_version=1,creator_results=[],creators_done=0,creators_checked=0)
+            self.run.update(plan_version=1,creator_results=[],creators_done=0,creators_checked=0,warnings=[],scan_warnings=[])
             self.prepare_plan()
             if getattr(self.telegram,'use_service',False):self.execute_adaptive()
             else:self.execute_sequential()
             self.run['warnings']=image_warnings(self.run['warnings'])
-            self.update('needs_review' if self.run['warnings'] else 'completed', 'Manual run finished. '+('Some items need review; see details below.' if self.run['warnings'] else 'All eligible discovered files are handled.'),finished_at=datetime.now(timezone.utc).isoformat())
+            from run_manager import update_run_outcome,current_run_warnings
+            current_run_warnings(self.run,self.history)
+            self.run.update(state='needs_review' if self.run['warnings'] else 'completed',message='Run complete. '+('Some entries need review; see details below.' if self.run['warnings'] else 'All eligible discovered files are handled.'))
+            update_run_outcome(self.run,self.history)
+            self.update(self.run['state'],self.run['message'],finished_at=datetime.now(timezone.utc).isoformat())
         except Exception as error:
             self.update('stopped' if self.stopped() else 'failed',str(error),finished_at=datetime.now(timezone.utc).isoformat())
         finally:
@@ -387,7 +426,7 @@ class Worker:
             saved=self.plan.load(sub)
             if saved is None:self.scan(sub)
             else:
-                for entry in saved['items']:
+                for entry in self.select_uploads(sub,saved['items']):
                     if self.stopped():raise WorkerError('Stopped by request.')
                     self.queue_item(sub,entry['item'],entry['month'])
                 result=dict(saved['result']);ignored=sum(is_image_attachment(entry['item']) for entry in saved['items'])
@@ -395,7 +434,6 @@ class Worker:
                     result['ignored_images']=result.get('ignored_images',0)+ignored
                     result['eligible_files']=max(0,result.get('eligible_files',0)-ignored)
                 self.run['creator_results'].append(result)
-                self.run['warnings']=list(dict.fromkeys(self.run['warnings']+saved['warnings']))
                 self.update('scanning','Using saved queue · '+sub['creator'],creators_checked=len(self.run['creator_results']),files_listed=0)
     def execute_sequential(self):
         for sub in self.run['subscriptions']:

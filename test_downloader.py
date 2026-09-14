@@ -147,6 +147,13 @@ class DownloaderTests(unittest.TestCase):
 if __name__=='__main__':unittest.main()
 
 class ResumeTests(unittest.TestCase):
+    def finish_fake_transfer(self,store,root,transfers):
+        def transfer(sub,item,month):
+            transfers.append(item['source_message_id'])
+            row=store.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=sub['topic_url'],filename=item['filename'],bytes_total=item['bytes_total'])
+            store.history.complete(row['id'],destination=str(root/'delivered'/item['filename']),verified_size=item['bytes_total'],sha256='0'*64)
+        return transfer
+
     def test_saved_queue_skips_direct_images_without_rescanning_or_claiming_downloads(self):
         import download_worker
         from download_plan import DownloadPlan
@@ -165,7 +172,7 @@ class ResumeTests(unittest.TestCase):
             class CLI:
                 def list_files(inner,*args,**kwargs):raise AssertionError('Saved artist checks must be reused')
                 def close(inner):pass
-            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=CLI()),patch.object(download_worker.Worker,'transfer',side_effect=lambda sub,item,month:transfers.append(item['source_message_id'])):
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=CLI()),patch.object(download_worker.Worker,'transfer',side_effect=self.finish_fake_transfer(store,root,transfers)):
                 worker=download_worker.Worker(run['id']);worker.execute()
             self.assertEqual(worker.run['state'],'completed',worker.run['message']);self.assertEqual(transfers,[201])
             self.assertEqual(sum(r['ignored_images'] for r in worker.run['creator_results']),3)
@@ -187,7 +194,7 @@ class ResumeTests(unittest.TestCase):
                     mid=201 if sub==run['subscriptions'][0] else 301
                     return [self.item(sub,mid),{**self.item(sub,mid+1),'filename':'undated-preview.JPEG'},{**self.item(sub,mid+2),'filename':'unnamed preview','mime_type':'image/png'}]
                 def close(inner):pass
-            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=CLI()),patch.object(download_worker.Worker,'transfer',side_effect=lambda sub,item,month:transfers.append(item['source_message_id'])):
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=CLI()),patch.object(download_worker.Worker,'transfer',side_effect=self.finish_fake_transfer(store,root,transfers)):
                 worker=download_worker.Worker(run['id']);worker.execute()
             self.assertEqual(worker.run['state'],'completed',worker.run['message']);self.assertEqual(transfers,[201,301])
             self.assertEqual(worker.run['warnings'],[]);self.assertEqual(sum(r['ignored_images'] for r in worker.run['creator_results']),4)
@@ -289,7 +296,7 @@ class ResumeTests(unittest.TestCase):
                     worker=download_worker.Worker(run['id']);worker.execute()
                 self.assertEqual(worker.run['state'],'failed');self.assertEqual(worker.run['creators_checked'],2)
                 with patch('run_manager.subprocess.Popen'):store.runs.resume({'run_id':run['id']})
-                with patch.object(cli,'list_files',side_effect=AssertionError('Already checked')),patch.object(download_worker.Worker,'transfer',side_effect=lambda sub,item,month:transfers.append(item['source_message_id'])):
+                with patch.object(cli,'list_files',side_effect=AssertionError('Already checked')),patch.object(download_worker.Worker,'transfer',side_effect=self.finish_fake_transfer(store,root,transfers)):
                     resumed=download_worker.Worker(run['id']);resumed.execute()
                 self.assertEqual(resumed.run['state'],'completed',resumed.run['message']);self.assertEqual(transfers,[201,301])
 

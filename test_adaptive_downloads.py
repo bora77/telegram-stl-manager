@@ -152,12 +152,12 @@ class CoordinatorTests(unittest.TestCase):
                     calls.append(item['source_message_id']); path = state / str(item['source_message_id'])
                     path.write_bytes(b'fixture'); return path
                 def close(self): pass
+            # Establish the external lease before starting the coordinator;
+            # holding its condition while waiting on its own transfer deadlocks.
+            lease = release_lock(root, run['download_directory'], 'Example', '2026-01')
+            lease.__enter__()
             with ad.AdaptiveDownloads(store, run, entries, lambda: False, lambda j: False,
                                       cli_factory=CLI, state=state, interval=.005) as scheduler:
-                # Stop coordinator briefly while establishing a real external lease.
-                with scheduler.condition:
-                    lease = release_lock(root, run['download_directory'], 'Example', '2026-01')
-                    lease.__enter__()
                 try:
                     with ThreadPoolExecutor(1) as pool:
                         ready = pool.submit(scheduler.next_ready).result(timeout=3)

@@ -222,6 +222,22 @@ class DownloadHistory:
                     (record['size'],record['size'],record['sha256'],record['destination'],record['move_seconds'],record['move_average_bps'],
                      len(images),str(images_destination),json.dumps(images),record['id']))
 
+    def batch_outcome(self,batch_id):
+        with self.connect() as db:
+            row=db.execute("SELECT count(*) AS total_files,coalesce(sum(state='downloaded'),0) AS completed_files FROM downloads WHERE batch_id=?",(batch_id,)).fetchone()
+        return {**dict(row),'unfinished_files':row['total_files']-row['completed_files']}
+
+    def run_warnings(self,batch_id):
+        with self.connect() as db:
+            rows=db.execute("SELECT creator,filename,state,error,image_warnings FROM downloads WHERE batch_id=? ORDER BY id",(batch_id,)).fetchall()
+        warnings=[]
+        for row in rows:
+            if row['state']!='downloaded' and row['error']:
+                warnings.append(row['creator']+' · '+row['filename']+': '+row['error'])
+            if row['state']=='downloaded':
+                warnings.extend(row['creator']+' · '+w for w in actual_image_warnings(json.loads(row['image_warnings'])))
+        return list(dict.fromkeys(warnings))
+
     def queue(self,batch_id=None):
         with self.connect() as db:
             batch={'batch_id':batch_id} if batch_id else db.execute('SELECT batch_id FROM downloads ORDER BY id DESC LIMIT 1').fetchone()

@@ -42,6 +42,21 @@ class StoreTests(unittest.TestCase):
         (self.root/'data/run.json').write_text('{partial')
         with self.assertRaises(ValueError):self.store.task_status()
 
+    def test_review_panel_uses_only_current_batch_unresolved_errors(self):
+        for mid,batch,error in ((1,'old','Old run failure'),(2,'current','Resolved failure'),(3,'current','Connection closed')):
+            row=self.store.history.register(source_message_id=mid,creator='Example',topic_url=self.url,
+                filename=f'Example 2026-09 {mid}.zip',bytes_total=20,batch_id=batch)
+            with self.store.history.connect() as db:db.execute("UPDATE downloads SET state='paused',error=? WHERE id=?",(error,row['id']))
+            if mid==2:self.store.history.complete(row['id'],destination=str(self.root/'done.zip'),verified_size=20,sha256='a'*64)
+        run={'id':'current','state':'completed','plan_version':1,'resume_requested':True,
+             'subscriptions':[self.entry],'warnings':['Old run failure','Resolved failure','Example: release month needs review for old.zip']}
+        self.store.atomic_write(self.store.runs.path,run)
+        queue=self.store.queue()
+        self.assertEqual(queue['run']['warnings'],['Example · Example 2026-09 3.zip: Connection closed'])
+        self.assertEqual(queue['worker_state'],'needs_review');self.assertTrue(queue['can_resume'])
+        self.assertIn('1 / 2 complete',queue['run']['message'])
+        self.assertEqual(json.loads(self.store.runs.path.read_text()),run)
+
     def test_saved_name_repairs_complete_normally_but_real_warnings_need_review(self):
         notice="release.zip: extracted 'bad:name.jpg' using safe name 'bad_name.jpg'."
         for problems in ([],['Damaged image skipped']):

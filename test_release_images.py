@@ -33,6 +33,49 @@ def damaged_image_zip(path):
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_macos_metadata_is_ignored_without_skipping_real_nested_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);nested=io.BytesIO();archive=root/'release.zip'
+            with zipfile.ZipFile(nested,'w') as z:z.writestr('preview.jpg',b'image')
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('models.zip',nested.getvalue());z.writestr('._models.zip',b'AppleDouble metadata')
+                z.writestr('__MACOSX/._models.zip',b'metadata');z.writestr('._cover.jpg',b'metadata')
+            before=archive.read_bytes();warnings=[]
+            images=extract_images(archive,root/'work',warnings=warnings)
+            self.assertEqual([p.read_bytes() for p in images],[b'image']);self.assertEqual(warnings,[])
+            self.assertEqual(archive.read_bytes(),before)
+
+    def test_legacy_zip_filename_bytes_use_exact_native_selectors(self):
+        from release_images import command
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);archive=root/'legacy.zip'
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('previewX.jpg',b'image');z.writestr('modelX.stl',b'unselected model')
+            archive.write_bytes(archive.read_bytes().replace(b'previewX.jpg',b'preview\x85.jpg').replace(b'modelX.stl',b'model\x85.stl'))
+            before=archive.read_bytes()
+            def legacy_listing(args,*a,**kw):
+                if args[0]=='l':return b'Path = preview\x85.jpg'.decode('utf-8')
+                return command(args,*a,**kw)
+            with patch('release_images.command',side_effect=legacy_listing):images=extract_images(archive,root/'work')
+            self.assertEqual([p.read_bytes() for p in images],[b'image']);self.assertEqual(archive.read_bytes(),before)
+            self.assertFalse(list((root/'work').rglob('*.stl')))
+
+    def test_unicode_next_line_in_filename_is_not_a_listing_delimiter(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);archive=root/'release.zip'
+            with zipfile.ZipFile(archive,'w') as z:z.writestr('preview\u0085.jpg',b'image')
+            self.assertEqual([p.read_bytes() for p in extract_images(archive,root/'work')],[b'image'])
+
+    def test_bare_and_underscore_7z_parts_extract_as_one_set(self):
+        for name in ('release','release_7z'):
+            with self.subTest(name=name),tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);source=root/'preview.jpg';source.write_bytes(os.urandom(12000))
+                subprocess.run(['7z','a','-mx0','-v4k',str(root/'original.7z'),str(source)],stdout=subprocess.DEVNULL,check=True)
+                parts=sorted(root.glob('original.7z.*'))
+                for part in parts:part.rename(root/(name+part.suffix))
+                images=extract_images(root/(name+'.001'),root/'work')
+                self.assertEqual([p.read_bytes() for p in images],[source.read_bytes()])
+
     def test_recovery_rebuilds_zip_index_skips_bad_crc_and_continues_nested_images(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);nested=root/'damaged.zip';damaged_image_zip(nested)

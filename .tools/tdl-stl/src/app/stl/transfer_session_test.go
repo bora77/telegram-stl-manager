@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gotd/td/rpc"
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
 	"github.com/iyear/tdl/core/tmedia"
@@ -40,6 +42,63 @@ func readTestEvents(t *testing.T, e *Events) []map[string]any {
 		events = append(events, event)
 	}
 	return events
+}
+
+func TestConnectionRetriesAreBoundedAndReuseCompletedChunks(t *testing.T) {
+	for _, failAll := range []bool{false, true} {
+		t.Run(fmt.Sprint(failAll), func(t *testing.T) {
+			o, e, _, _ := speedFixture(t)
+			o.Server = "manual"
+			file, err := os.CreateTemp(t.TempDir(), "payload")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			size := int64(3*partSize + 17)
+			attempts := 0
+			firstReads := 0
+			var mu sync.Mutex
+			hooks := transferHooks{
+				connect: func(ctx context.Context, key string) (downloader.Client, func(), error) {
+					attempts++
+					return functionClient{get: func(ctx context.Context, r *tg.UploadGetFileRequest) (tg.UploadFileClass, error) {
+						if r.Offset == 0 {
+							mu.Lock()
+							firstReads++
+							mu.Unlock()
+							return strictFileClient{size: size}.UploadGetFile(ctx, r)
+						}
+						if failAll || attempts < 3 {
+							for {
+								info, _ := file.Stat()
+								if info.Size() >= partSize {
+									break
+								}
+								select {
+								case <-ctx.Done():
+									return nil, ctx.Err()
+								case <-time.After(time.Millisecond):
+								}
+							}
+							return nil, rpc.ErrEngineClosed
+						}
+						return strictFileClient{size: size}.UploadGetFile(ctx, r)
+					}}, func() {}, nil
+				},
+				selectEndpoint: func(context.Context, Options) (string, error) {
+					t.Fatal("manual endpoint must be preserved")
+					return "", nil
+				},
+				monitor: func(Options, string) *speedMonitor { return nil },
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err = transferWithSwitches(ctx, &tmedia.Media{Size: size}, o, e, file, "manual", hooks)
+			if (err != nil) != failAll || attempts != 3 || firstReads != 1 {
+				t.Fatal("invalid retry result", err, attempts, firstReads)
+			}
+		})
+	}
 }
 
 func TestCriticalSwitchRetainsChunksAndProgress(t *testing.T) {

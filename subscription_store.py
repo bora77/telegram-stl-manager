@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timezone
 from download_history import DownloadHistory
 from release_rules import baseline_month
-from run_manager import RunManager, normalize_run_warnings
+from run_manager import RunManager, normalize_run_warnings, current_run_warnings, update_run_outcome
 from release_images import image_warnings
 from source_scope import load_source
 
@@ -151,7 +151,10 @@ class SubscriptionStore:
                 with path.open() as stream:
                     data=json.load(stream);version=str(os.fstat(stream.fileno()).st_mtime_ns)
             except FileNotFoundError:data={};version='0'
-            if kind=='download':normalize_run_warnings(data)
+            if kind=='download':
+                current_run_warnings(data,self.history)
+                normalize_run_warnings(data)
+                update_run_outcome(data,self.history)
             tasks[kind]={key:data.get(key) for key in ('id','state','started_at','finished_at','creator')}
             tasks[kind]['state']=data.get('state','idle')
             tasks[kind]['version']=version
@@ -181,5 +184,5 @@ class SubscriptionStore:
             except (OSError,ValueError,KeyError,TypeError):pass
         return {**queue,'bandwidth':bandwidth,'scheduler':scheduler,'worker_state':run['state'],
                 'trigger_mode':'manual','can_start':not active and count>0,'active':active,'organizer_active':organizer_active,
-                'can_resume':not active and run['state'] in ('failed','stopped','interrupted') and bool(run.get('id') and run.get('subscriptions')),
+                'can_resume':not active and (run['state'] in ('failed','stopped','interrupted') or run['state']=='needs_review' and run.get('unfinished_files',0)>0) and bool(run.get('id') and run.get('subscriptions')),
                 'run':run,'subscriptions_saved':count}

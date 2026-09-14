@@ -206,12 +206,16 @@ func openPoolClient(ctx context.Context, c *telegram.Client, r *stltransport.Res
 	if err != nil {
 		return nil, nil, err
 	}
+	return pool, poolAPI(ctx, pool), nil
+}
+
+func poolAPI(ctx context.Context, pool tg.Invoker) *tg.Client {
 	var invoker tg.Invoker = pool
 	chain := tclient.NewDefaultMiddlewares(context.WithoutCancel(ctx), 30*time.Second)
 	for i := len(chain) - 1; i >= 0; i-- {
 		invoker = chain[i].Handle(invoker)
 	}
-	return pool, tg.NewClient(invoker), nil
+	return tg.NewClient(invoker)
 }
 
 type countWriter struct {

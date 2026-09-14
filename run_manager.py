@@ -17,6 +17,24 @@ def normalize_run_warnings(data):
         data.update(state='completed',message='Manual run finished. All eligible discovered files are handled.')
 
 
+def update_run_outcome(data,history):
+    if data.get('id') and data.get('state') in ('completed','needs_review'):
+        data.update(history.batch_outcome(data['id']))
+        if data['unfinished_files']:
+            data.update(state='needs_review',message=f"Run ended with unfinished files: {data['completed_files']} / {data['total_files']} complete. Resume retries the remaining {data['unfinished_files']} files using saved artist checks and verified local downloads.")
+        elif data.get('plan_version')==1 and not data.get('warnings'):
+            data.update(state='completed',message='Run complete. All eligible discovered files are handled.')
+
+
+def current_run_warnings(data,history):
+    if data.get('plan_version')!=1 or not data.get('id'):return
+    scans=data.get('scan_warnings')
+    if scans is None:
+        scans=[] if data.get('resume_requested') else [w for w in data.get('warnings',[]) if ': release month needs review for ' in w or ': unsafe attachment filename needs review.' in w]
+    problems=[] if data.get('state') in ('starting','scanning') else history.run_warnings(data['id'])
+    data['warnings']=list(dict.fromkeys(scans+problems))
+
+
 class RunManager:
     def __init__(self,store):
         self.store=store;self.root=store.root;self.path=self.root/'data/run.json';self.lock=threading.Lock();self.process=None
@@ -24,6 +42,8 @@ class RunManager:
         if not self.path.exists():return {'state':'idle','message':'Ready for a manual run.','warnings':[]}
         data=json.loads(self.path.read_text())
         normalize_run_warnings(data)
+        current_run_warnings(data,self.store.history)
+        update_run_outcome(data,self.store.history)
         if data['state'] in ('starting','scanning','downloading','extracting','copying','stopping'):
             lockpath=self.root/'data/worker.lock'
             with lockpath.open('a') as stream:
@@ -53,7 +73,8 @@ class RunManager:
         with self.lock,(self.root/'data/operation.lock').open('a') as operation:
             fcntl.flock(operation,fcntl.LOCK_EX)
             run=self.status()
-            if run['state'] not in ('failed','stopped','interrupted'):raise FileExistsError('There is no stopped download run to resume.')
+            if not (run['state'] in ('failed','stopped','interrupted') or run['state']=='needs_review' and run.get('unfinished_files',0)):
+                raise FileExistsError('There are no unfinished downloads to resume.')
             if not run.get('id') or payload.get('run_id')!=run['id']:raise FileExistsError('The download run changed. Refresh the queue before resuming.')
             if not run.get('subscriptions'):raise ValueError('The saved subscriptions are missing; start a new run.')
             with (self.root/'data/worker.lock').open('a') as worker:

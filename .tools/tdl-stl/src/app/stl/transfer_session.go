@@ -92,7 +92,7 @@ func transferWithSwitches(ctx context.Context, file *tmedia.Media, o Options, e 
 	w := &countWriter{file: f, total: file.Size, events: e, chunks: map[int64]int{}}
 	downloadTraffic.start(time.Now())
 	defer downloadTraffic.finish()
-	started, retried := false, false
+	started, retries := false, 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -130,14 +130,21 @@ func transferWithSwitches(ctx context.Context, file *tmedia.Media, o Options, e 
 			return nil
 		}
 		immediate := errors.Is(err, errImmediateRetest)
-		if o.Server != "auto" || (!immediate && retried) {
+		limit := 1
+		if connectionFailure(err) {
+			limit = 2
+		}
+		if (o.Server != "auto" && !connectionFailure(err)) || (!immediate && retries >= limit) {
 			return err
 		}
 		if !immediate {
-			retried = true
+			retries++
 			if err = e.Emit("server_retry", nil); err != nil {
 				return err
 			}
+		}
+		if o.Server != "auto" {
+			continue
 		}
 		o.ReuseServer = key
 		// Let chooseEndpoint claim a slowdown comparison under the shared lock.

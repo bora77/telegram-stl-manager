@@ -2,19 +2,68 @@ package stl
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gotd/td/bin"
+	"github.com/gotd/td/rpc"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/tg"
 )
 
-type fakeSharedPool struct{ closes atomic.Int32 }
+type fakeSharedPool struct {
+	closes  atomic.Int32
+	failure error
+}
 
-func (p *fakeSharedPool) Invoke(context.Context, bin.Encoder, bin.Decoder) error { return nil }
+func (p *fakeSharedPool) Invoke(context.Context, bin.Encoder, bin.Decoder) error { return p.failure }
 func (p *fakeSharedPool) Close() error                                           { p.closes.Add(1); return nil }
+func TestDeadPoolIsReplacedWithoutClosingPeersOrDeletingItsReplacement(t *testing.T) {
+	registry := poolRegistry{}
+	key := poolIdentity{dc: 1, endpoint: "server"}
+	old := &fakeSharedPool{failure: rpc.ErrEngineClosed}
+	a, _, _ := registry.acquire(context.Background(), key, func() (telegram.CloseInvoker, *tg.Client, error) { return old, nil, nil })
+	b, _, _ := registry.acquire(context.Background(), key, nil)
+	if !errors.Is(a.Invoke(context.Background(), nil, nil), rpc.ErrEngineClosed) {
+		t.Fatal("missing connection error")
+	}
+	fresh := &fakeSharedPool{}
+	c, _, err := registry.acquire(context.Background(), key, func() (telegram.CloseInvoker, *tg.Client, error) { return fresh, nil, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	if old.closes.Load() != 0 {
+		t.Fatal("peer lease closed prematurely")
+	}
+	b.Close()
+	if old.closes.Load() != 1 || registry.entries[key] != c.entry {
+		t.Fatal("retired lease removed fresh pool")
+	}
+	if err := c.Invoke(context.Background(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if fresh.closes.Load() != 1 {
+		t.Fatal("replacement leaked")
+	}
+}
+
+func TestCancelledCallerDoesNotRetireItsPeersPool(t *testing.T) {
+	registry := poolRegistry{}
+	key := poolIdentity{dc: 1}
+	pool := &fakeSharedPool{failure: context.Canceled}
+	lease, _, _ := registry.acquire(context.Background(), key, func() (telegram.CloseInvoker, *tg.Client, error) { return pool, nil, nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	lease.Invoke(ctx, nil, nil)
+	if registry.entries[key] != lease.entry {
+		t.Fatal("caller cancellation retired shared pool")
+	}
+	lease.Close()
+}
 func TestFinishingOneFileDoesNotCloseAnotherFilesPool(t *testing.T) {
 	registry := poolRegistry{}
 	pool := &fakeSharedPool{}

@@ -187,7 +187,9 @@ class Worker:
                         last_update=now;last_stage=stage
                         label={'listing':'Reading archive contents','checking_parts':'Checking split archive integrity','extracting':'Extracting release images','complete':'Image extraction complete'}[stage]
                         self.update('extracting',label+' · '+first,current_creator=sub['creator'],extraction_stage=stage,images_done=count,images_total=total,extraction_bytes=done,extraction_total=expected,extraction_seconds=now-started)
-                    images=extract_images(inputs/first,work/'images',extraction_progress,self.stopped)
+                    name_changes=[]
+                    images=extract_images(inputs/first,work/'images',extraction_progress,self.stopped,name_changes=name_changes)
+                    for message in name_changes:self.warn(message)
                     manifest=[]
                     for image in images:
                         relative=image.relative_to(work/'images'/'output')
@@ -195,7 +197,7 @@ class Worker:
                         result=self.move_one(image,sub,month,name,('release_images',))
                         manifest.append({'path':name,'source_path':str(relative),'size':result['size'],'sha256':result['sha256']})
             self.history.record_image_extraction(sub['topic_url'],archives,manifest,image_destination,
-                                                 warnings=saved['warnings'] if saved else ())
+                                                 warnings=saved['warnings'] if saved else name_changes)
             delivered=[]
             for record in records:
                 result=self.move_one(record['staged'],sub,month,record['filename'])

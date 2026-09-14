@@ -72,6 +72,31 @@ def safe_component(name):
     return clean
 
 
+def mapped_member_name(name):
+    """Keep ordinary paths; give unusual names a confined, deterministic alias.
+
+    Archive names are selectors only when an alias is needed. They are never
+    passed to an extractor that can create filesystem paths.
+    """
+    if not name or re.search(r'[\x00-\x1f]', name):
+        raise ExtractionError('Archive member name cannot be read unambiguously: '+repr(name))
+    parts=name.replace('\\','/').split('/')
+    if (not any(p in ('','.','..') for p in parts) and not re.search(r'[\\<>:"|?*]',name)
+            and all(len(p.encode())<=180 and p==p.strip().rstrip('.') for p in parts)):
+        return name
+    basename=next((p for p in reversed(parts) if p not in ('','.','..')),'image')
+    # Keep multipart suffixes together: changing each part's basename hash
+    # separately would prevent the archive reader from finding its companions.
+    match=re.fullmatch(r'(.+)(\.(?:7z|zip|rar)\.\d{3,}|[._ -]part\d+\.rar|\.[rz]\d{2,})',basename,re.I)
+    clean=safe_component(match[1])+match[2] if match else safe_component(basename)
+    identity=volume_key(name)[0] if volume_key(name)[1] else name
+    return '__renamed_'+hashlib.sha256(identity.encode()).hexdigest()[:16]+'/'+clean
+
+
+def member_path(members, entry):
+    return members / entry.get('disk_name',entry['name'])
+
+
 def flat_image_name(archive, relative):
     """Stable names in one monthly image folder, including repeated basenames."""
     relative = PurePosixPath(str(relative))
@@ -157,20 +182,23 @@ def listing(archive, work, stopped, tick=lambda: None):
             if key in item:raise ExtractionError('Archive listing contains ambiguous metadata.')
             item[key] = value
         name = item.get('Path', '')
-        path = PurePosixPath(name)
-        if not name or '\\' in name or path.is_absolute() or any(p in ('', '.', '..') for p in name.split('/')) or re.search(r'[:\x00-\x1f]', name):
-            raise ExtractionError('Archive contains an unsafe member path; local archive retained.')
         attributes = item.get('Attributes', '').split()
         if any(v.startswith('l') for v in attributes) or any('Link' in k and v for k, v in item.items()) or item.get('Anti') == '+':
-            raise ExtractionError('Archive contains links or special entries; review required.')
+            raise ExtractionError(archive.name+': link or special entry requires review: '+repr(name))
+        # Directory markers (including ./ and trailing slashes) are not files
+        # to extract. Only selected regular members create output directories.
         if item.get('Folder') == '+' or any(v.startswith('D') or v.startswith('d') for v in attributes):continue
+        try:disk_name=mapped_member_name(name)
+        except ExtractionError as error:raise ExtractionError(archive.name+': '+str(error)) from error
         if name.casefold() in seen:raise ExtractionError('Archive contains duplicate image paths or file names.')
         seen.add(name.casefold())
         if item.get('Encrypted') == '+':raise ExtractionError('Password-protected release needs review; local archive retained.')
         try:size = int(item['Size'])
         except (KeyError, ValueError):raise ExtractionError('Archive member size could not be read.')
         if size < 0:raise ExtractionError('Invalid archive member size.')
-        entries.append({'name': name, 'size': size})
+        entry={'name': name, 'size': size}
+        if disk_name!=name:entry['disk_name']=disk_name
+        entries.append(entry)
     return header, entries
 
 
@@ -276,13 +304,69 @@ def recover_members(source, members, selected, work, stopped, progress, warn, er
     return kept
 
 
-def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: False, *, warnings=None):
+def extract_mapped_member(source, entry, target, work, stopped, tick):
+    """Decode one exact member into a filename chosen by us, never by 7-Zip."""
+    started=time.monotonic()
+    def check():
+        if stopped():raise ExtractionError('Stopped by request; downloaded archives kept locally.')
+        if time.monotonic()-started>3600:raise ExtractionError('Renamed member extraction exceeded its time limit.')
+        if shutil.disk_usage(work).free<RESERVE:raise ExtractionError('Not enough local space for renamed archive members.')
+        if target.exists() and target.stat().st_size>entry['size']:raise ExtractionError('Renamed member exceeds its listed size.')
+        tick()
+    if entry['size']>32*1024**3:raise ExtractionError('Renamed archive member exceeds the local extraction limit.')
+    check();target.parent.mkdir(parents=True,exist_ok=True)
+    try:
+        native=False
+        if zipfile.is_zipfile(source):
+            try:
+                with zipfile.ZipFile(source) as archive:
+                    info=archive.getinfo(entry['name']);mode=(info.external_attr>>16)&0xffff
+                    if info.orig_filename!=entry['name'] or info.is_dir() or stat.S_IFMT(mode) not in (0,stat.S_IFREG):
+                        raise ExtractionError('Renamed archive member is a link or special entry: '+repr(entry['name']))
+                    if info.file_size!=entry['size']:raise ExtractionError('Renamed member differs from its listed size.')
+                    if info.compress_type in (zipfile.ZIP_STORED,zipfile.ZIP_DEFLATED,zipfile.ZIP_BZIP2,zipfile.ZIP_LZMA):
+                        with archive.open(info) as incoming,target.open('xb') as out:
+                            done=0
+                            while block:=incoming.read(1024*1024):
+                                check();done+=len(block)
+                                if done>entry['size']:raise ExtractionError('Renamed member exceeds its listed size.')
+                                out.write(block)
+                        native=True
+            except (KeyError,zipfile.BadZipFile,zlib.error,lzma.LZMAError,EOFError,NotImplementedError,RuntimeError) as error:
+                if isinstance(error,ExtractionError):raise
+                raise ArchiveReadError(source,'Renamed member could not be decoded or failed its checksum: '+repr(entry['name'])) from error
+        if not native:
+            executable=str(BUNDLED_7ZIP) if BUNDLED_7ZIP.is_file() else shutil.which('7z') or shutil.which('7zz')
+            if not executable:raise ExtractionError('7-Zip is required for renamed archive members.')
+            include=work/'renamed-include.txt';include.write_text(entry['name']+'\n')
+            with target.open('xb') as out,tempfile.TemporaryFile(dir=work) as log:
+                child=subprocess.Popen([executable,'x','-so','-bso0','-bse2','-bsp0','-mmt=2','-p-','-spd',
+                    '-scsUTF-8','-i@'+str(include),'--',str(source)],stdin=subprocess.DEVNULL,stdout=out,stderr=log,
+                    env=dict(os.environ,LC_ALL='C.UTF-8'),preexec_fn=_limits)
+                try:
+                    while child.poll() is None:
+                        check()
+                        if log.tell()>MAX_LISTING:raise ExtractionError('Renamed member diagnostic output is too large.')
+                        try:child.wait(timeout=.5)
+                        except subprocess.TimeoutExpired:pass
+                    if child.returncode:
+                        log.seek(0);raise ArchiveReadError(source,log.read(MAX_LISTING).decode('utf-8',errors='replace'))
+                finally:
+                    if child.poll() is None:child.kill();child.wait()
+        check()
+        if target.stat().st_size!=entry['size']:raise ExtractionError('Renamed member differs from its listed size: '+repr(entry['name']))
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+
+
+def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: False, *, warnings=None, name_changes=None):
     """Return extracted image paths. Originals are never modified or deleted."""
     archive = Path(archive).resolve(strict=True);work = Path(work)
     output = work / 'output';output.mkdir(parents=True, exist_ok=True)
     results = []
     def warn(message):
-        if message not in warnings:warnings.append(message)
+        if warnings is not None and message not in warnings:warnings.append(message)
 
     def unpack(source, prefix=Path(), depth=0):
         if depth > 6:raise ExtractionError('Nested archive depth needs review; local archive retained.')
@@ -293,6 +377,8 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
             warn((str(prefix) if prefix.parts else source.name)+': images could not be listed; original archive retained.')
             return
         selected = [e for e in entries if Path(e['name']).suffix.lower() in IMAGES or is_archive(e['name'])]
+        disk_names=[e.get('disk_name',e['name']).casefold() for e in selected]
+        if len(set(disk_names))!=len(disk_names):raise ExtractionError('Renamed archive members would collide; originals retained.')
         total = sum(e['size'] for e in selected)
         if len(selected) > 50000 or shutil.disk_usage(work).free < total + RESERVE:
             raise ExtractionError('Not enough local capacity for release images; archive retained.')
@@ -314,12 +400,14 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
         with tempfile.TemporaryDirectory(prefix='members-', dir=work) as temporary:
             temporary = Path(temporary);members = temporary / 'members';members.mkdir()
             include = temporary / 'include.txt'
-            include.write_text(''.join(e['name'] + '\n' for e in selected))
+            ordinary=[e for e in selected if 'disk_name' not in e]
+            renamed=[e for e in selected if 'disk_name' in e]
+            include.write_text(''.join(e['name'] + '\n' for e in ordinary))
             image_entries = [e for e in selected if Path(e['name']).suffix.lower() in IMAGES]
             def tick():
                 done = 0;count = 0
                 for entry in selected:
-                    path = members / entry['name']
+                    path = member_path(members,entry)
                     if path.is_symlink():raise ExtractionError('Extracted link refused.')
                     if path.is_file():
                         size = path.stat().st_size
@@ -328,36 +416,49 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
                         if entry in image_entries and size == entry['size']:count += 1
                 progress('extracting', count, len(image_entries), done, total)
             try:
-                command(['x', '-bd', '-bb0', '-mmt=2', '-y', '-p-', '-spd', '-scsUTF-8',
-                         '-o' + str(members), '-i@' + str(include), '--', str(source)], work, stopped, tick)
+                if ordinary:
+                    command(['x', '-bd', '-bb0', '-mmt=2', '-y', '-p-', '-spd', '-scsUTF-8',
+                             '-o' + str(members), '-i@' + str(include), '--', str(source)], work, stopped, tick)
             except ArchiveReadError as error:
                 if warnings is None:raise
-                selected=recover_members(source,members,selected,temporary,stopped,
+                ordinary=recover_members(source,members,ordinary,temporary,stopped,
                     lambda count,total:progress('recovering',count,total,0,None),warn,error)
-                image_entries=[e for e in selected if Path(e['name']).suffix.lower() in IMAGES]
-            expected = {e['name']: e for e in selected}
+            selected=ordinary+renamed
+            kept=[]
+            for entry in renamed:
+                try:extract_mapped_member(source,entry,member_path(members,entry),temporary,stopped,tick)
+                except ArchiveReadError:
+                    if warnings is None:raise
+                    warn(source.name+' / '+repr(entry['name'])+': skipped; renamed member could not be decoded or failed its checksum.')
+                    continue
+                kept.append(entry)
+                message=source.name+': extracted '+repr(entry['name'])+' using safe name '+repr(entry['disk_name'])+'.'
+                warn(message)
+                if name_changes is not None and message not in name_changes:name_changes.append(message)
+            selected=ordinary+kept
+            image_entries=[e for e in selected if Path(e['name']).suffix.lower() in IMAGES]
             actual = {}
             for path in members.rglob('*'):
                 mode = path.lstat().st_mode
                 if stat.S_ISDIR(mode):continue
                 if not stat.S_ISREG(mode):raise ExtractionError('Extracted special file refused.')
                 actual[str(path.relative_to(members))] = path.stat().st_size
-            if actual != {e['name']: e['size'] for e in selected}:
+            if actual != {e.get('disk_name',e['name']): e['size'] for e in selected}:
                 raise ExtractionError('Extracted members do not match the archive listing.')
             for entry in image_entries:
-                relative = prefix / Path(*(safe_component(p) for p in PurePosixPath(entry['name']).parts))
+                relative = prefix / Path(*(safe_component(p) for p in PurePosixPath(entry.get('disk_name',entry['name'])).parts))
                 target = output / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 if target.exists():raise ExtractionError('Image names collide; review required.')
-                os.rename(members / entry['name'], target);results.append(target)
+                os.rename(member_path(members,entry), target);results.append(target)
             nested = {}
             for entry in selected:
                 if is_archive(entry['name']):
-                    nested.setdefault(volume_key(entry['name'])[0], []).append(entry['name'])
-            for names in nested.values():
-                first = min(names, key=lambda name: volume_key(name)[1])
-                nested_prefix = prefix / Path(*(safe_component(p) for p in PurePosixPath(first).parts))
-                unpack(members / first, nested_prefix, depth + 1)
+                    nested.setdefault(volume_key(entry['name'])[0], []).append(entry)
+            for group in nested.values():
+                first = min(group, key=lambda entry: volume_key(entry['name'])[1])
+                nested_prefix = prefix / Path(*(safe_component(p) for p in PurePosixPath(first.get('disk_name',first['name'])).parts))
+                unpack(member_path(members,first), nested_prefix, depth + 1)
     if is_archive(archive.name):
         unpack(archive)
     elif archive.suffix.lower() in IMAGES:

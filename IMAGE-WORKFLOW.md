@@ -1,6 +1,6 @@
 # Organizer extraction and release collages
 
-Updated 2026-09-13. Image extraction is implemented for downloads and the
+Updated 2026-09-14. Image extraction is implemented for downloads and the
 organizer's separate manual Apply action.
 The Collages page arranges extracted images and saves a full-resolution JPEG on demand.
 
@@ -28,12 +28,26 @@ their archive checksum, skips unreadable members, and continues organizing.
 It can rebuild a damaged ZIP index in a temporary copy using `zip -FF`; original
 release archives are never repaired or modified. Warnings remain visible after
 completion and are saved with the release in the organizer journal and download
-database. Other release failures (including missing parts, unsafe paths, and
+database. Other release failures (including missing parts, ambiguous metadata, and
 unreadable archives) mark that release **Needs review** and continue with the
 next release. Failed files are not claimed as downloaded. Known archive parts
 must all match the preview before any part is moved. Cancellation and a changed
 or disconnected destination mount stop the whole operation. Download extraction
 retains its existing strict behavior.
+
+Unusual member names no longer block extraction simply because they use Windows
+backslashes, colons, leading `./`, repeated separators or absolute/parent paths.
+Selected files receive deterministic safe aliases inside local staging, with
+distinct suffixes and compatible multipart names. ZIP members are read directly
+by their exact stored names; other formats stream the selected member's bytes
+into a file opened by the application. The archive's original path is never used
+as an extraction destination for these members. Ordinary names retain bulk
+extraction. Original archives are not renamed or repacked, and image bytes and
+archive checksums are still verified. Name changes are recorded with the image
+result in download history (and the organizer journal when organizing).
+Links, special entries, ambiguous duplicate names and unparseable control
+characters still require review. Directory markers are ignored; unselected
+model files do not need extraction or renaming.
 
 All newly delivered images go directly into:
 

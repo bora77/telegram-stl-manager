@@ -66,6 +66,10 @@ Archives download to local staging. Images are extracted locally and delivered
 into a flat `creator/YYYY-MM/release_images/` folder. Archive delivery is verified
 before completion is committed and local payloads are removed. Existing differing
 files are never overwritten. Temporary staging is retained on failure for retry.
+Unusual names inside an archive are mapped to safe local extraction names,
+including Windows-style paths. Original archives and image bytes are preserved;
+name changes are recorded with the extraction result. Links and ambiguous
+metadata still require review.
 
 SQLite history records Telegram attachment identities, exact sizes, transfer
 metrics, destinations, archive checksums and image manifests. Later runs skip

@@ -60,7 +60,7 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual([p.read_bytes() for p in images],[good.read_bytes()])
             self.assertTrue(any('bad.jpg' in w for w in warnings))
 
-    def test_unreadable_nested_image_archive_warns_but_cancellation_and_paths_still_stop(self):
+    def test_unreadable_nested_archive_warns_paths_are_confined_and_cancel_stops(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);archive=root/'release.zip'
             with zipfile.ZipFile(archive,'w') as z:
@@ -69,7 +69,8 @@ class ExtractionTests(unittest.TestCase):
             self.assertEqual([p.read_bytes() for p in images],[b'good image']);self.assertTrue(any('bad.zip' in w for w in warnings))
             unsafe=root/'unsafe.zip'
             with zipfile.ZipFile(unsafe,'w') as z:z.writestr('../outside.jpg',b'bad')
-            with self.assertRaises(ExtractionError):extract_images(unsafe,root/'unsafe-work',warnings=[])
+            images=extract_images(unsafe,root/'unsafe-work',warnings=[])
+            self.assertEqual([p.read_bytes() for p in images],[b'bad']);self.assertFalse((root/'outside.jpg').exists())
             damaged=root/'damaged.zip';damaged_image_zip(damaged);cancelled=False
             def progress(stage,*args):
                 nonlocal cancelled
@@ -86,10 +87,13 @@ class ExtractionTests(unittest.TestCase):
             images=extract_images(root/'release.zip',root/'work')
             self.assertEqual([p.read_bytes() for p in images],[image.read_bytes()])
 
-    def test_format_warning_does_not_hide_invalid_paths_or_member_metadata(self):
+    def test_format_warning_preserves_rename_mapping_and_rejects_ambiguous_metadata(self):
         text=('Open WARNING: Cannot open the file as [zip] archive\nType = 7z\n----------\n'
               'Path = ../preview.jpg\nSize = 12\n\n\nWarnings: 1\n')
-        for malformed in (text,text.replace('../preview.jpg','preview\ninjected.jpg'),
+        with patch('release_images.command',return_value=text):
+            _,entries=listing(Path('release.zip'),Path('.'),lambda:False)
+        self.assertEqual(entries[0]['name'],'../preview.jpg');self.assertNotIn('..',entries[0]['disk_name'].split('/'))
+        for malformed in (text.replace('../preview.jpg','preview\ninjected.jpg'),
                           text.replace('../preview.jpg','preview.jpg').replace('Size = 12','Size = 12\nUnexpected content')):
             with patch('release_images.command',return_value=malformed):
                 with self.assertRaises(ExtractionError):listing(Path('release.zip'),Path('.'),lambda:False)
@@ -152,19 +156,87 @@ class ExtractionTests(unittest.TestCase):
             self.assertFalse(list((root/'work').rglob('*.stl')))
             self.assertEqual(archive.read_bytes(),original)
 
-    def test_traversal_links_and_duplicate_paths_are_rejected(self):
-        for kind in ['traversal','link','duplicate']:
+    def test_links_and_duplicate_paths_are_rejected(self):
+        for kind in ['link','duplicate']:
             with self.subTest(kind=kind),tempfile.TemporaryDirectory() as temp:
                 root=Path(temp);archive=root/'unsafe.zip'
                 with zipfile.ZipFile(archive,'w') as z:
-                    if kind=='traversal':z.writestr('../outside.jpg',b'bad')
-                    elif kind=='link':
+                    if kind=='link':
                         info=zipfile.ZipInfo('link.jpg');info.create_system=3;info.external_attr=0o120777<<16
                         z.writestr(info,'/etc/passwd')
                     else:
                         z.writestr('image.jpg',b'a');z.writestr('IMAGE.jpg',b'b')
                 with self.assertRaises(ExtractionError):extract_images(archive,root/'work')
                 self.assertFalse((root/'outside.jpg').exists())
+
+    def test_unusual_names_stream_to_distinct_safe_paths_without_extracting_models(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);archive=root/'release.zip';outside=root/'outside.jpg';outside.write_bytes(b'keep me')
+            names=['./gallery/preview.jpg',r'renders\preview.jpg','preview:front.jpg','preview?front.jpg',
+                   'preview_front.jpg','../outside.jpg',str(outside),r'C:\outside.jpg','gallery//preview.jpg']
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('./',b'');z.writestr('./gallery/',b'')
+                for name in names:z.writestr(name,name.encode())
+                z.writestr(r'models\unselected.stl',b'model payload')
+            original=archive.read_bytes();changes=[]
+            images=extract_images(archive,root/'work',name_changes=changes)
+            self.assertEqual({p.read_bytes() for p in images},{n.encode() for n in names})
+            self.assertEqual(len(images),len(names));self.assertEqual(outside.read_bytes(),b'keep me')
+            self.assertEqual(archive.read_bytes(),original);self.assertFalse(list((root/'work').rglob('*.stl')))
+            for path in images:
+                self.assertTrue(path.is_relative_to(root/'work/output'))
+                self.assertNotRegex(str(path.relative_to(root/'work/output')),r'[\\:?*]')
+            self.assertTrue(any('renders' in message for message in changes))
+            again=extract_images(archive,root/'again')
+            self.assertEqual([p.relative_to(root/'work/output') for p in images],[p.relative_to(root/'again/output') for p in again])
+
+    def test_7zip_streams_exact_renamed_member_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'preview:*.jpg';source.write_bytes(b'exact image payload')
+            other=root/'previewZZ.jpg';other.write_bytes(b'other image payload')
+            archive=root/'release.7z'
+            subprocess.run(['7z','a','-mx0',str(archive),str(source),str(other)],stdout=subprocess.DEVNULL,check=True)
+            images=extract_images(archive,root/'work')
+            self.assertEqual({p.read_bytes() for p in images},{source.read_bytes(),other.read_bytes()})
+            raw=bytearray(archive.read_bytes());raw[raw.index(b'exact image payload')]^=1;archive.write_bytes(raw)
+            with self.assertRaises(ExtractionError):extract_images(archive,root/'strict')
+            warnings=[];images=extract_images(archive,root/'recover',warnings=warnings)
+            self.assertEqual([p.read_bytes() for p in images],[other.read_bytes()]);self.assertTrue(any('skipped' in w for w in warnings))
+
+    def test_renamed_nested_split_parts_still_form_one_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);image=root/'preview.jpg';image.write_bytes(os.urandom(14000))
+            subprocess.run(['7z','a','-mx0','-v4k',str(root/'nested.7z'),str(image)],stdout=subprocess.DEVNULL,check=True)
+            archive=root/'release.zip'
+            with zipfile.ZipFile(archive,'w') as z:
+                for part in sorted(root.glob('nested.7z.*')):z.write(part,'bad:'+part.name)
+            images=extract_images(archive,root/'work')
+            self.assertEqual([p.read_bytes() for p in images],[image.read_bytes()])
+
+    def test_renamed_zip_uses_7zip_for_deflate64(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);image=root/'preview:front.jpg';image.write_bytes(b'repeated image bytes'*10000)
+            archive=root/'release.zip'
+            subprocess.run(['7z','a','-tzip','-mm=Deflate64',str(archive),str(image)],stdout=subprocess.DEVNULL,check=True)
+            with zipfile.ZipFile(archive) as z:self.assertEqual(z.infolist()[0].compress_type,9)
+            images=extract_images(archive,root/'work')
+            self.assertEqual([p.read_bytes() for p in images],[image.read_bytes()])
+
+    def test_renamed_zip_crc_and_cancellation_are_checked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);archive=root/'release.zip'
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr(r'images\broken.jpg',b'broken payload');z.writestr(r'images\good.jpg',b'good payload')
+            raw=bytearray(archive.read_bytes());raw[raw.index(b'broken payload')]^=1;archive.write_bytes(raw)
+            with self.assertRaises(ExtractionError):extract_images(archive,root/'strict')
+            warnings=[];images=extract_images(archive,root/'recover',warnings=warnings)
+            self.assertEqual([p.read_bytes() for p in images],[b'good payload']);self.assertTrue(any('checksum' in w for w in warnings))
+            cancelled=False
+            def progress(stage,*args):
+                nonlocal cancelled
+                if stage=='extracting':cancelled=True
+            with self.assertRaisesRegex(ExtractionError,'Stopped'):
+                extract_images(archive,root/'cancel',progress,lambda:cancelled,warnings=[])
 
     def test_no_images_and_cancel(self):
         with tempfile.TemporaryDirectory() as temp:

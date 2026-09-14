@@ -146,7 +146,9 @@ class OrganizerApplyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             store,folder=self.setup_store(Path(temporary))
             bad=folder/'Example 2026-01.zip'
-            with zipfile.ZipFile(bad,'w') as z:z.writestr('../escape.jpg',b'unsafe image')
+            with zipfile.ZipFile(bad,'w') as z:
+                link=zipfile.ZipInfo('escape.jpg');link.create_system=3;link.external_attr=0o120777<<16
+                z.writestr(link,'../escape.jpg')
             original=bad.read_bytes()
             for month in ('02','03'):self.archive(folder/('Example 2026-'+month+'.zip'))
             self.preview(store,folder);job_id=self.start(store)

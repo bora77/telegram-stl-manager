@@ -169,7 +169,7 @@ class WorkerImageTests(unittest.TestCase):
                     source=state/item['filename'];source.write_bytes(contents[1])
                     progress(source.stat().st_size,source.stat().st_size);return source
                 def close(self):pass
-            def extract(source,work,*args):
+            def extract(source,work,*args,**kwargs):
                 extracted.append(sorted(p.name for p in source.parent.iterdir()))
                 if not (source.parent/names[1]).exists():raise MissingVolumeError(source,names[1])
                 self.assertEqual([ (source.parent/name).read_bytes() for name in names ],contents)
@@ -313,6 +313,29 @@ class WorkerImageTests(unittest.TestCase):
             delivered=list((base/'Example/2026-09/release_images').glob('preview__*.jpg'))
             self.assertEqual(len(delivered),1);self.assertEqual(delivered[0].read_bytes(),image.read_bytes())
             for part in parts:self.assertEqual((base/'Example/2026-09'/part.name).read_bytes(),part.read_bytes())
+
+    def test_renamed_images_are_delivered_flat_and_name_changes_saved_in_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);worker,store,sub,state,base=self.setup_worker(root)
+            fixture=state/'fixture.zip'
+            with zipfile.ZipFile(fixture,'w') as archive:
+                archive.writestr(r'renders\preview:front.jpg',b'original image bytes')
+                archive.writestr(r'models\unselected.stl',b'model bytes')
+            original=fixture.read_bytes()
+            class CLI:
+                def download(self,item,progress,stopped,status=None):
+                    source=state/item['filename'];source.write_bytes(original);progress(len(original),len(original));return source
+            worker.telegram=CLI();item={'filename':'Example 2026-09.zip','source_message_id':1,
+                'message_url':sub['topic_url']+'/1','bytes_total':len(original)}
+            worker.transfer(sub,item,'2026-09')
+            folder=base/'Example/2026-09';images=list((folder/'release_images').iterdir())
+            self.assertEqual(len(images),1);self.assertTrue(images[0].is_file());self.assertNotIn(':',images[0].name)
+            self.assertEqual(images[0].read_bytes(),b'original image bytes');self.assertEqual((folder/item['filename']).read_bytes(),original)
+            with store.history.connect() as db:row=dict(db.execute('SELECT * FROM downloads WHERE source_message_id=1').fetchone())
+            self.assertEqual(row['state'],'downloaded');self.assertEqual(row['image_status'],'complete_with_warnings')
+            self.assertTrue(any('renders' in message and 'safe name' in message for message in json.loads(row['image_warnings'])))
+            with patch.object(download_worker,'extract_images',side_effect=AssertionError('Already complete')):
+                worker.transfer(sub,item,'2026-09')
 
     def test_failed_image_delivery_keeps_archive_and_does_not_mark_downloaded(self):
         with tempfile.TemporaryDirectory() as temp:

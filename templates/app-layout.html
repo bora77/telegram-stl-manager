@@ -12,6 +12,7 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
 .app-navigation a:hover{background:#eae3f3;color:#5d378a}
 .app-navigation a[aria-current=page]{background:#7651a6;color:#fff;box-shadow:0 2px 6px #51307618}
 .app-navigation a:focus-visible,.app-brand:focus-visible{outline:3px solid #aa8fce;outline-offset:3px}
+.app-navigation a.task-notice{position:relative;box-shadow:inset 0 0 0 2px #329c73}.app-navigation a.task-notice:after{content:'✓';position:absolute;right:3px;top:0;color:#227752;font-size:12px;background:#e2f5eb;border-radius:50%;width:16px;height:16px;line-height:16px;text-align:center}.app-navigation a.task-notice[data-task-warning=true]{box-shadow:inset 0 0 0 2px #c68b25}.app-navigation a.task-notice[data-task-warning=true]:after{content:'!';color:#875b11;background:#fff0d3}.app-navigation a.task-flash{animation:task-complete-pulse .9s ease-in-out 6}.task-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}@keyframes task-complete-pulse{50%{background:#d6f3e5;color:#245e45;box-shadow:0 0 0 4px #58b18b33}}@media(prefers-reduced-motion:reduce){.app-navigation a.task-flash{animation:none}}
 .configuration-content{max-width:900px}
 @media(max-width:600px){main.app-main{margin:24px auto;padding:0 16px}.app-header h1{font-size:28px;margin:22px 0}.app-navigation{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.app-navigation a{text-align:center;padding:12px 8px;font-size:14px}}
 @media(prefers-reduced-motion:reduce){.app-navigation a{transition:none}}
@@ -26,4 +27,6 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
     <a id="collages-tab" href="/collages" __CURRENT_COLLAGES__>Collages</a>
     <a id="config-tab" href="/config" __CURRENT_CONFIG__>Configuration</a>
   </nav>
+  <span id="task-completion-announcement" class="task-announcement" role="status" aria-live="polite"></span>
 </header>
+<script>__TASK_NOTIFICATIONS__</script>

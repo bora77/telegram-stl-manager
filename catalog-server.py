@@ -58,6 +58,10 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.valid_host():
             self.send_error(403);return
         path=urlsplit(self.path).path
+        if path=='/api/tasks':
+            try:self.reply_json(self.store.task_status())
+            except (OSError,ValueError):self.reply_json({'error':'Task status is temporarily unavailable.'},503)
+            return
         if path.startswith('/api/collages/'):
             try:
                 query=parse_qs(urlsplit(self.path).query)

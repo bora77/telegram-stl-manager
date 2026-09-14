@@ -52,6 +52,7 @@ def app_layout(page):
     layout = (root / 'templates/app-layout.html').read_text().replace('__PAGE_TITLE__', title)
     layout = layout.replace('__QUEUE_HREF__', '#queue' if page == 'queue' else '/')
     layout = layout.replace('__ARTISTS_HREF__', '#artists' if page == 'queue' else '/#artists')
+    layout = layout.replace('__TASK_NOTIFICATIONS__', (root / 'task-notifications.js').read_text())
     for name in ('queue', 'artists', 'organize', 'collages', 'config'):
         layout = layout.replace('__CURRENT_' + name.upper() + '__', 'aria-current="page"' if name == page else '')
     return layout

@@ -29,6 +29,7 @@
     "source_scope.py",
     "subscription_store.py",
     "tabs.js",
+    "task-notifications.js",
     "telegram_cli.py",
     "telegram_service.py",
     "topic_catalog.py",

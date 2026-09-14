@@ -56,6 +56,10 @@ schedule.
 - **Download and organize at the same time.** Organizer previews can scan while
   a file is downloading. Each job has its own Stop control; operations affecting
   the same artist/month coordinate their file changes.
+- **Get completion alerts.** The relevant navigation tab pulses when a download
+  run, organizer preview or Apply job finishes, even while you use another page.
+  An optional chime sounds once across open browser tabs. Enable or test sound in
+  Configuration, and click in the app once so the browser allows audio.
 
 A release folder can look like this:
 

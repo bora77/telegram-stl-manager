@@ -18,6 +18,30 @@ class StoreTests(unittest.TestCase):
         self.entry = dict(topic_url=self.url,creator_folder='- Example',layout='monthly',month_basis='release',download_scope='from_month',start_month='2026-08')
     def save(self, **changes):
         return self.store.save(dict(revision=0,config_revision=0,subscriptions=[dict(self.entry,**changes)]))
+    def test_task_status_contains_only_completion_metadata_and_does_not_write(self):
+        self.assertTrue(all(task['state']=='idle' for task in self.store.task_status()['tasks'].values()))
+        records={
+            'run.json':{'id':'run','state':'needs_review','started_at':'start','finished_at':'finish','subscriptions':[{'private':'not exposed'}]},
+            'organizer-plan.json':{'id':'preview','state':'completed','creator':'Example','files':[{'source':'private path'}],'topic_url':self.url},
+            'organizer-apply.json':{'id':'apply','state':'completed','groups':[{'image_warnings':['Damaged image']}],'base':'private destination'},
+        }
+        for name,data in records.items():self.store.atomic_write(self.root/'data'/name,data)
+        before={path.name:path.read_bytes() for path in (self.root/'data').iterdir() if path.is_file()}
+        tasks=self.store.task_status()['tasks']
+        self.assertEqual(set(tasks),{'download','organize_preview','organize_apply'})
+        for task in tasks.values():
+            self.assertEqual(set(task),{'id','state','started_at','finished_at','creator','needs_review','version'})
+            self.assertGreater(int(task['version']),0)
+        self.assertEqual(tasks['download']['finished_at'],'finish')
+        self.assertTrue(tasks['download']['needs_review']);self.assertTrue(tasks['organize_apply']['needs_review'])
+        self.assertFalse(tasks['organize_preview']['needs_review'])
+        self.assertNotIn('private',json.dumps(tasks));self.assertNotIn(self.url,json.dumps(tasks))
+        self.assertEqual(before,{path.name:path.read_bytes() for path in (self.root/'data').iterdir() if path.is_file()})
+
+    def test_task_status_does_not_report_unreadable_state_as_completion(self):
+        (self.root/'data/run.json').write_text('{partial')
+        with self.assertRaises(ValueError):self.store.task_status()
+
     def test_save_survives_reopen_and_rejects_stale_updates(self):
         saved = self.save()
         self.assertEqual(SubscriptionStore(configure_source(self.root)).read(),saved)

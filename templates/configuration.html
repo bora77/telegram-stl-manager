@@ -6,6 +6,13 @@
 </style>
 <main class="app-main">__APP_LAYOUT__
 <div class="configuration-content">
+<section class="panel"><h2>Completion alerts</h2>
+<p>The Download queue or Organize folders tab pulses when a run finishes. A check mark remains until you view that tab; an amber marker means the finished task has warnings.</p>
+<label for="completion-sound">Completion sound</label><select id="completion-sound"><option value="on">On</option><option value="off">Off</option></select>
+<button id="test-completion-sound" class="secondary" type="button">Test sound</button>
+<small id="completion-sound-status" aria-live="polite"></small>
+<small>This setting saves immediately for this browser. Keep a page of the tool open, and click anywhere in it once to allow sound. Open browser tabs share one completion chime.</small>
+</section>
 <section class="panel"><h2>Download location</h2>
 <p><strong>Manual downloads only.</strong> Use Download all subscriptions to start a single run. Saving settings never starts a download.</p>
 <label for="folder">Download base folder</label><input id="folder" placeholder="/mnt/kronos-stl/!! 3D STLs - INCOMING" disabled>

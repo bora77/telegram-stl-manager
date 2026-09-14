@@ -141,6 +141,22 @@ class SubscriptionStore:
             self.atomic_write(self.path,data)
             return data
 
+    def task_status(self):
+        """Small, read-only completion snapshots; no catalog scans or NAS access."""
+        tasks={}
+        for kind,name in (('download','run.json'),('organize_preview','organizer-plan.json'),('organize_apply','organizer-apply.json')):
+            path=self.root/'data'/name
+            try:
+                with path.open() as stream:
+                    data=json.load(stream);version=str(os.fstat(stream.fileno()).st_mtime_ns)
+            except FileNotFoundError:data={};version='0'
+            tasks[kind]={key:data.get(key) for key in ('id','state','started_at','finished_at','creator')}
+            tasks[kind]['state']=data.get('state','idle')
+            tasks[kind]['version']=version
+            tasks[kind]['needs_review']=bool(data.get('state')=='needs_review' or data.get('warnings') or data.get('releases_review')
+                or any(group.get('image_warnings') for group in data.get('groups',[])))
+        return {'tasks':tasks}
+
     def queue(self):
         from folder_organizer import Organizer,ACTIVE
         run=self.runs.status()

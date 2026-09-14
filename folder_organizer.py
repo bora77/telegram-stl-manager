@@ -14,7 +14,7 @@ from functools import lru_cache
 
 from file_delivery import mount_identity
 from file_size import display_size, matches_size
-from release_images import volume_key
+from release_images import is_image_attachment, volume_key
 from release_rules import release_month
 from subscription_store import SubscriptionStore
 from telegram_cli import TelegramCLI
@@ -32,7 +32,7 @@ def inventory(folder):
         if not child.is_symlink() and child.is_dir() and re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])', child.name):
             candidates.extend(child.iterdir())
     for path in sorted(candidates):
-        if path.is_symlink() or not path.is_file():
+        if is_image_attachment({'filename':path.name}) or path.is_symlink() or not path.is_file():
             continue
         relative = str(path.relative_to(folder))
         month = release_month(path.name)
@@ -152,6 +152,9 @@ class Organizer:
         if not self.path.exists():
             plan={'state': 'idle', 'dry_run': True, 'files': [], 'message': 'Choose an artist and folder to preview.'}
         else:plan = json.loads(self.path.read_text())
+        # Older saved previews may include loose images. Leave those files and
+        # their receipts alone, and exclude them from the current organizer view.
+        plan['files']=[file for file in plan.get('files',[]) if not is_image_attachment(file)]
         # Extraction totals belong to an archive set, including all its volumes.
         # Publish the grouping for display without changing per-file receipts.
         for file in plan.get('files',[]):

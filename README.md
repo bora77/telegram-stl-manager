@@ -48,6 +48,8 @@ schedule.
   archives against Telegram filenames and exact sizes, and review proposed
   monthly destinations. The separate **Apply** action moves matched files,
   optionally extracts images, and records them as already downloaded.
+  Existing standalone images and collages are left in place and excluded from
+  organizer previews and Apply actions.
 - **Recover incomplete releases.** Organizer warnings identify releases needing
   attention. A manual repair action can download known missing or incomplete
   archive parts and retry the release, retaining a backup of a replaced original.

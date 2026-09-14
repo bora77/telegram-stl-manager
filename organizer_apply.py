@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timezone
 
 from file_delivery import deliver, digest, mount_identity, release_lock
-from release_images import extract_images, flat_image_name, volume_key
+from release_images import extract_images, flat_image_name, is_image_attachment, volume_key
 from subscription_store import SubscriptionStore
 from telegram_cli import safe_filename
 from transfer_metrics import TransferMeter
@@ -57,6 +57,7 @@ def application_status(store):
     for group in job.get('groups', []):
         current = group['key'] == job.get('current_release')
         for record in group['records']:
+            if is_image_attachment(record):continue
             recorded = group['state'] == 'completed' or bool(record.get('recorded'))
             state = 'completed' if recorded else 'moved' if record.get('moved') else 'pending'
             if group['state']=='needs_review' and not recorded:state='needs_review'
@@ -80,7 +81,7 @@ def application_status(store):
         result['display_plan']={k:job[k] for k in ('base','creator','creator_folder','topic_url') if k in job}
         result['display_plan'].update(id=job['plan_id'],state='completed',display_only=True,warnings=[],
             message='Files in the saved organization job.',
-            files=[{k:record[k] for k in fields if k in record} for group in job.get('groups',[]) for record in group['records']])
+            files=[{k:record[k] for k in fields if k in record} for group in job.get('groups',[]) for record in group['records'] if not is_image_attachment(record)])
     return result
 
 
@@ -178,6 +179,7 @@ def ready_groups(plan):
     attachments = {a['source_message_id']: a for a in plan.get('attachments', []) if 'source_message_id' in a}
     groups = {}
     for original in plan.get('files', []):
+        if is_image_attachment(original):continue
         if original.get('action') not in ('move', 'keep') or original.get('telegram_status') != 'matched' or not original.get('month'):
             continue
         if not original.get('identity'):raise ValueError('Run a fresh preview before applying this older plan.')

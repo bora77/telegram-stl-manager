@@ -19,6 +19,31 @@ TOPIC='https://t.me/c/123456789/200'
 
 
 class OrganizerApplyTests(unittest.TestCase):
+    def test_apply_ignores_images_in_older_preview_and_still_extracts_archives(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store,folder=self.setup_store(Path(temporary))
+            self.archive(folder/'Example 2026-01.zip')
+            plan=self.preview(store,folder)
+            cover=folder/'Example 2026-01.JPG';cover.write_bytes(b'existing cover')
+            from organizer_apply import identity
+            image={'filename':cover.name,'source':cover.name,'size':cover.stat().st_size,
+                   'identity':identity(cover.stat()),'month':'2026-01',
+                   'destination':'2026-01/'+cover.name,'action':'move'}
+            plan['files'].append(image)
+            plan['attachments'].append({'source_message_id':101,'message_url':TOPIC+'/101',
+                'filename':cover.name,'bytes_total':cover.stat().st_size})
+            match_files(plan['files'],plan['attachments'],set())
+            store.atomic_write(Organizer(store).path,plan)
+            self.assertEqual(len(ready_groups(plan)),1)
+            job_id=self.start(store);ApplyWorker(store,job_id).execute()
+            job=self.job(store)
+            self.assertEqual((job['state'],job['files_total'],job['files_done']),('completed',1,1))
+            self.assertEqual(cover.read_bytes(),b'existing cover')
+            self.assertFalse((folder/'2026-01'/cover.name).exists())
+            images=list((folder/'2026-01/release_images').iterdir())
+            self.assertEqual({p.read_bytes() for p in images},{b'first image',b'second image'})
+            self.assertTrue(store.history.was_downloaded(100));self.assertFalse(store.history.was_downloaded(101))
+
     def test_running_job_keeps_its_display_plan_after_preview_is_replaced(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);store,folder=self.setup_store(root);self.archive(folder/'Example 2026-01.zip')

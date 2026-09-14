@@ -1,5 +1,6 @@
 from test_support import configure_source
 import json
+from hashlib import sha256
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +12,37 @@ from subscription_store import SubscriptionStore
 
 
 class OrganizerTests(unittest.TestCase):
+    def test_inventory_ignores_loose_images_and_collages_without_changing_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);month=root/'2026-01';month.mkdir()
+            for name in ('Example 2026-01.JPG','Example 2026-01.jfif','Example 2026-01.png',
+                         'Example 2026-01.zip','Example 2026-01.7z.001','Example 2026-01.pdf'):
+                (root/name).write_bytes(name.encode())
+            (month/'Example-2026-01.jpg').write_bytes(b'collage')
+            (month/'Example 2026-01.webp').write_bytes(b'cover')
+            extracted=month/'release_images';extracted.mkdir()
+            (extracted/'preview.jpg').write_bytes(b'extracted image')
+            before={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}
+            self.assertEqual({row['filename'] for row in inventory(root)},
+                             {'Example 2026-01.zip','Example 2026-01.7z.001','Example 2026-01.pdf'})
+            self.assertEqual(before,{str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()})
+
+    def test_saved_preview_hides_images_without_changing_plan_or_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=SubscriptionStore(configure_source(temp));organizer=Organizer(store)
+            topic='https://t.me/c/123456789/200'
+            row=store.history.register(source_message_id=100,creator='Example',topic_url=topic,
+                filename='Example 2026-01.jpg',bytes_total=5,release_month='2026-01')
+            store.history.complete(row['id'],destination='/example/2026-01/Example 2026-01.jpg',verified_size=5,sha256=sha256(b'cover').hexdigest())
+            store.atomic_write(organizer.path,{'id':'saved','state':'completed','topic_url':topic,
+                'files':[{'filename':'Example 2026-01.jpg','size':5,'already_recorded':True},
+                         {'filename':'Example 2026-01.zip','size':1024}]})
+            before=organizer.path.read_bytes()
+            with store.history.connect() as db:history=[dict(r) for r in db.execute('SELECT * FROM downloads')]
+            self.assertEqual([f['filename'] for f in organizer.status()['files']],['Example 2026-01.zip'])
+            self.assertEqual(organizer.path.read_bytes(),before)
+            with store.history.connect() as db:self.assertEqual(history,[dict(r) for r in db.execute('SELECT * FROM downloads')])
+
     def test_dry_run_inventory_preserves_files_and_flags_conflicts(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);(root/'Artist 2024 - May.zip').write_bytes(b'archive')

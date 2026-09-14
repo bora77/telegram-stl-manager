@@ -110,6 +110,12 @@ async function refreshQueue(){
     for(const file of queue.files){
       if(activeIds.has(file.id))continue;
       if(receivedFile(file)){const status=['paused','failed','needs_review'].includes(file.state)?'Needs review':file.state==='downloading'?'Verifying download':'Downloaded';const details=[status,bytes(file.bytes_total)];if(file.download_seconds!=null)details.push(duration(file.download_seconds),speed(file.download_average_bps));list.append(compactTransfer(file,details.join(' · ')));continue}
+      if(scheduler||file.state!=='downloading'||!queue.active){
+        const amount=(file.bytes_downloaded>0?bytes(file.bytes_downloaded)+' / ':'')+(file.total_is_estimate?'≈ ':'')+bytes(file.progress_total??file.bytes_total);
+        const details=[file.creator,file.state.replaceAll('_',' '),amount];
+        if(file.download_started_at)details.push(duration(file.download_seconds),speed(file.download_average_bps));
+        list.append(compactTransfer(file,details.join(' · ')));continue;
+      }
       const row=element('div');row.className='queue-file';row.append(element('strong',file.filename),element('small',`${file.creator} · ${file.state} · ${bytes(file.bytes_downloaded)} / ${file.total_is_estimate?'≈ ':''}${bytes(file.progress_total??file.bytes_total)}`));const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' download progress');progress(bar,file.bytes_downloaded,file.progress_total??file.bytes_total);if(file.download_started_at)row.append(element('small',`Download: ${duration(file.download_seconds)} · average ${speed(file.download_average_bps)}`));row.append(bar);list.append(row)
     }
     const recent=document.getElementById('recent-transfers');recent.replaceChildren();for(const file of queue.recent_completed||[]){const details=['Moved to destination',bytes(file.bytes_total)];if(file.download_finished_at)details.push(`Download ${duration(file.download_seconds)} at ${speed(file.download_average_bps)}`);if(file.move_seconds!=null)details.push(`Move ${duration(file.move_seconds)} at ${speed(file.move_average_bps)}`);if(file.image_count!=null)details.push(`${file.image_count} images`);recent.append(compactTransfer(file,details.join(' · ')))}

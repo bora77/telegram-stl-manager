@@ -69,7 +69,6 @@ async function refreshQueue(){
     renderRunActivity(queue);
     const checking=['starting','scanning'].includes(queue.worker_state),emptyFinished=['completed','needs_review'].includes(queue.worker_state)&&queue.total_files===0;
     const stopped=['failed','interrupted','stopped'].includes(queue.worker_state);
-    document.getElementById('worker-state').textContent=queue.worker_state.replaceAll('_',' ');
     document.getElementById('download-all').disabled=!queue.can_start||saving||runRequestPending;document.getElementById('stop-downloads').disabled=!queue.active;
     resumableRunId=queue.can_resume?queue.run.id:null;
     const resume=document.getElementById('resume-downloads');resume.hidden=!queue.can_resume;resume.disabled=!queue.can_resume||saving||runRequestPending;
@@ -78,7 +77,7 @@ async function refreshQueue(){
     document.getElementById('download-start-help').textContent=queue.active?'':queue.can_resume?'Resume uses this run’s saved artists, scope and folders, without rechecking finished artists. Completed files and verified local downloads are reused.':queue.subscriptions_saved?'Runs all saved subscriptions; unsaved edits are excluded.':'Save at least one subscription to start.';
     const total=queue.progress_total??queue.bytes_total;
     const percent=total>0?Math.min(100,100*queue.bytes_downloaded/total):null;
-    document.getElementById('queue-percent').textContent=stopped?'Stopped'+(percent==null?'':' at '+Math.floor(percent)+'%'):checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'% received';
+    document.getElementById('queue-percent').textContent=stopped?'Stopped'+(percent==null?'':' at '+Math.floor(percent)+'%'):checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'% processed';
     const overall=document.getElementById('queue-progress');overall.hidden=emptyFinished;
     progress(overall,queue.bytes_downloaded,checking?null:queue.total_files?total:0);
     document.getElementById('queue-files').textContent=`${queue.completed_files} / ${queue.total_files} files complete`;
@@ -126,7 +125,7 @@ async function refreshQueue(){
       list.append(activeTransfer(file,[file.creator,file.state.replaceAll('_',' '),`${bytes(file.bytes_downloaded)} / ${file.total_is_estimate?'≈ ':''}${bytes(file.progress_total??file.bytes_total)}`,file.download_started_at?`${duration(file.download_seconds)} · average ${speed(file.download_average_bps)}`:speed(file.download_speed_bps)],file.bytes_downloaded,file.progress_total??file.bytes_total,'download progress'))
     }
     const recent=document.getElementById('recent-transfers');recent.replaceChildren();for(const file of queue.recent_completed||[]){const details=['Moved to destination',bytes(file.bytes_total)];if(file.download_finished_at)details.push(`Download ${duration(file.download_seconds)} at ${speed(file.download_average_bps)}`);if(file.move_seconds!=null)details.push(`Move ${duration(file.move_seconds)} at ${speed(file.move_average_bps)}`);if(file.image_count!=null)details.push(`${file.image_count} images`);recent.append(compactTransfer(file,details.join(' · ')))}
-  }catch{document.getElementById('worker-state').textContent='Status unavailable';document.getElementById('run-detail').textContent='Cannot reach the local service. Last displayed progress may be out of date.'}
+  }catch{document.getElementById('run-detail').textContent='Cannot reach the local service. Last displayed progress may be out of date.'}
 }
 async function initialize(){
   try{

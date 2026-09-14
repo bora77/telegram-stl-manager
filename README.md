@@ -1,9 +1,9 @@
-# Telegram STL
+# Telegram STL manager
 
 **A local web app for downloading, organizing and previewing your STL release collection.**
 
 Choose creators from your configured Telegram catalog, assign their destination
-folders, and download their releases with one button. Telegram STL keeps the
+folders, and download their releases with one button. Telegram STL manager keeps the
 archives, extracted images and download history together, whether you store your
 collection on a local disk or a mounted NAS share.
 

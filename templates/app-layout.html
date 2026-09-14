@@ -1,25 +1,23 @@
 <style>
 body{margin:0;background:#f6f5f9;color:#272332;font:15px system-ui,sans-serif}
 main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
-.app-header{margin-bottom:28px}
-.app-brand{display:inline-flex;align-items:center;gap:12px;color:#272332;text-decoration:none}
+.app-header{display:flex;align-items:center;flex-wrap:wrap;gap:20px 32px;margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid #ded6e8}
+.app-brand{display:inline-flex;align-items:center;flex-shrink:0;gap:12px;color:#272332;text-decoration:none}
 .app-brand img{display:block;width:44px;height:44px;flex-shrink:0}
 .app-brand strong{display:block;font-size:20px;line-height:1.3;letter-spacing:-.02em}
 .app-brand small{display:block;margin:3px 0 0;color:#807787;font-size:12px;line-height:1.4;font-weight:400}
-.app-header h1{font-size:32px;font-weight:700;line-height:1.25;letter-spacing:-.025em;margin:24px 0}
-.app-navigation{display:flex;align-items:center;justify-content:flex-start;gap:6px;flex-wrap:wrap;margin:0;padding:0 0 14px;border-bottom:1px solid #ded6e8}
+.app-navigation{display:flex;flex:1 1 600px;align-items:center;justify-content:flex-start;gap:6px;flex-wrap:wrap;margin:0;padding:0}
 .app-navigation a{display:block;padding:12px 18px;border-radius:9px;text-decoration:none;font-size:14px;font-weight:600;line-height:20px;color:#706478;white-space:nowrap;transition:background .15s,color .15s}
 .app-navigation a:hover{background:#eae3f3;color:#5d378a}
 .app-navigation a[aria-current=page]{background:#7651a6;color:#fff;box-shadow:0 2px 6px #51307618}
 .app-navigation a:focus-visible,.app-brand:focus-visible{outline:3px solid #aa8fce;outline-offset:3px}
 .app-navigation a.task-notice{position:relative;box-shadow:inset 0 0 0 2px #329c73}.app-navigation a.task-notice:after{content:'✓';position:absolute;right:3px;top:0;color:#227752;font-size:12px;background:#e2f5eb;border-radius:50%;width:16px;height:16px;line-height:16px;text-align:center}.app-navigation a.task-notice[data-task-warning=true]{box-shadow:inset 0 0 0 2px #c68b25}.app-navigation a.task-notice[data-task-warning=true]:after{content:'!';color:#875b11;background:#fff0d3}.app-navigation a.task-flash{animation:task-complete-pulse .9s ease-in-out 6}.task-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}@keyframes task-complete-pulse{50%{background:#d6f3e5;color:#245e45;box-shadow:0 0 0 4px #58b18b33}}@media(prefers-reduced-motion:reduce){.app-navigation a.task-flash{animation:none}}
 .configuration-content{max-width:900px}
-@media(max-width:600px){main.app-main{margin:24px auto;padding:0 16px}.app-header h1{font-size:28px;margin:22px 0}.app-navigation{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.app-navigation a{text-align:center;padding:12px 8px;font-size:14px}}
+@media(max-width:600px){main.app-main{margin:24px auto;padding:0 16px}.app-header{gap:16px}.app-navigation{display:grid;flex-basis:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.app-navigation a{text-align:center;padding:12px 8px;font-size:14px}}
 @media(prefers-reduced-motion:reduce){.app-navigation a{transition:none}}
 </style>
 <header class="app-header">
-  <a class="app-brand" href="/" aria-label="Telegram STL home"><img src="/favicon.svg" width="44" height="44" alt=""><span><strong>Telegram STL</strong><small>3D print library</small></span></a>
-  <h1 id="app-page-title">__PAGE_TITLE__</h1>
+  <a class="app-brand" href="/" aria-label="Telegram STL manager home"><img src="/favicon.svg" width="44" height="44" alt=""><span><strong>Telegram STL manager</strong><small>Even chaos deserves a folder.</small></span></a>
   <nav class="app-navigation" aria-label="Main navigation">
     <a id="queue-tab" href="__QUEUE_HREF__" __CURRENT_QUEUE__>Download queue</a>
     <a id="artists-tab" href="__ARTISTS_HREF__" __CURRENT_ARTISTS__>Artists</a>

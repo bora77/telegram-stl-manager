@@ -1,4 +1,4 @@
-# Telegram STL workflow
+# Telegram STL manager workflow
 
 The start page is the manual download queue. Artists, Organize folders, Collages and
 Configuration share the same navigation and logo. Installation and required

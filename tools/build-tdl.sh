@@ -19,5 +19,5 @@ data={'tdl_version':'v0.20.4','gotd_version':'v0.140.0','local_command':'stl',
       'binary_sha256':hashlib.sha256((directory/'tdl').read_bytes()).hexdigest(),
       'built_at':datetime.now(timezone.utc).isoformat()}
 (directory/'build.json').write_text(json.dumps(data,indent=2)+'\n')
-print('Built standalone Telegram STL CLI:',directory/'tdl')
+print('Built standalone Telegram STL manager CLI:',directory/'tdl')
 PY

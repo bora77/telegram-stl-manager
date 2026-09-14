@@ -7,7 +7,6 @@ function showView(){
     document.getElementById(name+'-view').hidden=!active;
   }
   const title=chosen==='queue'?'Download queue':'Artists';
-  document.getElementById('app-page-title').textContent=title;
-  document.title='Telegram STL · '+title;
+  document.title='Telegram STL manager · '+title;
 }
 window.addEventListener('hashchange',showView);showView();

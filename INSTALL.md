@@ -1,4 +1,4 @@
-# Install Telegram STL on another machine
+# Install Telegram STL manager on another machine
 
 This guide installs the current application: the web interface, customized
 Telegram CLI, manual download queue, download history, image extraction and
@@ -435,7 +435,7 @@ print('Destination mount:', mount_identity(base)[:3])
 with tempfile.TemporaryDirectory(prefix='.telegram-stl-install-', dir=base) as remote:
     with tempfile.TemporaryDirectory(prefix='telegram-stl-install-') as local:
         source = Path(local) / 'check.bin'
-        source.write_bytes(b'Telegram STL installation check\n')
+        source.write_bytes(b'Telegram STL manager installation check\n')
         target, size, checksum = deliver(source, remote, 'Test Artist', '2026-01', 'check.bin')
         assert target.read_bytes() == source.read_bytes()
         pinned = PinnedFolder(remote, 'Test Artist')
@@ -660,7 +660,7 @@ def quote(value):
     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%').replace('$', '$$') + '"'
 unit = Path.home() / '.config/systemd/user/telegram-stl-catalog.service'
 unit.parent.mkdir(parents=True, exist_ok=True)
-text = ('[Unit]\nDescription=Telegram STL web interface and manual downloader\nAfter=network.target\n\n'
+text = ('[Unit]\nDescription=Telegram STL manager web interface and manual downloader\nAfter=network.target\n\n'
         '[Service]\nType=simple\nWorkingDirectory=' + str(root).replace('%', '%%') + '\n'
         'ExecStart=/usr/bin/python3 ' + quote(root / 'catalog-server.py') + '\n'
         'UMask=0077\nRestart=on-failure\nRestartSec=3\n\n'

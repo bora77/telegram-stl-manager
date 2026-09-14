@@ -19,7 +19,7 @@ with (root / "data/creators.csv").open("w", newline="") as stream:
         writer.writerow([r["name"],r.get("status", ""),", ".join(r.get("categories", [])),r["topic_url"],r["within_approved_group"],r.get("ocr_confidence", ""),r.get("needs_review", False)])
 template = r'''<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Telegram STL · Subscriptions &amp; Downloads</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>Telegram STL manager · Subscriptions &amp; Downloads</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f6f5f9;color:#272332;font:15px system-ui,sans-serif}main{max-width:1440px;margin:48px auto;padding:0 24px}h1{font-size:32px;margin:8px 0}.eyebrow{color:#7651a6;font-weight:700;letter-spacing:.08em;font-size:12px}p{color:#65606e;line-height:1.6}.filters{display:flex;gap:14px;flex-wrap:wrap;margin:28px 0 18px}label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#655f70}input,select{font:inherit;font-size:15px;border:1px solid #d8d3e0;border-radius:8px;padding:11px;background:white;color:#272332}input{min-width:300px}.table{overflow:auto;background:white;border:1px solid #e3dfe9;border-radius:12px}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:14px 18px;border-bottom:1px solid #eeeaf2;vertical-align:top}th{font-size:12px;color:#706879;background:#fbfaff}td:first-child{font-weight:600}small{display:block;color:#807787;font-weight:400;margin-top:5px}a{color:#754aaf}summary{cursor:pointer;font-size:12px;color:#706879;font-weight:400;margin-top:8px}code{display:block;font-size:11px;margin-top:8px;overflow-wrap:anywhere;max-width:300px}.badge{white-space:nowrap;font-size:12px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px}.active_covered{background:#26a85b}.active_not_covered{background:#df5b45}.on_hiatus{background:#69879b}.finished{background:#8b8493}#count{font-size:13px;color:#706879;margin:15px 0}.notice{border-left:3px solid #ae91d0;padding:8px 14px;background:#efebf6;font-size:13px}button{padding:9px 14px;border:1px solid #d8d3e0;border-radius:7px;background:white;cursor:pointer}nav{display:flex;gap:14px;align-items:center;justify-content:flex-end;margin:18px 0}
 </style>
@@ -67,8 +67,7 @@ __DASHBOARD__
 __TABS__
 </script></html>'''
 def app_layout(page):
-    title = {'queue': 'Download queue', 'organize': 'Organize folders', 'collages': 'Collages', 'config': 'Configuration'}[page]
-    layout = (root / 'templates/app-layout.html').read_text().replace('__PAGE_TITLE__', title)
+    layout = (root / 'templates/app-layout.html').read_text()
     layout = layout.replace('__QUEUE_HREF__', '#queue' if page == 'queue' else '/')
     layout = layout.replace('__ARTISTS_HREF__', '#artists' if page == 'queue' else '/#artists')
     layout = layout.replace('__TASK_NOTIFICATIONS__', (root / 'task-notifications.js').read_text())

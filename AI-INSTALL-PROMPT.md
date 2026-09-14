@@ -1,4 +1,4 @@
-# Prompt for an AI agent: install Telegram STL
+# Prompt for an AI agent: install Telegram STL manager
 
 Copy the prompt below into an agent that has terminal/filesystem access on the
 **destination** machine. Give it the actual Git repository URL (or project files)
@@ -10,7 +10,7 @@ prompt.
 
 ---
 
-Install the existing Telegram STL application on this machine, following the
+Install the existing Telegram STL manager application on this machine, following the
 project's `INSTALL.md`. This is an installation task, not a request to redesign
 or rewrite the application. Read the actual source and guide before choosing
 commands. Complete the setup and appropriate verification, then give me concise

@@ -47,8 +47,8 @@ function render(reset=false){
       persist();render();
       if(hadFocus)Array.from(body.querySelectorAll('input[role="switch"]')).find(input=>input.value===r.topic_url)?.focus({preventScroll:true});
     };
-    const membership=element('small',isSaved?(draft?'Subscribed':'Removal pending'):(draft?'Not saved yet':'Not subscribed'));
-    if(!!draft!==isSaved)membership.className='changed';choice.append(toggle,membership);
+    choice.append(toggle);
+    if(!!draft!==isSaved){const membership=element('small',isSaved?'Removal pending':'Not saved yet');membership.className='changed';choice.append(membership)}
     creator.append(element('strong',r.name));
     const details=element('details');details.append(element('summary',r.ocr_confidence<80?'Check spelling · source details':'Source details'),element('code',r.topic_url));
     if(r.aliases?.length)details.append(element('small','Other readings: '+r.aliases.map(a=>a.name).join(', ')));

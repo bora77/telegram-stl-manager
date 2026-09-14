@@ -4,6 +4,7 @@
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f6f5f9;color:#272332;font:15px system-ui,sans-serif}main{max-width:1440px;margin:48px auto;padding:0 24px}nav{display:flex;gap:24px;margin:24px 0;flex-wrap:wrap}a{color:#754aaf}h1{font-size:32px;margin:10px 0}.eyebrow{font-size:12px;color:#7651a6;letter-spacing:.08em;font-weight:700}p{line-height:1.6;color:#65606e}.panel{background:white;border:1px solid #e3dfe9;border-radius:16px;padding:24px;margin:24px 0}.notice{background:#eee8f6;border-left:4px solid #8962b6;padding:14px 18px}.controls{display:flex;gap:16px;flex-wrap:wrap;align-items:end}label{display:grid;gap:8px;color:#655f70;font-size:13px}input,select,button{font:inherit;padding:11px 14px;border:1px solid #d8d3e0;border-radius:8px;background:white}select,input{max-width:100%;min-width:240px}button{cursor:pointer}button.primary{background:#7651a6;color:white;border-color:#7651a6}button:disabled{opacity:.5;cursor:default}.metrics{display:flex;flex-wrap:wrap;gap:28px;margin:22px 0}.metric strong{display:block;font-size:28px;color:#654091}.metric span,small{color:#807787;font-size:12px}small{display:block;margin-top:6px}progress{width:100%;height:12px;accent-color:#8053c0}table{width:100%;border-collapse:collapse;text-align:left}th,td{padding:14px;border-bottom:1px solid #eeeaf2;vertical-align:top}th{font-size:12px;color:#706879;background:#fbfaff}td{font-size:13px;overflow-wrap:anywhere}td:first-child{min-width:240px;max-width:380px}.table{overflow:auto;margin-top:20px;border:1px solid #e3dfe9;border-radius:10px}.badge{display:inline-block;border-radius:20px;padding:5px 9px;font-size:12px;background:#eee8f5;color:#69418d;white-space:nowrap}.review,.conflict{background:#fff0d7;color:#8a5b15}.matched{background:#e4f3eb;color:#296c49}.apply-controls{border:1px solid #e3dfe9;border-radius:12px;padding:20px;margin:20px 0}.image-choice{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}.image-choice input{min-width:0;width:18px;height:18px;accent-color:#7651a6}#page-error{color:#943d40}.status-controls{display:flex;align-items:start;justify-content:space-between;gap:16px}#scope{margin-bottom:0}.application-heading{font-size:18px}#phase-progress{margin-top:16px}#status{font-weight:600;color:#654091}.path{font-size:12px;overflow-wrap:anywhere;color:#807787}[hidden]{display:none!important}
 .selection-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}.selection-fields label{min-width:0}.selection-fields input,.selection-fields select{width:100%;min-width:0;height:44px;font-size:14px}.selection-fields small{margin:0;line-height:1.5}.action-buttons{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:20px}.action-buttons button{height:44px}.completed,.moved{background:#e4f3eb;color:#296c49}#live-note{color:#7651a6}#application-message,#status,#image-warnings{overflow-wrap:anywhere}#error-details{margin:16px 0;color:#706879;font-size:13px}#error-details summary{cursor:pointer}#image-warnings{max-height:260px;overflow:auto}td pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:160px;overflow:auto;font:12px/1.5 ui-monospace,monospace}#error-text{max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#f7f5fa;border:1px solid #e3dfe9;border-radius:8px;padding:12px;font:12px/1.6 ui-monospace,monospace}#resume{margin-top:0}@media(max-width:850px){.selection-fields{grid-template-columns:1fr}.panel{padding:20px}input,select{min-width:0;width:100%}}
+.release-summary td{background:#f3f0f8;vertical-align:middle;padding:10px 14px}.release-toggle{display:flex;align-items:center;gap:9px;border:0;padding:3px 0;background:transparent;color:#654091;text-align:left;white-space:nowrap}.release-toggle:focus-visible{outline:2px solid #8053c0;outline-offset:4px;border-radius:3px}.release-toggle .release-count{font-size:12px;color:#807787}.release-chevron{display:inline-block;width:10px;font-size:11px}.release-file td{background:#fcfbfe}.release-file td:first-child{padding-left:34px}
 </style>
 <main class="app-main">__APP_LAYOUT__
 <p>Choose an artist and its existing folder, then preview the monthly structure before applying changes.</p>
@@ -21,6 +22,7 @@ const el=id=>document.getElementById(id);
 let creators=[],subscriptions=[],current={files:[]},ready=false;
 let previewPlanId=null,previewChoice=null,previewPending=false,actionPending=false,refreshPending=false,revision=0,tableSignature=null;
 let followingJobId=null,viewLoaded=false,savedViewText='';
+let expandedReleases=new Set();
 const viewStorageKey='telegram-stl-organizer-view';
 const active=()=>['starting','scanning','applying'].includes(current.state)||appRunning();
 const appRunning=()=>['starting','running'].includes(current.application?.state);
@@ -44,7 +46,7 @@ function node(tag,text,className){const n=document.createElement(tag);n.textCont
 function rememberView(){
  if(!ready||!viewLoaded)return;
  const text=JSON.stringify({base:el('base').textContent,topic_url:el('artist').value,creator_folder:el('folder').value,
-  plan_id:previewPlanId,preview_choice:previewChoice,job_id:followingJobId,filter:el('filter').value,extract_images:el('extract-images').checked});
+  plan_id:previewPlanId,preview_choice:previewChoice,job_id:followingJobId,filter:el('filter').value,extract_images:el('extract-images').checked,expanded_releases:[...expandedReleases]});
  if(text===savedViewText)return;
  try{sessionStorage.setItem(viewStorageKey,text);savedViewText=text}catch{}
 }
@@ -64,6 +66,7 @@ function restoreView(){
   el('artist').value=saved.topic_url;el('folder').value=saved.creator_folder;
   el('folder-hint').textContent='Restored folder selection.';
   previewPlanId=saved.plan_id;previewChoice=saved.preview_choice;followingJobId=saved.job_id;
+  expandedReleases=new Set(Array.isArray(saved.expanded_releases)?saved.expanded_releases.filter(key=>typeof key==='string'):[]);
   if([...el('filter').options].some(o=>o.value===saved.filter))el('filter').value=saved.filter;
   if(typeof saved.extract_images==='boolean')el('extract-images').checked=saved.extract_images;
  }catch{}
@@ -111,7 +114,7 @@ function render(){
  renderTable();renderApplication();rememberView();
 }
 function renderTable(){
- const signature=JSON.stringify([current.files,current.warnings,planJob()?.files,el('filter').value]);
+ const signature=JSON.stringify([current.id,current.topic_url,current.creator_folder,current.state,current.files,current.warnings,planJob()?.files,el('filter').value]);
  if(signature===tableSignature)return;
  tableSignature=signature;
  const outcomes=new Map((planJob()?.files||[]).map(f=>[f.source,f]));
@@ -124,10 +127,19 @@ function renderTable(){
  for(const [label,count] of [['Files',files.length],['Matched',files.filter(f=>f.telegram_status==='matched').length],['To move',files.filter(toMove).length],['To record',files.filter(toRecord).length],['Recorded',files.filter(recorded).length],['Needs review',files.filter(needsReview).length]]){
   const box=node('div','','metric');box.append(node('strong',String(count)),node('span',label));el('metrics').append(box);
  }
- const rows=document.createDocumentFragment(),shownImageGroups=new Set();
- for(const f of files){
-  const filter=el('filter').value;
-  if(filter==='move'&&!toMove(f)||filter==='record'&&!toRecord(f)||filter==='recorded'&&!recorded(f)||filter==='keep'&&f.action!=='keep'&&!f.outcome?.moved||filter==='review'&&!needsReview(f))continue;
+ const filter=el('filter').value;
+ const visible=f=>!(filter==='move'&&!toMove(f)||filter==='record'&&!toRecord(f)||filter==='recorded'&&!recorded(f)||filter==='keep'&&f.action!=='keep'&&!f.outcome?.moved||filter==='review'&&!needsReview(f));
+ const imageResult=f=>f.outcome?.image_status?f.outcome:f;
+ const imageGroup=f=>f.outcome?.image_group||f.image_group||f.source;
+ const archiveFile=f=>/\.(?:7z|zipx?|rar|tar|gz|bz2|xz|tgz|tbz2|txz|[rz]\d{2,})$|\.(?:7z|zip|rar)\.\d{3,}$/i.test(f.filename);
+ const months=new Map();
+ for(const f of files){if(f.month&&archiveFile(f)){if(!months.has(f.month))months.set(f.month,[]);months.get(f.month).push(f)}}
+ // Check the whole release before applying the table filter: unfinished files
+ // must never be hidden by a completed release summary.
+ const completeMonths=new Map([...months].filter(([,group])=>!previewRunning()&&group.every(f=>applicable(f)&&recorded(f)&&!needsReview(f)&&!toMove(f)&&!f.outcome?.error&&['complete','complete_with_warnings'].includes(imageResult(f).image_status))));
+ const rows=document.createDocumentFragment(),shownImageGroups=new Set(),shownMonths=new Set(),toggles=new Map();
+ const focusedRelease=el('rows').contains(document.activeElement)?document.activeElement.dataset.releaseKey:null;
+ function fileRow(f){
   const row=node('tr',''),name=node('td',f.source),destination=node('td',f.destination||'Month needs review'),action=node('td','');
   const moved=f.action==='move'&&f.outcome?.moved,skipped=f.outcome?.state==='needs_review';
   action.append(node('span',moved?'Moved':skipped?'Needs review':({move:'Would move',keep:'Keep in place',conflict:'Conflict',review:'Needs review'})[f.action],'badge '+(moved?'moved':skipped?'review':f.action)));
@@ -141,18 +153,42 @@ function renderTable(){
   const localSize=node('td',(f.size/1048576).toFixed(1)+' MiB');localSize.append(node('small',f.size.toLocaleString()+' bytes'));
   const telegramSize=node('td',f.telegram_size||'Not read');if(f.telegram_size)telegramSize.append(node('small','Exact Telegram metadata'));
   const record=node('td',f.outcome?.recorded?'Recorded':f.already_recorded?'Already recorded':skipped?'Not recorded; needs review':f.would_record?(f.outcome?'Pending recording':'Would record as downloaded'):'No history change proposed');
-  const images=f.outcome?.image_status?f.outcome:f;
+  const images=imageResult(f);
   if(images.image_status){
-   const group=f.outcome?.image_group||f.image_group||f.source,parts=f.outcome?.image_group_parts||f.image_group_parts||1;
+   const group=imageGroup(f),parts=f.outcome?.image_group_parts||f.image_group_parts||1;
    const shared=parts>1&&shownImageGroups.has(group);
    const total=(images.image_count?`Images extracted (${images.image_count})`:'Checked: no images found')+(parts>1?` · ${parts}-part archive`:'');
    const label=shared?(images.image_count?'Images shared with this archive set':'Checked with this archive set'):total;
    const result=node('small',label+(images.image_status==='complete_with_warnings'?' · warnings':''),'image-result');
    result.title=total;record.append(result);shownImageGroups.add(group);
   }
-  row.append(name,destination,action,localSize,telegramSize,match,record);rows.append(row);
+  row.append(name,destination,action,localSize,telegramSize,match,record);return row;
+ }
+ for(const f of files.filter(visible)){
+  const group=archiveFile(f)&&completeMonths.get(f.month);
+  if(!group){rows.append(fileRow(f));continue}
+  if(shownMonths.has(f.month))continue;
+  shownMonths.add(f.month);
+  const key=JSON.stringify([current.id,current.topic_url,current.creator_folder,f.month]);
+  const details=group.filter(visible).map(fileRow),summary=node('tr','','release-summary'),name=node('td',''),toggle=node('button','','release-toggle'),chevron=node('span','','release-chevron');
+  toggle.type='button';toggle.dataset.releaseKey=key;chevron.setAttribute('aria-hidden','true');
+  toggle.append(chevron,node('strong',f.month),node('span',`${group.length} ${group.length===1?'file':'files'}`,'release-count'));name.append(toggle);
+  for(const [index,row] of details.entries()){row.id=`release-file-${shownMonths.size}-${index}`;row.classList.add('release-file')}
+  toggle.setAttribute('aria-controls',details.map(row=>row.id).join(' '));
+  const expand=open=>{toggle.setAttribute('aria-expanded',String(open));chevron.textContent=open?'▼':'▶';for(const row of details)row.hidden=!open};
+  expand(expandedReleases.has(key));toggles.set(key,toggle);
+  toggle.onclick=()=>{const open=!expandedReleases.has(key);if(open)expandedReleases.add(key);else expandedReleases.delete(key);expand(open);rememberView()};
+  const total=group.reduce((sum,file)=>sum+file.size,0),size=(total/(total>=1073741824?1073741824:1048576)).toFixed(1)+(total>=1073741824?' GiB':' MiB');
+  const localSize=node('td',size),telegramSize=node('td',size);localSize.title=telegramSize.title=total.toLocaleString()+' bytes';
+  const images=new Map(group.map(file=>[imageGroup(file),imageResult(file)]));
+  const count=[...images.values()].reduce((sum,result)=>sum+(result.image_count||0),0),warnings=group.some(file=>imageResult(file).image_status==='complete_with_warnings');
+  const action=node('td',''),match=node('td',''),history=node('td',`Recorded · ${count?count+' images':'Checked: no images found'}`);
+  action.append(node('span','Organized','badge completed'));match.append(node('span','All matched','badge matched'));
+  if(warnings)history.append(node('small','Image warnings','review'));
+  summary.append(name,node('td',f.month+'/'),action,localSize,telegramSize,match,history);rows.append(summary,...details);
  }
  el('rows').replaceChildren(rows);
+ if(focusedRelease)toggles.get(focusedRelease)?.focus({preventScroll:true});
  el('warnings').replaceChildren();for(const warning of current.warnings||[])el('warnings').append(node('li',warning));
  el('scan-notes').hidden=!(current.warnings||[]).length;
 }

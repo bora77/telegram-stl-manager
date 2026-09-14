@@ -34,6 +34,12 @@ function compactTransfer(file,details){
   const name=element('strong',file.filename),info=element('span',details);info.className='transfer-summary';
   name.title=file.filename;info.title=details;row.append(name,info);return row;
 }
+function activeTransfer(file,fields,done,total,label){
+  const row=element('div');row.className='queue-file active-transfer';
+  const name=element('strong',file.filename);name.title=file.filename;row.append(name);
+  fields.forEach((text,index)=>{const detail=element('span',text);detail.className=index===0?'transfer-creator':'transfer-detail';detail.title=text;row.append(detail)});
+  const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' '+label);progress(bar,done,total);row.append(bar);return row;
+}
 function receivedFile(file){return Boolean(file.download_finished_at)||(file.bytes_total>0&&file.bytes_downloaded>=file.bytes_total)}
 function progress(bar,done,total){if(total>0){bar.value=Math.min(100,100*done/total)}else if(total===0){bar.value=0}else{bar.removeAttribute('value')}}
 function runMessage(run){
@@ -97,7 +103,7 @@ async function refreshQueue(){
       const files=document.getElementById('parallel-files');files.replaceChildren();
       for(const file of scheduler.transfers){
         if(file.phase==='verifying'||file.phase==='staged'||file.total>0&&file.bytes>=file.total){files.append(compactTransfer(file,`${file.creator} · ${file.detail||'Verifying download'} · ${bytes(file.total)}`));continue}
-        const row=element('div');row.className='queue-file';row.append(element('strong',file.filename),element('small',`${file.creator} · ${file.look_ahead?'Look-ahead download':'Queue download'} · Data center ${file.dc_id}`),element('small',`${bytes(file.bytes)} / ${bytes(file.total)} · ${file.phase==='downloading'?speed(file.speed_bps):file.detail||file.phase.replaceAll('_',' ')}`));const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' live download progress');progress(bar,file.bytes,file.total);row.append(bar);files.append(row)
+        files.append(activeTransfer(file,[file.creator,`${file.look_ahead?'Look-ahead':'Queue download'} · DC ${file.dc_id}`,`${bytes(file.bytes)} / ${bytes(file.total)}`,file.phase==='downloading'?speed(file.speed_bps):file.detail||file.phase.replaceAll('_',' ')],file.bytes,file.total,'live download progress'))
       }
       if(!scheduler.transfers.length)files.append(element('small',scheduler.message));
     }
@@ -115,7 +121,7 @@ async function refreshQueue(){
         if(file.download_started_at)details.push(duration(file.download_seconds),speed(file.download_average_bps));
         list.append(compactTransfer(file,details.join(' · ')));continue;
       }
-      const row=element('div');row.className='queue-file';row.append(element('strong',file.filename),element('small',`${file.creator} · ${file.state} · ${bytes(file.bytes_downloaded)} / ${file.total_is_estimate?'≈ ':''}${bytes(file.progress_total??file.bytes_total)}`));const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' download progress');progress(bar,file.bytes_downloaded,file.progress_total??file.bytes_total);if(file.download_started_at)row.append(element('small',`Download: ${duration(file.download_seconds)} · average ${speed(file.download_average_bps)}`));row.append(bar);list.append(row)
+      list.append(activeTransfer(file,[file.creator,file.state.replaceAll('_',' '),`${bytes(file.bytes_downloaded)} / ${file.total_is_estimate?'≈ ':''}${bytes(file.progress_total??file.bytes_total)}`,file.download_started_at?`${duration(file.download_seconds)} · average ${speed(file.download_average_bps)}`:speed(file.download_speed_bps)],file.bytes_downloaded,file.progress_total??file.bytes_total,'download progress'))
     }
     const recent=document.getElementById('recent-transfers');recent.replaceChildren();for(const file of queue.recent_completed||[]){const details=['Moved to destination',bytes(file.bytes_total)];if(file.download_finished_at)details.push(`Download ${duration(file.download_seconds)} at ${speed(file.download_average_bps)}`);if(file.move_seconds!=null)details.push(`Move ${duration(file.move_seconds)} at ${speed(file.move_average_bps)}`);if(file.image_count!=null)details.push(`${file.image_count} images`);recent.append(compactTransfer(file,details.join(' · ')))}
   }catch{document.getElementById('worker-state').textContent='Status unavailable';document.getElementById('run-detail').textContent='Cannot reach the local service. Last displayed progress may be out of date.'}

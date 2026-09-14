@@ -1,12 +1,16 @@
 package stl
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 const speedWarmup = 10 * time.Second
 const speedWindow = 30 * time.Second
-const slowdownMinimum = 5 * time.Minute
+const slowdownMinimum = 2 * time.Minute
 const slowdownCooldown = 10 * time.Minute
-const speedHistoryAge = 30 * time.Minute
+
+var errImmediateRetest = errors.New("download speed below half the threshold")
 
 // SpeedHealth counts observed download time only, across consecutive files.
 // Extraction, moves, startup, idle time and probes never add to LowSeconds.
@@ -31,7 +35,7 @@ type speedWatch struct {
 
 func newSpeedWatch(now time.Time, endpoint string, threshold float64, saved *SpeedHealth) *speedWatch {
 	w := &speedWatch{start: now, health: SpeedHealth{Endpoint: endpoint, ThresholdBPS: threshold}}
-	if saved != nil && saved.Endpoint == endpoint && saved.ThresholdBPS == threshold && now.Sub(saved.ObservedAt) >= 0 && now.Sub(saved.ObservedAt) < speedHistoryAge {
+	if saved != nil && saved.Endpoint == endpoint && saved.ThresholdBPS == threshold && !saved.ObservedAt.IsZero() && !now.Before(saved.ObservedAt) {
 		w.health.LowSeconds = saved.LowSeconds
 	}
 	return w
@@ -67,8 +71,8 @@ func (w *speedWatch) observe(now time.Time, done int64) bool {
 
 func slowCheckDue(s Selection, threshold float64, endpoint string, now time.Time) bool {
 	h := s.Health
-	return threshold > 0 && h != nil && h.Endpoint == endpoint && h.ThresholdBPS == threshold && h.BPS < threshold && h.LowSeconds >= slowdownMinimum.Seconds() &&
-		now.Sub(h.ObservedAt) >= 0 && now.Sub(h.ObservedAt) < speedHistoryAge &&
+	return threshold > 0 && h != nil && h.Endpoint == endpoint && h.ThresholdBPS == threshold && h.BPS < threshold && (h.LowSeconds >= slowdownMinimum.Seconds() || h.BPS < threshold/2) &&
+		!h.ObservedAt.IsZero() && !now.Before(h.ObservedAt) &&
 		(s.LastSlowCheck.IsZero() || now.Sub(s.LastSlowCheck) >= slowdownCooldown)
 }
 
@@ -95,7 +99,7 @@ func (m *speedMonitor) observe(now time.Time, done int64) error {
 	if m == nil || !m.watch.observe(now, done) {
 		return nil
 	}
-	if now.Sub(m.saved) < 30*time.Second {
+	if now.Sub(m.saved) < 30*time.Second && m.watch.health.BPS >= m.watch.health.ThresholdBPS/2 {
 		return nil
 	}
 	return m.flush()
@@ -123,9 +127,12 @@ func (m *speedMonitor) flush() error {
 		return err
 	}
 	m.saved = h.ObservedAt
+	if due && h.BPS < h.ThresholdBPS/2 {
+		return errImmediateRetest
+	}
 	if due && !m.announced {
 		m.announced = true
-		return m.events.Emit("speed_retest_pending", map[string]any{"bps": h.BPS, "threshold_bps": h.ThresholdBPS, "low_seconds": h.LowSeconds, "endpoint": h.Endpoint})
+		return m.events.Emit("speed_retest_queued", map[string]any{"bps": h.BPS, "threshold_bps": h.ThresholdBPS, "low_seconds": h.LowSeconds, "minimum_seconds": slowdownMinimum.Seconds(), "endpoint": h.Endpoint})
 	}
 	return nil
 }

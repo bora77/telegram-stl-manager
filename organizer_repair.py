@@ -133,10 +133,14 @@ def run(worker, group, pinned):
                     if kind=='download_start':meter=None
                     message={'waiting_for_telegram':'Waiting for the current Telegram operation',
                              'server_testing':'Comparing download servers','server_selected':'Downloading replacement',
-                             'speed_retest_pending':'Five-minute slowdown detected; server check queued for the next file',
+                             'speed_retest_pending':'Two-minute slowdown detected; server check queued for the next file',
+                             'speed_retest_queued':'Two-minute slowdown detected; server check queued for the next file',
+                             'download_resumed':'Resuming replacement download',
                              'server_slow_retest':'Comparing servers after sustained slowdown',
                              'server_test_fallback':'Keeping the previous server after unavailable comparison',
                              'server_retry':'Retrying download connection','download_finished':'Verifying downloaded part'}.get(kind)
+                    if kind=='server_slow_retest' and event.get('reason')=='below_half_threshold':
+                        message='Speed below half the threshold; comparing servers'
                     if message:worker.progress('repair_download',message+' · '+name,speed_bps=None)
                 client=TelegramCLI(root=worker.store.root,config=worker.store.config())
                 try:source=client.download(item,progress,worker.stopped,status)

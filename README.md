@@ -83,17 +83,21 @@ are recorded independently so retries can reuse completed work.
 
 Auto normally keeps its server comparisons for up to six hours on the current
 network. The optional speed threshold uses a 30-second average after each file's
-first ten seconds. Speed must stay below the threshold for at least **five minutes
-of observed download time**, carried across consecutive files on the same server.
-Startup, extraction, NAS moves and idle time do not count. Recovery above the
-threshold resets the counter; observations older than 30 minutes are discarded.
+first ten seconds. After **two minutes of observed download time** below the
+threshold, Auto compares servers before the next suitable file. The counter
+carries across files and releases on the same server; startup, extraction, NAS
+moves and idle time pause it, even during long processing gaps. Recovery to the
+threshold resets it. Finishing a release does not reset the server choice.
 
-After a slowdown, the current file finishes and the next suitable file in that
-data center triggers a comparison. Slowdown tests have a ten-minute cooldown;
-Auto changes servers only when the comparison shows at least a 10% improvement.
-Set the threshold to `0` to disable it. Connection failures can still trigger
-retesting. Comparisons consume bandwidth and can take more than ten seconds;
-they help choose an endpoint but cannot guarantee a particular speed.
+If measured speed falls **below half the threshold**, Auto pauses the current
+file and compares immediately, without waiting two minutes. For a `20` MB/s
+threshold, this means below `10` MB/s. The file resumes with its saved chunks;
+progress does not restart from zero. Failed comparisons keep the previous server.
+Both slowdown rules have a ten-minute cooldown between comparisons. Auto changes
+working servers only when another measures at least 10% faster. Set the threshold
+to `0` to disable monitoring. Connection failures can still trigger retesting.
+Comparisons consume bandwidth and can take more than ten seconds; they help
+choose an endpoint but cannot guarantee a particular speed.
 
 Resume does not check already checked artists for newer posts; use a new
 **Download all subscriptions** run for that. Completed staged files are reused;

@@ -79,17 +79,21 @@ class Worker:
                     if kind=='waiting_for_telegram':
                         self.update('downloading','Waiting for the current Telegram scan to finish · '+filename)
                     elif kind=='download_start':meter=None
-                    if kind=='speed_retest_pending':
-                        self.update('downloading',f"Speed below {event['threshold_bps']/1e6:g} MB/s for at least five minutes; server check queued for the next file. Downloading "+filename)
+                    if kind in ('speed_retest_pending','speed_retest_queued'):
+                        self.update('downloading',f"Speed below {event['threshold_bps']/1e6:g} MB/s for at least two minutes; server check queued for the next file. Downloading "+filename)
                     elif kind=='server_slow_retest':
-                        self.update('downloading','Comparing servers after sustained slow download speed…',server_test_reason='sustained_slowdown')
+                        reason=event.get('reason','sustained_slowdown')
+                        message='Speed below half the threshold; comparing servers…' if reason=='below_half_threshold' else 'Comparing servers after sustained slow download speed…'
+                        self.update('downloading',message,server_test_reason=reason)
                     elif kind=='server_test_fallback':
                         self.update('downloading','Server comparison unavailable; keeping the previous server.')
                     if kind=='server_testing':
-                        label='Comparing servers after sustained slowdown' if self.run.get('server_test_reason')=='sustained_slowdown' else 'Comparing download servers'
+                        label={'sustained_slowdown':'Comparing servers after sustained slowdown','below_half_threshold':'Speed below half the threshold; comparing servers'}.get(self.run.get('server_test_reason'),'Comparing download servers')
                         self.update('downloading',f"{label} · {event['index']} / {event['count']}",server_test=event,server_stage='testing')
                     elif kind=='server_selected':
                         self.update('downloading','Downloading '+filename,download_server=event['endpoint'],server_stage='selected')
+                    elif kind=='download_resumed':
+                        self.update('downloading','Resuming '+filename,download_server=event['endpoint'],server_stage='selected')
                     elif kind=='server_retry':
                         self.update('downloading','Connection failed; comparing servers again before retrying.',server_stage='retrying')
                     elif kind=='download_finished':

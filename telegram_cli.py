@@ -373,6 +373,12 @@ class TelegramCLI:
                     if kind == 'download_start':
                         previous = 0; active = True; last_change = time.monotonic()
                         status(event); progress(0, size)
+                    elif kind == 'download_resumed':
+                        done = event.get('bytes')
+                        if type(done) is not int or done < previous or done > size or event.get('total') != size:
+                            raise CLIError('Invalid CLI resume progress; transfer stopped.')
+                        previous = done; active = True; last_change = time.monotonic()
+                        status(event); progress(done, size)
                     elif kind == 'progress':
                         done = event.get('bytes')
                         if type(done) is not int or done < previous or done > size or event.get('total') != size:

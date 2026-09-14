@@ -221,6 +221,7 @@ type countWriter struct {
 	last        time.Time
 	events      *Events
 	speed       *speedMonitor
+	chunks      map[int64]int
 }
 
 func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
@@ -229,14 +230,31 @@ func (w *countWriter) WriteAt(data []byte, off int64) (int, error) {
 	if off < 0 || off+int64(len(data)) > w.total {
 		return 0, errors.New("received bytes exceed expected attachment size")
 	}
+	if previous, ok := w.chunks[off]; ok {
+		if previous != len(data) {
+			return 0, errors.New("retained chunk size changed")
+		}
+		return len(data), nil
+	}
 	n := len(data)
 	var err error
 	if w.file != nil {
 		n, err = w.file.WriteAt(data, off)
 	}
-	w.done += int64(n)
+	if err == nil && n != len(data) {
+		err = io.ErrShortWrite
+	}
+	if err == nil {
+		w.done += int64(n)
+		if w.chunks != nil {
+			w.chunks[off] = n
+		}
+	}
 	if err == nil {
 		err = w.speed.observe(time.Now(), w.done)
+		if errors.Is(err, errImmediateRetest) && w.done == w.total {
+			err = nil
+		}
 	}
 	if err == nil && w.events != nil && time.Since(w.last) >= 250*time.Millisecond {
 		w.last = time.Now()
@@ -274,6 +292,9 @@ func (c sizedClient) UploadGetFile(ctx context.Context, request *tg.UploadGetFil
 }
 
 func transfer(ctx context.Context, api downloader.Client, file *tmedia.Media, w *countWriter) error {
+	if w.chunks != nil {
+		api = retainedClient{Client: api, writer: w}
+	}
 	_, err := downloader.NewDownloader().WithPartSize(partSize).Download(sizedClient{Client: api, size: file.Size}, file.InputFileLoc).WithThreads(16).Parallel(ctx, w)
 	return err
 }
@@ -340,6 +361,10 @@ func chooseEndpoint(ctx context.Context, candidates []Endpoint, file *tmedia.Med
 	}
 	now := time.Now().UTC()
 	slowCheck := file.Size >= 64*1024*1024 && !o.ProbeOnly && previousAvailable && slowCheckDue(selection, o.MinSpeedMBPS*1e6, previous, now)
+	reason := "sustained_slowdown"
+	if slowCheck && selection.Health.BPS < o.MinSpeedMBPS*1e6/2 {
+		reason = "below_half_threshold"
+	}
 	if slowCheck {
 		// Claim under the shared cache lock so concurrent jobs do not both test.
 		selection.LastSlowCheck = now
@@ -354,7 +379,7 @@ func chooseEndpoint(ctx context.Context, candidates []Endpoint, file *tmedia.Med
 	}
 	cacheMu.Unlock()
 	if slowCheck {
-		if err := e.Emit("server_slow_retest", map[string]any{"threshold_bps": o.MinSpeedMBPS * 1e6, "endpoint": previous}); err != nil {
+		if err := e.Emit("server_slow_retest", map[string]any{"threshold_bps": o.MinSpeedMBPS * 1e6, "endpoint": previous, "reason": reason}); err != nil {
 			return "", err
 		}
 	}
@@ -421,7 +446,7 @@ func chooseEndpoint(ctx context.Context, candidates []Endpoint, file *tmedia.Med
 	selection.Health = nil
 	selection.Reason = "cache_refresh"
 	if slowCheck {
-		selection.Reason = "sustained_slowdown"
+		selection.Reason = reason
 	}
 	cache[cacheKey(o)] = selection
 	err := WriteJSON(o.Cache, cache)
@@ -478,49 +503,28 @@ func Download(ctx context.Context, c *telegram.Client, kv storage.Storage, r *st
 		return err
 	}
 	defer f.Close()
-	for attempt := 0; attempt < 2; attempt++ {
-		setup, cancel := context.WithTimeout(ctx, 15*time.Second)
-		pool, api, openErr := poolClient(setup, c, r, file.DC, key)
-		cancel()
-		err = openErr
-		if err == nil {
-			if err = e.Emit("download_start", map[string]any{"total": file.Size, "endpoint": key}); err != nil {
-				pool.Close()
-				return err
+	err = transferWithSwitches(ctx, file, o, e, f, key, transferHooks{
+		connect: func(ctx context.Context, key string) (downloader.Client, func(), error) {
+			setup, cancel := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel()
+			pool, api, err := poolClient(setup, c, r, file.DC, key)
+			if err != nil {
+				return nil, nil, err
 			}
-			w := &countWriter{file: f, total: file.Size, events: e, speed: newSpeedMonitor(o, key, e, time.Now())}
-			err = transfer(ctx, api, file, w)
-			pool.Close()
-			if flushErr := w.speed.flush(); err == nil {
-				err = flushErr
+			return api, func() { _ = pool.Close() }, nil
+		},
+		selectEndpoint: func(ctx context.Context, options Options) (string, error) {
+			return choose(ctx, c, r, file, options, e)
+		},
+		monitor: func(options Options, key string) *speedMonitor {
+			if file.Size < 64*1024*1024 {
+				return nil
 			}
-			if err == nil && w.done != file.Size {
-				err = errors.New("download byte count did not match expected size")
-			}
-		}
-		if err == nil {
-			break
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if attempt != 0 || o.Server != "auto" {
-			return err
-		}
-		if emitErr := e.Emit("server_retry", nil); emitErr != nil {
-			return emitErr
-		}
-		o.Retest = true
-		key, err = choose(ctx, c, r, file, o, e)
-		if err != nil {
-			return err
-		}
-		if err = e.Emit("server_selected", map[string]any{"endpoint": key, "dc": file.DC}); err != nil {
-			return err
-		}
-		if err = f.Truncate(0); err != nil {
-			return err
-		}
+			return newSpeedMonitor(options, key, e, time.Now())
+		},
+	})
+	if err != nil {
+		return err
 	}
 	if err = e.Emit("download_finished", map[string]any{"bytes": file.Size, "total": file.Size}); err != nil {
 		return err

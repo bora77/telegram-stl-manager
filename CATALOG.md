@@ -29,12 +29,17 @@ content for locally configured source references before creating an archive.
    each artist/month and reuse the result across its files and archive parts.
    Connection setup means even short tests can add more than ten seconds.
    The optional **Retest when download speed stays below (MB/s)** setting requests a comparison
-   after at least five minutes below the threshold. It uses a 30-second rolling
+   after at least two minutes below the threshold. It uses a 30-second rolling
    average after a ten-second warmup and counts active download time across
    files on the same server. Extraction, moves and idle time are excluded.
-   Speed recovery resets the counter; history expires after 30 minutes.
-   The current file finishes before the next suitable file triggers a test.
-   Slowdown tests have a ten-minute cooldown and keep the current server unless
+   The counter survives release boundaries and long processing gaps; speed
+   recovery resets it. Finishing a release does not reset the server choice.
+   The current file finishes before the next suitable file triggers that test.
+   Below half the threshold, Auto instead pauses the current file and compares
+   immediately, then resumes using its saved chunks. At a 20 MB/s threshold,
+   the immediate rule applies below 10 MB/s. Both rules use the same warmup
+   and rolling average.
+   Both slowdown rules have a ten-minute cooldown and keep the current server unless
    another measures at least 10% faster (or the current server fails its test).
    Zero disables this monitor; it only affects Auto selections.
 3. In Artists, search the catalog, filter subscribed/unsubscribed creators, and

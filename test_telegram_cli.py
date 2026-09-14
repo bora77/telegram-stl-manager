@@ -274,22 +274,60 @@ class CLIProcessTests(unittest.TestCase):
                     client.download(parse_export(exported(),TOPIC)[0],lambda *a:None,lambda:False,probe_only=probe)
 
     def test_slowdown_notice_does_not_turn_off_active_download_monitoring(self):
+        for kind in ('speed_retest_pending','speed_retest_queued'):
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);client=self.make_client(root,'');received=[];clock=time.monotonic()
+                def run(args,work,stopped,tick,**kwargs):
+                    output=Path(args[args.index('--output')+1]);events=Path(args[args.index('--events')+1])
+                    events.write_text(json.dumps({'event':'download_start','total':10})+'\n')
+                    with patch('telegram_cli.time.monotonic',return_value=clock):tick()
+                    with events.open('a') as stream:stream.write(json.dumps({'event':kind,'threshold_bps':20e6,'low_seconds':120})+'\n')
+                    with patch('telegram_cli.time.monotonic',return_value=clock+1):tick()
+                    with patch('telegram_cli.time.monotonic',return_value=clock+201):tick() # Active limit is 300s, idle is 180s.
+                    output.write_bytes(b'0123456789')
+                    with events.open('a') as stream:stream.write(json.dumps({'event':'complete','bytes':10,'message_id':100000,'filename':'Artist 2026-09.zip','sha256':hashlib.sha256(b'0123456789').hexdigest()})+'\n')
+                    with patch('telegram_cli.time.monotonic',return_value=clock+202):tick()
+                with patch.object(client,'_run',side_effect=run):
+                    result=client.download(parse_export(exported(),TOPIC)[0],lambda *a:None,lambda:False,status=received.append)
+                self.assertEqual(result.read_bytes(),b'0123456789')
+                self.assertIn(kind,[e['event'] for e in received])
+
+    def test_mid_file_server_switch_preserves_progress_and_active_monitoring(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary);client=self.make_client(root,'');received=[];clock=time.monotonic()
+            root=Path(temporary);client=self.make_client(root,'');received=[];progress=[];clock=time.monotonic()
             def run(args,work,stopped,tick,**kwargs):
                 output=Path(args[args.index('--output')+1]);events=Path(args[args.index('--events')+1])
-                events.write_text(json.dumps({'event':'download_start','total':10})+'\n')
-                with patch('telegram_cli.time.monotonic',return_value=clock):tick()
-                with events.open('a') as stream:stream.write(json.dumps({'event':'speed_retest_pending','threshold_bps':20e6,'low_seconds':300})+'\n')
-                with patch('telegram_cli.time.monotonic',return_value=clock+1):tick()
-                with patch('telegram_cli.time.monotonic',return_value=clock+201):tick() # Active limit is 300s, idle is 180s.
+                for event in [{'event':'download_start','total':10}, {'event':'progress','bytes':4,'total':10},
+                              {'event':'server_slow_retest','reason':'below_half_threshold'},
+                              {'event':'server_testing','index':1,'count':2}, {'event':'server_selected','endpoint':'new'},
+                              {'event':'download_resumed','bytes':6,'total':10,'endpoint':'new'}]:
+                    with events.open('a') as stream:stream.write(json.dumps(event)+'\n')
+                    with patch('telegram_cli.time.monotonic',return_value=clock):tick()
+                # Resume must restore the active-transfer timeout after server events.
+                with patch('telegram_cli.time.monotonic',return_value=clock+201):tick()
                 output.write_bytes(b'0123456789')
-                with events.open('a') as stream:stream.write(json.dumps({'event':'complete','bytes':10,'message_id':100000,'filename':'Artist 2026-09.zip','sha256':hashlib.sha256(b'0123456789').hexdigest()})+'\n')
+                with events.open('a') as stream:
+                    for event in [{'event':'progress','bytes':10,'total':10}, {'event':'complete','bytes':10,'message_id':100000,'filename':'Artist 2026-09.zip','sha256':hashlib.sha256(b'0123456789').hexdigest()}]:
+                        stream.write(json.dumps(event)+'\n')
                 with patch('telegram_cli.time.monotonic',return_value=clock+202):tick()
             with patch.object(client,'_run',side_effect=run):
-                result=client.download(parse_export(exported(),TOPIC)[0],lambda *a:None,lambda:False,status=received.append)
+                result=client.download(parse_export(exported(),TOPIC)[0],lambda done,total:progress.append(done),lambda:False,status=received.append)
             self.assertEqual(result.read_bytes(),b'0123456789')
-            self.assertIn('speed_retest_pending',[e['event'] for e in received])
+            self.assertEqual(progress,[0,4,6,10,10])
+            self.assertIn('download_resumed',[event['event'] for event in received])
+
+    def test_invalid_mid_file_resume_progress_is_rejected(self):
+        for done,total in [(3,10),(-1,10),(11,10),(True,10),(6,11),('6',10)]:
+            with self.subTest(done=done,total=total),tempfile.TemporaryDirectory() as temporary:
+                root=Path(temporary);client=self.make_client(root,'')
+                def run(args,work,stopped,tick,**kwargs):
+                    events=Path(args[args.index('--events')+1])
+                    events.write_text(''.join(json.dumps(event)+'\n' for event in [
+                        {'event':'download_start','total':10}, {'event':'progress','bytes':4,'total':10},
+                        {'event':'download_resumed','bytes':done,'total':total}]))
+                    tick()
+                with patch.object(client,'_run',side_effect=run),self.assertRaisesRegex(CLIError,'Invalid CLI resume progress'):
+                    client.download(parse_export(exported(),TOPIC)[0],lambda *a:None,lambda:False)
 
     def test_release_server_comparison_is_once_per_month_artist_and_dc(self):
         with tempfile.TemporaryDirectory() as temporary:

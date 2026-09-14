@@ -556,12 +556,17 @@ Configure the application:
    connection can require another comparison.
    For a speed-triggered comparison, set **Retest when download speed stays below (MB/s)** in
    Configuration, for example `20`. Zero (the default on a fresh installation)
-   disables it. Auto requires at least five minutes below the threshold using
+   disables it. Auto requires at least two minutes below the threshold using
    a 30-second rolling average after each file's first ten seconds. Only active
    download time counts, including across consecutive files; speed recovery
-   resets it and observations expire after 30 minutes. The current file finishes
-   before the next suitable file triggers a comparison. These tests have a
-   ten-minute cooldown and require a 10% improvement to switch working servers.
+   resets it. Release boundaries and long processing gaps preserve the counter
+   and the server choice. The current file finishes before the next suitable
+   file triggers this comparison. If the measured average is below half the
+   threshold (below 10 MB/s when set to 20), Auto pauses the current file and
+   compares immediately, without the two-minute wait. It resumes using chunks
+   already saved locally. Both slowdown rules have a ten-minute cooldown and
+   require a 10% improvement to switch working servers. Failed comparisons
+   keep the previous server.
 6. Check download speed, extraction progress, image delivery and archive moves.
    Delivered images belong directly in `creator/YYYY-MM/release_images/`, with
    stable name suffixes to avoid collisions. History persists if releases move

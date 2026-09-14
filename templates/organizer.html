@@ -131,7 +131,9 @@ function renderTable(){
  const visible=f=>!(filter==='move'&&!toMove(f)||filter==='record'&&!toRecord(f)||filter==='recorded'&&!recorded(f)||filter==='keep'&&f.action!=='keep'&&!f.outcome?.moved||filter==='review'&&!needsReview(f));
  const imageResult=f=>f.outcome?.image_status?f.outcome:f;
  const imageGroup=f=>f.outcome?.image_group||f.image_group||f.source;
- const archiveFile=f=>/\.(?:7z|zipx?|rar|tar|gz|bz2|xz|tgz|tbz2|txz|[rz]\d{2,})$|\.(?:7z|zip|rar)\.\d{3,}$/i.test(f.filename);
+ // Telegram uploads can retain only the numbered volume suffix, for example
+ // release_7z.001 or release.001, instead of release.7z.001.
+ const archiveFile=f=>/\.(?:7z|zipx?|rar|tar|gz|bz2|xz|tgz|tbz2|txz|[rz]\d{2,})$|\.\d{3,}$/i.test(f.filename);
  const months=new Map();
  for(const f of files){if(f.month&&archiveFile(f)){if(!months.has(f.month))months.set(f.month,[]);months.get(f.month).push(f)}}
  // Check the whole release before applying the table filter: unfinished files

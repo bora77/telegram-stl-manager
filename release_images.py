@@ -15,10 +15,18 @@ import lzma
 
 IMAGES = {'.jpg', '.jpeg', '.jpe', '.png', '.webp', '.gif', '.bmp', '.tif', '.tiff',
           '.avif', '.heic', '.heif', '.svg', '.tga', '.dds', '.psd', '.ico', '.exr', '.hdr'}
+IMAGE_ATTACHMENTS = IMAGES | {'.jfif', '.jxl', '.apng', '.svgz', '.heics', '.heifs'}
 ARCHIVES = {'.7z', '.zip', '.zipx', '.rar', '.tar', '.gz', '.bz2', '.xz', '.tgz', '.tbz2', '.txz'}
 RESERVE = 1024 ** 3
 MAX_LISTING = 64 * 1024 ** 2
 BUNDLED_7ZIP = Path(__file__).resolve().parent / '.tools/7zip/runtime/usr/lib/7zip/7z'
+
+
+def is_image_attachment(item):
+    """Exclude direct Telegram image files without opening their contents."""
+    name=item.get('filename','');mime=item.get('mime_type','')
+    return (isinstance(name,str) and Path(name).suffix.casefold() in IMAGE_ATTACHMENTS
+            or isinstance(mime,str) and mime.strip().casefold().startswith('image/'))
 
 
 class ExtractionError(RuntimeError):

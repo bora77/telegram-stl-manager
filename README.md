@@ -20,6 +20,8 @@ schedule.
 - **Download all selected subscriptions.** The queue shows actual received
   bytes, progress, current and average speed, verification, image extraction and
   transfers to your destination. Split archives are collected before extraction.
+  Direct photo/image attachments are skipped; images inside release archives are
+  still extracted into `release_images`.
 - **Fill spare download capacity.** Adaptive mode gradually runs up to three
   files, favoring other data centers when an archive is slow. An oldest-first
   download keeps the queue progressing, while faster completed releases can

@@ -56,10 +56,15 @@ def parse_export(data, topic_url, *, scope=None):
         size, dc, document_id = (document.get(k) for k in ('Size', 'DCID', 'ID'))
         if not all(type(x) is int for x in (size, dc, document_id)) or size < 0 or dc <= 0 or document_id == 0:
             raise CLIError('Telegram attachment has invalid size or identity metadata.')
-        files.append({'filename': name, 'source_message_id': mid,
+        item={'filename': name, 'source_message_id': mid,
                       'message_url': topic_url + '/' + str(mid), 'topic_url': topic_url,
                       'bytes_total': size, 'dc_id': dc, 'document_id': document_id,
-                      'size_text': f'{size:,} bytes', 'unsafe_filename': not safe_filename(name)})
+                      'size_text': f'{size:,} bytes', 'unsafe_filename': not safe_filename(name)}
+        mime=document.get('MimeType')
+        # Retain image hints for files without a recognizable extension. Avoid
+        # changing existing archive identities used by staged transfer receipts.
+        if isinstance(mime,str) and mime.strip().casefold().startswith('image/'):item['mime_type']=mime
+        files.append(item)
     return sorted(files, key=lambda item: item['source_message_id'])
 
 

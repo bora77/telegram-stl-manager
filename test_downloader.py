@@ -147,6 +147,52 @@ class DownloaderTests(unittest.TestCase):
 if __name__=='__main__':unittest.main()
 
 class ResumeTests(unittest.TestCase):
+    def test_saved_queue_skips_direct_images_without_rescanning_or_claiming_downloads(self):
+        import download_worker
+        from download_plan import DownloadPlan
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store,state,run=self.fixture(root);a,b=run['subscriptions'];transfers=[]
+            archive=self.item(a,201);pending={**self.item(a,202),'filename':'Example A 2026-09.JPG'}
+            finished={**self.item(a,203),'filename':'Example A 2026-09.png'}
+            typed={**self.item(b,301),'filename':'Example B 2026-09 preview','mime_type':'image/jpeg'}
+            rows={}
+            for item in (pending,finished):
+                rows[item['source_message_id']]=store.history.register(source_message_id=item['source_message_id'],creator=a['creator'],topic_url=a['topic_url'],filename=item['filename'],bytes_total=item['bytes_total'],batch_id=run['id'])
+            store.history.complete(rows[203]['id'],destination=str(root/'existing-image.png'),verified_size=123,sha256='0'*64)
+            plan=DownloadPlan(store,run)
+            for sub,items in ((a,[archive,pending,finished]),(b,[typed])):
+                plan.save(sub,[{'item':item,'month':'2026-09'} for item in items],{'creator':sub['creator'],'eligible_files':len(items)},[])
+            class CLI:
+                def list_files(inner,*args,**kwargs):raise AssertionError('Saved artist checks must be reused')
+                def close(inner):pass
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=CLI()),patch.object(download_worker.Worker,'transfer',side_effect=lambda sub,item,month:transfers.append(item['source_message_id'])):
+                worker=download_worker.Worker(run['id']);worker.execute()
+            self.assertEqual(worker.run['state'],'completed',worker.run['message']);self.assertEqual(transfers,[201])
+            self.assertEqual(sum(r['ignored_images'] for r in worker.run['creator_results']),3)
+            with store.history.connect() as db:
+                excluded=dict(db.execute('SELECT * FROM downloads WHERE id=?',(rows[202]['id'],)).fetchone())
+                kept=dict(db.execute('SELECT * FROM downloads WHERE id=?',(rows[203]['id'],)).fetchone())
+                self.assertIsNone(db.execute('SELECT * FROM downloads WHERE source_message_id=301').fetchone())
+            self.assertEqual(excluded['state'],'paused');self.assertEqual(excluded['batch_id'],'excluded-images-'+run['id']);self.assertIn('excluded',excluded['error'])
+            self.assertEqual(kept['state'],'downloaded');self.assertEqual(kept['batch_id'],run['id'])
+            self.assertEqual(store.history.queue(run['id'])['total_files'],2)
+
+    def test_new_scan_skips_image_documents_before_month_review_or_download_registration(self):
+        import download_worker
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store,state,run=self.fixture(root);transfers=[]
+            class CLI:
+                def list_files(inner,topic,*args,**kwargs):
+                    sub=next(s for s in run['subscriptions'] if s['topic_url']==topic)
+                    mid=201 if sub==run['subscriptions'][0] else 301
+                    return [self.item(sub,mid),{**self.item(sub,mid+1),'filename':'undated-preview.JPEG'},{**self.item(sub,mid+2),'filename':'unnamed preview','mime_type':'image/png'}]
+                def close(inner):pass
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=CLI()),patch.object(download_worker.Worker,'transfer',side_effect=lambda sub,item,month:transfers.append(item['source_message_id'])):
+                worker=download_worker.Worker(run['id']);worker.execute()
+            self.assertEqual(worker.run['state'],'completed',worker.run['message']);self.assertEqual(transfers,[201,301])
+            self.assertEqual(worker.run['warnings'],[]);self.assertEqual(sum(r['ignored_images'] for r in worker.run['creator_results']),4)
+            self.assertEqual(store.history.queue(run['id'])['total_files'],2)
+
     def fixture(self, root):
         store=SubscriptionStore(configure_source(root));base=root/'destination';base.mkdir()
         state=root/'telegram';state.mkdir()

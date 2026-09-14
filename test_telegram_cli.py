@@ -108,6 +108,19 @@ def exported(name='Artist 2026-09.zip',size=10):
 
 
 class CLIParseTests(unittest.TestCase):
+    def test_image_document_metadata_is_kept_for_organizer_but_identifiable_for_download_filter(self):
+        from release_images import is_image_attachment
+        for name,mime in [('Artist 2026-09.JPG','application/octet-stream'),('Artist 2026-09 preview','image/jpeg'),('Artist 2026-09.SVGZ','')]:
+            with self.subTest(name=name):
+                data=exported(name);data['messages'][0]['raw']['Media']['Document']['MimeType']=mime
+                files=parse_export(data,TOPIC)
+                self.assertEqual(len(files),1);self.assertTrue(is_image_attachment(files[0]))
+        for name in ('Artist 2026-09.7z.001','Artist 2026-09.part1.rar','Artist 2026-09.stl','Artist 2026-09.pdf'):
+            data=exported(name);before=parse_export(data,TOPIC)
+            data['messages'][0]['raw']['Media']['Document']['MimeType']='application/octet-stream'
+            self.assertEqual(parse_export(data,TOPIC),before)
+            self.assertFalse(is_image_attachment(before[0]))
+
     def test_exact_names_sizes_document_identity_and_nested_replies(self):
         data=exported();data['messages'][0]['raw']['ReplyTo'].update(ReplyToMsgID=123,ReplyToTopID=200)
         item=parse_export(data,TOPIC)[0]

@@ -17,7 +17,7 @@ from release_rules import release_month,in_scope
 from download_plan import DownloadPlan
 from transfer_metrics import TransferMeter
 from file_delivery import deliver,mount_identity,digest,release_lock
-from release_images import extract_images,ExtractionError,MissingVolumeError,volume_key,flat_image_name,listing
+from release_images import extract_images,ExtractionError,MissingVolumeError,volume_key,flat_image_name,listing,is_image_attachment
 
 ROOT=Path(__file__).resolve().parent
 class Worker:
@@ -25,7 +25,7 @@ class Worker:
         self.store=SubscriptionStore(ROOT);self.history=self.store.history
         self.path=ROOT/'data/run.json';self.run=json.loads(self.path.read_text())
         if self.run['id']!=batch:raise RuntimeError('Run was replaced before start.')
-        self.batch=batch;self.telegram=None;self.pending=[];self.planned=[];self.numbered_rars=set()
+        self.batch=batch;self.telegram=None;self.pending=[];self.planned=[];self.numbered_rars=set();self.image_exclusion_ids=None
         self.plan=DownloadPlan(self.store,self.run)
     def archive_key(self,name,sub,month):
         match=re.fullmatch(r'(.+)[ _.-](\d+)\.rar',name,re.I)
@@ -55,6 +55,7 @@ class Worker:
             for record in records:
                 db.execute("UPDATE downloads SET state='paused',error=? WHERE id=? AND state!='downloaded'",(str(error),record['id']))
     def transfer(self,sub,item,month,downloaded=None):
+        if is_image_attachment(item):self.exclude_image(sub,item);return
         filename=item['filename']
         if self.history.was_downloaded(item['source_message_id']):return
         row=self.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=sub['topic_url'],filename=filename,bytes_total=item.get('bytes_total'),release_month=month,batch_id=self.batch)
@@ -263,7 +264,7 @@ class Worker:
             received+=len(files);status('Reading new attachment metadata…')
         status('Checking for new releases…')
         items=self.telegram.list_files(topic,self.stopped,status,on_files=on_files,incremental=True)
-        result={'creator':sub['creator'],'latest_release_month':None,'eligible_files':0,'already_downloaded':0,'outside_scope':0}
+        result={'creator':sub['creator'],'latest_release_month':None,'eligible_files':0,'already_downloaded':0,'outside_scope':0,'ignored_images':0}
         result.update(scan_seconds=time.monotonic()-started,**{k:v for k,v in getattr(self.telegram,'last_scan',{}).items() if k in ('mode','new_files','catalog_files')})
         self.run.setdefault('creator_results',[]).append(result)
         with self.history.connect() as db:
@@ -271,6 +272,7 @@ class Worker:
         warnings=[]
         for item in items:
             if self.stopped():raise WorkerError('Stopped by request.')
+            if is_image_attachment(item):result['ignored_images']+=1;self.exclude_image(sub,item);continue
             if not safe_filename(item['filename']):
                 warnings.append(sub['creator']+': unsafe attachment filename needs review.');continue
             month=release_month(item['filename'])
@@ -285,7 +287,20 @@ class Worker:
         self.run['warnings']=list(dict.fromkeys(self.run['warnings']+warnings))
         self.plan.save(sub,[{'item':item,'month':month} for saved_sub,item,month in self.planned if saved_sub['topic_url']==topic],result,warnings)
         self.update('scanning',f"{sub['creator']} · check complete",files_listed=received,telegram_file_count=len(items),creators_checked=len(self.run['creator_results']))
+    def exclude_image(self,sub,item):
+        # Remove pending images from this batch without claiming they were
+        # downloaded or removing any existing local/NAS files or saved receipts.
+        if self.image_exclusion_ids is None:
+            with self.history.connect() as db:
+                self.image_exclusion_ids={(r['topic_url'],r['source_message_id']) for r in db.execute("SELECT topic_url,source_message_id FROM downloads WHERE batch_id=? AND state!='downloaded'",(self.batch,))}
+        key=(sub['topic_url'],item['source_message_id'])
+        if key not in self.image_exclusion_ids:return
+        with self.history.connect() as db:
+            db.execute("UPDATE downloads SET batch_id=?,state='paused',error='Skipped: direct image attachments are excluded.' WHERE batch_id=? AND topic_url=? AND source_message_id=? AND state!='downloaded'",
+                       ('excluded-images-'+self.batch,self.batch,sub['topic_url'],item['source_message_id']))
+        self.image_exclusion_ids.discard(key)
     def queue_item(self,sub,item,month):
+        if is_image_attachment(item):self.exclude_image(sub,item);return
         if self.history.was_downloaded(item['source_message_id']):return
         item={**item,'topic_url':sub['topic_url']}
         row=self.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=sub['topic_url'],
@@ -376,7 +391,11 @@ class Worker:
                 for entry in saved['items']:
                     if self.stopped():raise WorkerError('Stopped by request.')
                     self.queue_item(sub,entry['item'],entry['month'])
-                self.run['creator_results'].append(saved['result'])
+                result=dict(saved['result']);ignored=sum(is_image_attachment(entry['item']) for entry in saved['items'])
+                if ignored:
+                    result['ignored_images']=result.get('ignored_images',0)+ignored
+                    result['eligible_files']=max(0,result.get('eligible_files',0)-ignored)
+                self.run['creator_results'].append(result)
                 self.run['warnings']=list(dict.fromkeys(self.run['warnings']+saved['warnings']))
                 self.update('scanning','Using saved queue · '+sub['creator'],creators_checked=len(self.run['creator_results']),files_listed=0)
     def execute_sequential(self):

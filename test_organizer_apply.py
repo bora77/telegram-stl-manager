@@ -19,6 +19,22 @@ TOPIC='https://t.me/c/123456789/200'
 
 
 class OrganizerApplyTests(unittest.TestCase):
+    def test_running_job_keeps_its_display_plan_after_preview_is_replaced(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);store,folder=self.setup_store(root);self.archive(folder/'Example 2026-01.zip')
+            original=self.preview(store,folder);job_id=self.start(store)
+            newer={**original,'id':'newer-preview','creator':'Different preview','files':[]}
+            store.atomic_write(Organizer(store).path,newer)
+            before=(store.root/'data/organizer-apply.json').read_bytes()
+            status=Organizer(store).status();job=status['application'];display=job['display_plan']
+            self.assertEqual(status['id'],'newer-preview');self.assertEqual(job['id'],job_id)
+            self.assertEqual(display['id'],original['id']);self.assertEqual(display['creator'],'Example')
+            self.assertEqual(display['files'][0]['source'],original['files'][0]['source'])
+            self.assertEqual(display['files'][0]['size'],original['files'][0]['size'])
+            self.assertTrue(display['display_only']);self.assertNotIn('identity',display['files'][0])
+            self.assertNotIn('groups',job);self.assertEqual((store.root/'data/organizer-apply.json').read_bytes(),before)
+            self.assertEqual(json.loads(Organizer(store).path.read_text())['id'],'newer-preview')
+
     def repair_fixture(self, root, monthly=False, missing=False):
         store,folder=self.setup_store(root);image=root/'preview.jpg';image.write_bytes(os.urandom(6000))
         subprocess.run(['7z','a','-mx0','-v4k',str(folder/'Example 2026-01.7z'),str(image)],stdout=subprocess.DEVNULL,check=True)

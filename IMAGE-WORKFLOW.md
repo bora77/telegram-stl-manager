@@ -72,6 +72,10 @@ checksums before removing the redundant flat copy and retains the completed
 download record. Different contents remain a conflict. Preview uses the shared
 CLI service and can read metadata during a Telegram transfer. Each request has
 its own cancellation, so stopping Preview does not stop a download.
+Switching between pages leaves workers running. Returning to Organize restores
+the active job's artist, folder and progress; the browser tab also remembers its
+preview and filter. A resumed job displays its own saved files even if a newer
+preview exists. An idle page in a fresh browser session starts with no selection.
 
 A durable journal supports stopping and resuming after partial moves, verified
 image delivery or a failed database commit. Current operation and per-release

@@ -81,8 +81,12 @@ Choose one artist and folder, then run **Preview**. A single CLI listing supplie
 exact filenames and byte counts for matching local archives. Preview does not
 move files, extract images or import download history. It shows proposed monthly
 folders, matched files, size differences, duplicates and unclear filenames.
-No artist is selected on entry. Typing in Find artist selects a matching creator
-and updates its folder. Preview reveals the results and Apply controls;
+A fresh idle page starts with no artist selected. Returning in the same browser
+tab restores the selected folder, preview and filter. A running operation restores
+its artist, folder, progress and file table automatically, including a saved job
+resumed after a newer preview was made. Changing the artist keeps other artists'
+warnings hidden. Typing in Find artist selects a matching creator and updates its
+folder. Preview reveals the results and Apply controls;
 progress bars and Stop appear only during an operation. The table and counts
 update as exact matches arrive and as files are moved and recorded. Paused jobs
 keep a Resume control with concise errors and expandable diagnostic details.

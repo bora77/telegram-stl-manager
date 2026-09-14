@@ -70,6 +70,16 @@ def application_status(store):
                                     'image_status':group.get('image_status'), 'image_count':len(group.get('images') or []),
                                     'images_extracted_at':group.get('images_extracted_at'),
                                     'error': group.get('error', '')})
+    if job.get('plan_id') and plan.get('id')!=job['plan_id']:
+        # An older saved job may be resumed after a newer preview was made.
+        # Its progress must describe that job's files, not the newer preview.
+        fields=('source','destination','filename','size','month','action','telegram_status',
+                'telegram_name','telegram_bytes','telegram_size','would_record','already_recorded',
+                'reason','image_status','image_count','images_extracted_at')
+        result['display_plan']={k:job[k] for k in ('base','creator','creator_folder','topic_url') if k in job}
+        result['display_plan'].update(id=job['plan_id'],state='completed',display_only=True,warnings=[],
+            message='Files in the saved organization job.',
+            files=[{k:record[k] for k in fields if k in record} for group in job.get('groups',[]) for record in group['records']])
     return result
 
 

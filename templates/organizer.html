@@ -20,6 +20,8 @@ __RULES__
 const el=id=>document.getElementById(id);
 let creators=[],subscriptions=[],current={files:[]},ready=false;
 let previewPlanId=null,previewChoice=null,previewPending=false,actionPending=false,refreshPending=false,revision=0,tableSignature=null;
+let followingJobId=null,viewLoaded=false,savedViewText='';
+const viewStorageKey='telegram-stl-organizer-view';
 const active=()=>['starting','scanning','applying'].includes(current.state)||appRunning();
 const appRunning=()=>['starting','running'].includes(current.application?.state);
 const sameChoice=plan=>plan.topic_url===el('artist').value&&plan.creator_folder===el('folder').value;
@@ -39,6 +41,33 @@ function jobMessage(job){
 function showError(message=''){el('page-error').textContent=cleanMessage(message);el('page-error').hidden=!message}
 async function api(path,data){const r=await fetch(path,{cache:'no-store',...(data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})});const b=await r.json();if(!r.ok)throw Error(b.error||'Request failed');return b}
 function node(tag,text,className){const n=document.createElement(tag);n.textContent=text;if(className)n.className=className;return n}
+function rememberView(){
+ if(!ready||!viewLoaded)return;
+ const text=JSON.stringify({base:el('base').textContent,topic_url:el('artist').value,creator_folder:el('folder').value,
+  plan_id:previewPlanId,preview_choice:previewChoice,job_id:followingJobId,filter:el('filter').value,extract_images:el('extract-images').checked});
+ if(text===savedViewText)return;
+ try{sessionStorage.setItem(viewStorageKey,text);savedViewText=text}catch{}
+}
+function selectOperation(operation){
+ if(sameChoice(operation))return;
+ el('search').value='';artists();
+ if(![...el('artist').options].some(o=>o.value===operation.topic_url))el('artist').append(new Option(operation.creator,operation.topic_url));
+ if(![...el('folder').options].some(o=>o.value===operation.creator_folder))el('folder').append(new Option(operation.creator_folder,operation.creator_folder));
+ el('artist').value=operation.topic_url;el('folder').value=operation.creator_folder;
+ el('folder-hint').textContent='Folder used by this organization job.';
+}
+function restoreView(){
+ try{
+  const saved=JSON.parse(sessionStorage.getItem(viewStorageKey)||'null');
+  if(!saved||saved.base!==el('base').textContent||!creators.some(c=>c.topic_url===saved.topic_url)
+     ||![...el('folder').options].some(o=>o.value===saved.creator_folder))return;
+  el('artist').value=saved.topic_url;el('folder').value=saved.creator_folder;
+  el('folder-hint').textContent='Restored folder selection.';
+  previewPlanId=saved.plan_id;previewChoice=saved.preview_choice;followingJobId=saved.job_id;
+  if([...el('filter').options].some(o=>o.value===saved.filter))el('filter').value=saved.filter;
+  if(typeof saved.extract_images==='boolean')el('extract-images').checked=saved.extract_images;
+ }catch{}
+}
 function artists(){
  const old=el('artist').value,query=el('search').value.trim().toLowerCase();
  const matches=creators.filter(c=>c.name.toLowerCase().includes(query));
@@ -54,12 +83,18 @@ function suggest(){
  el('folder-hint').textContent=!creator?'Choose an artist first.':folder?(saved?'Saved download folder for this artist.':'Matched by artist name.'):saved?'Saved folder “'+saved.creator_folder+'” is not available here.':'Choose an existing folder for this artist.';
 }
 function acceptPlan(plan){
+ const job=plan.application,running=['starting','running'].includes(job?.state);
+ if(running){selectOperation(job);followingJobId=job.id}
+ else if(['starting','scanning'].includes(plan.state)){selectOperation(plan);followingJobId=null}
+ if(job&&followingJobId===job.id&&sameChoice(job)&&job.display_plan){
+  plan={...job.display_plan,state:running?'applying':'completed',application:job};
+ }
  current=plan;
- if(plan.id&&(previewRunning()||(appRunning()&&planJob()))){previewPlanId=plan.id;previewChoice=choiceKey()}
+ if(plan.id&&sameChoice(plan)&&(previewRunning()||(planJob()&&followingJobId===job?.id))){previewPlanId=plan.id;previewChoice=choiceKey()}
 }
 function render(){
  const p=current,scanning=previewRunning(),running=active();
- const visible=previewPending||scanning||(appRunning()&&!!planJob())||!!(previewPlanId&&p.id===previewPlanId&&previewChoice===choiceKey());
+ const visible=previewPending||scanning||(appRunning()&&!!planJob()&&sameChoice(p))||!!(previewPlanId&&p.id===previewPlanId&&previewChoice===choiceKey());
  el('preview-panel').hidden=!visible;
  el('preview-results').hidden=!visible||previewPending||p.id!==previewPlanId;
  el('status').textContent=previewPending?'Starting preview…':(planJob()?jobMessage(planJob()):cleanMessage(p.message)||'Preview results');
@@ -73,7 +108,7 @@ function render(){
  el('scan-detail').hidden=!scanning||previewPending;
  el('scan-detail').textContent=scanning&&p.rows_read!=null?`${p.rows_read} Telegram attachments read`+(p.telegram_file_count!=null?` · ${p.telegram_file_count} total`:''):'';
  el('live-note').hidden=!running||previewPending;
- renderTable();renderApplication();
+ renderTable();renderApplication();rememberView();
 }
 function renderTable(){
  const signature=JSON.stringify([current.files,current.warnings,planJob()?.files,el('filter').value]);
@@ -122,7 +157,7 @@ async function refresh(){
  finally{refreshPending=false}
 }
 function renderApplication(){
- const job=current.application&&sameChoice(current.application)?current.application:null,files=current.files||[],available=files.filter(applicable),pending=job&&['failed','stopped','interrupted'].includes(job.state),running=appRunning(),review=job?.state==='completed'&&job.releases_review>0;
+ const job=current.application&&sameChoice(current.application)?current.application:null,files=current.files||[],available=files.filter(applicable),pending=job&&['failed','stopped','interrupted'].includes(job.state),running=!!job&&appRunning(),review=job?.state==='completed'&&job.releases_review>0;
  const repairFiles=job?.repair_files||[];
  el('repair').hidden=running||!repairFiles.length||(!pending&&!review);el('repair').disabled=active()||actionPending;
  el('repair-hint').hidden=el('repair').hidden;
@@ -166,13 +201,13 @@ el('apply').onclick=()=>action('/api/organizer/apply',{plan_id:current.id,extrac
 el('repair').onclick=()=>action('/api/organizer/repair',{job_id:current.application.id});
 el('resume').onclick=()=>action('/api/organizer/resume',{job_id:current.application.id});
 el('search').oninput=artists;
-el('artist').onchange=()=>{suggest();render()};
-el('folder').onchange=()=>{el('folder-hint').textContent=el('folder').value?'Manually selected folder.':'Choose an existing folder for this artist.';render()};
+el('artist').onchange=()=>{followingJobId=null;suggest();render()};
+el('folder').onchange=()=>{followingJobId=null;el('folder-hint').textContent=el('folder').value?'Manually selected folder.':'Choose an existing folder for this artist.';render()};
 el('filter').onchange=render;
 el('extract-images').onchange=render;
 el('preview').onclick=async()=>{
  const choice={dry_run:true,topic_url:el('artist').value,creator_folder:el('folder').value};
- previewPending=true;previewPlanId=null;previewChoice=choiceKey();
+ previewPending=true;previewPlanId=null;previewChoice=choiceKey();followingJobId=null;
  const succeeded=await action('/api/organizer/preview',choice);
  if(succeeded)previewPlanId=current.id;
  previewPending=false;render();
@@ -187,7 +222,7 @@ async function poll(){await refresh();setTimeout(poll,active()?1000:3000)}
   const [catalog,config,saved]=await Promise.all([api('/data/creators.json'),api('/api/config'),api('/api/subscriptions')]);
   creators=catalog.creators.filter(c=>c.within_approved_group).sort((a,b)=>a.name.localeCompare(b.name));subscriptions=saved.subscriptions;
   for(const folder of config.folders)el('folder').append(new Option(folder,folder));
-  el('base').textContent=config.download_directory;ready=true;artists();suggest();
+  el('base').textContent=config.download_directory;ready=true;artists();suggest();restoreView();viewLoaded=true;render();
  }catch(e){showError(e.message)}
  poll();
 })();

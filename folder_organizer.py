@@ -155,6 +155,9 @@ class Organizer:
         # Older saved previews may include loose images. Leave those files and
         # their receipts alone, and exclude them from the current organizer view.
         plan['files']=[file for file in plan.get('files',[]) if not is_image_attachment(file)]
+        if plan.get('state') not in ('starting','scanning') and plan.get('backend')=='cli':
+            from organizer_versions import project
+            project(plan,self.store.history)
         # Extraction totals belong to an archive set, including all its volumes.
         # Publish the grouping for display without changing per-file receipts.
         for file in plan.get('files',[]):
@@ -169,9 +172,19 @@ class Organizer:
                     '''SELECT filename,bytes_total,images_destination,image_status,image_count,images_extracted_at
                        FROM downloads WHERE topic_url=? AND images_extracted_at IS NOT NULL''',(plan['topic_url'],))}
             for file in plan.get('files',[]):
+                if file.get('archive_version'):
+                    file.update(image_status=None,image_count=None,images_extracted_at=None)
+                    continue
                 destination=str(Path(plan.get('base',''))/plan.get('creator_folder','')/(file.get('month') or '')/'release_images')
                 row=images.get((file['filename'],file['size'],destination),{})
                 file.update({k:row.get(k) for k in ('image_status','image_count','images_extracted_at')})
+            for group in plan.get('version_groups',{}).values():
+                destination=Path(plan.get('base',''))/plan.get('creator_folder','')/group['month']/'release_images'
+                saved=self.store.history.image_extraction(plan['topic_url'],group['records'],destination)
+                if saved:
+                    for file in plan['files']:
+                        if file.get('archive_version')==group['version']['id']:
+                            file.update(image_status=saved['state'],image_count=len(saved['images']),images_extracted_at=saved['completed_at'])
         if plan['state'] in ACTIVE and time.time() - plan.get('heartbeat', 0) > 60:
             with (self.root / 'data/organizer-worker.lock').open('a') as lock:
                 try:

@@ -50,6 +50,11 @@ schedule.
   optionally extracts images, and records them as already downloaded.
   Existing standalone images and collages are left in place and excluded from
   organizer previews and Apply actions.
+  When an archive was uploaded in different versions, the organizer prefers the
+  larger complete set, then the later upload if sizes are equal. It reuses a
+  complete local copy or downloads the selected set when needed; it never joins
+  parts from different versions. Previous files are retained under the month's
+  `.previous_versions` folder before their replacements are installed.
 - **Recover incomplete releases.** Organizer warnings identify releases needing
   attention. A manual repair action can download known missing or incomplete
   archive parts and retry the release, retaining a backup of a replaced original.

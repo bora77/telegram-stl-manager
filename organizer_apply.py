@@ -176,10 +176,13 @@ class PinnedFolder:
 
 
 def ready_groups(plan):
+    from organizer_versions import choices
+    versions=choices(plan)
     attachments = {a['source_message_id']: a for a in plan.get('attachments', []) if 'source_message_id' in a}
     groups = {}
     for original in plan.get('files', []):
         if is_image_attachment(original):continue
+        if (original.get('month') or '')+'/'+volume_key(original['filename'])[0] in versions:continue
         if original.get('action') not in ('move', 'keep') or original.get('telegram_status') != 'matched' or not original.get('month'):
             continue
         if not original.get('identity'):raise ValueError('Run a fresh preview before applying this older plan.')
@@ -197,6 +200,7 @@ def ready_groups(plan):
     for group in groups.values():
         indexes = [volume_key(record['filename'])[1] for record in group['records']]
         if len(set(indexes)) != len(indexes):raise ValueError('Plan contains competing archive parts; review required.')
+    groups.update(versions)
     result = [groups[key] for key in sorted(groups)]
     set_part_requirements(result, plan)
     return result
@@ -206,7 +210,7 @@ def set_part_requirements(groups, plan):
     """Retain the preview's complete volume metadata, including rejected parts."""
     for group in groups:
         key=group['key'].split('/',1)[1]
-        related=[a for a in plan.get('attachments',[]) if volume_key(a['filename'])[0]==key]
+        related=group['version']['items'] if group.get('version') else [a for a in plan.get('attachments',[]) if volume_key(a['filename'])[0]==key]
         if not any(volume_key(a['filename'])[1] for a in related):continue
         names=sorted({a['filename'] for a in related})
         group['part_requirements']=[{'filename':name,
@@ -289,6 +293,10 @@ def start_application(store, payload, resume=False, repair=False):
             if not previous or previous['id'] != payload.get('job_id') or (previous['state'] not in RETRYABLE and not has_skipped_releases(previous)):
                 raise ValueError('No interrupted organization is available to resume.')
             job = json.loads(path.read_text())
+            from organizer_versions import upgrade
+            if upgrade(job,plan):
+                backup=store.root/'data/organizer-jobs'/(job['id']+'.before-version-selection.json')
+                if not backup.exists():store.atomic_write(backup,json.loads(path.read_text()))
             if regroup_saved_volumes(job):
                 backup = store.root / 'data/organizer-jobs' / (job['id'] + '.before-volume-grouping.json')
                 if not backup.exists():store.atomic_write(backup, json.loads(path.read_text()))
@@ -362,7 +370,7 @@ class ApplyWorker:
         self.last_update=now
         self.save(state='running',phase=phase,message=message,progress_done=done,progress_total=total,progress_unit=unit,**extra)
 
-    def images(self, group, pinned, work):
+    def images(self, group, pinned, work, *, locations=None):
         if not self.job['extract_images']:return None
         destination=pinned.path/group['month']/'release_images'
         saved=self.store.history.image_extraction(self.job['topic_url'],group['records'],destination)
@@ -374,7 +382,7 @@ class ApplyWorker:
         images_work=work/'images'
         if group.get('images') is None:
             if images_work.exists():shutil.rmtree(images_work)
-            locations=[(r,pinned.path/pinned.locate(r)) for r in group['records']]
+            if locations is None:locations=[(r,pinned.path/pinned.locate(r)) for r in group['records']]
             locations.sort(key=lambda pair:volume_key(pair[0]['filename'])[1])
             first=locations[0][1]
             if volume_key(first.name)[1]>1:raise ValueError('First archive part is missing; release left in place.')
@@ -402,7 +410,8 @@ class ApplyWorker:
             manifest=[]
             for image in extracted:
                 relative=str(image.relative_to(images_work/'output'))
-                manifest.append({'path':flat_image_name(first.name,relative),'source_path':relative,'size':image.stat().st_size,'sha256':digest(image)})
+                image_key=first.name+' version '+group['version']['id'] if group.get('version') else first.name
+                manifest.append({'path':flat_image_name(image_key,relative),'source_path':relative,'size':image.stat().st_size,'sha256':digest(image)})
             group['images']=manifest
             self.save()
         images=group['images']
@@ -442,23 +451,27 @@ class ApplyWorker:
                     with release_lock(self.store.root,self.job['base'],self.job['creator_folder'],group['month'],self.stopped,waiting):
                         self.save(state='running',phase='preparing',message='Organizing '+group['key'],current_release=group['key'],progress_done=0,progress_total=None)
                         work=self.work/str(group.get('work_index',index));work.mkdir(exist_ok=True)
-                        for record in group['records']:pinned.locate(record)
-                        if group.get('repairs'):
-                            from organizer_repair import run
-                            run(self,group,pinned)
-                        check_parts(group)
-                        group.pop('error',None)
-                        images=self.images(group,pinned,work)
-                        for record in group['records']:
-                            self.check()
-                            self.progress('moving','Moving archives into '+group['month'],self.job['moves_done'],self.job['moves_total'],'files')
-                            pinned.locate(record)
-                            record['move_started']=True;self.save()
-                            pinned.move(record)
-                            if not record.get('moved'):
-                                record['moved']=True
-                                if record['action']=='move':self.job['moves_done']+=1
-                            self.save()
+                        if group.get('version'):
+                            from organizer_versions import apply
+                            images=apply(self,group,pinned,work)
+                        else:
+                            for record in group['records']:pinned.locate(record)
+                            if group.get('repairs'):
+                                from organizer_repair import run
+                                run(self,group,pinned)
+                            check_parts(group)
+                            group.pop('error',None)
+                            images=self.images(group,pinned,work)
+                            for record in group['records']:
+                                self.check()
+                                self.progress('moving','Moving archives into '+group['month'],self.job['moves_done'],self.job['moves_total'],'files')
+                                pinned.locate(record)
+                                record['move_started']=True;self.save()
+                                pinned.move(record)
+                                if not record.get('moved'):
+                                    record['moved']=True
+                                    if record['action']=='move':self.job['moves_done']+=1
+                                self.save()
                         self.check()
                         for record in group['records']:
                             if pinned.info(record['destination'])!=pinned.destination_identity(record):raise ValueError('Organized file changed before history recording.')
@@ -472,10 +485,16 @@ class ApplyWorker:
                         if group.get('repairs'):
                             from organizer_repair import cleanup
                             cleanup(self,group)
+                        if group.get('version'):
+                            from organizer_versions import cleanup
+                            cleanup(self,group)
                         shutil.rmtree(work,ignore_errors=True)
                 except Exception as error:
                     # Stop and mount loss affect the whole operation. A release
                     # failure keeps its journal and does not block later releases.
+                    if group.get('version'):
+                        from organizer_versions import failed
+                        failed(self,group,error)
                     self.check()
                     group.update(state='needs_review',error=str(error))
                     self.job['releases_review']+=1

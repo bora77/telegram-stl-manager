@@ -642,7 +642,7 @@ class OrganizerApplyTests(unittest.TestCase):
                 self.assertTrue((folder/parts[1]).is_file());self.assertFalse((folder/'2026-01'/parts[1]).exists())
                 with store.history.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM downloads').fetchone()[0],2)
 
-    def test_fresh_preview_groups_underscore_parts_and_rejects_competing_part_numbers(self):
+    def test_fresh_preview_groups_underscore_parts_and_selects_one_competing_upload(self):
         with tempfile.TemporaryDirectory() as temp:
             store,folder=self.setup_store(Path(temp))
             for part in ('_part1','_part2'):(folder/('Example 2026-01'+part+'.rar')).write_bytes(b'part')
@@ -650,7 +650,12 @@ class OrganizerApplyTests(unittest.TestCase):
             self.assertEqual(len(ready_groups(plan)),1)
             (folder/'Example 2026-01.part1.rar').write_bytes(b'competing part')
             plan=self.preview(store,folder)
-            with self.assertRaisesRegex(ValueError,'competing archive parts'):ready_groups(plan)
+            groups=ready_groups(plan)
+            self.assertEqual(len(groups),1)
+            self.assertEqual([r['filename'] for r in groups[0]['records']],['Example 2026-01.part1.rar'])
+            self.assertEqual(len(groups[0]['previous_files']),2)
+            # Selection follows the larger-upload policy; the worker still
+            # validates its archive header before moving any previous files.
 
 
 if __name__=='__main__':unittest.main()

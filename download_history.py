@@ -60,7 +60,10 @@ class DownloadHistory:
         if not Path(destination).is_absolute():raise ValueError('An absolute image destination is required.')
         # Parts added later and changed sizes form a new extraction. Different
         # destinations must receive their own images; no NAS reads are needed.
-        value=json.dumps([topic,archives,destination],ensure_ascii=False,separators=(',',':'))
+        identity_parts=[topic,archives,destination]
+        versions=sorted({r['archive_version'] for r in records if r.get('archive_version')})
+        if versions:identity_parts.append(versions)
+        value=json.dumps(identity_parts,ensure_ascii=False,separators=(',',':'))
         return hashlib.sha256(value.encode()).hexdigest(),json.dumps(archives),destination
 
     def image_extraction(self, topic, records, destination):
@@ -70,6 +73,7 @@ class DownloadHistory:
             if row:
                 return {'images':json.loads(row['manifest']),'warnings':json.loads(row['warnings']),
                         'state':row['state'],'completed_at':row['completed_at']}
+            if any(r.get('archive_version') for r in records):return None
             # Existing installations already saved successful manifests. Reuse
             # those too, but only when every archive has the same saved result.
             saved=[]
@@ -98,9 +102,13 @@ class DownloadHistory:
             if json.loads(receipt['manifest'])!=images or json.loads(receipt['warnings'])!=list(warnings):
                 raise ValueError('Extraction differs from the saved completed result.')
             for name,size in json.loads(archives):
+                suffix='';values=[]
+                if any(r.get('archive_version') for r in records):
+                    ids=sorted({mid for r in records if r['filename']==name and r['size']==size for mid in r['source_message_ids']})
+                    suffix=' AND source_message_id IN ('+','.join('?' for _ in ids)+')';values=ids
                 db.execute('''UPDATE downloads SET image_count=?,images_destination=?,images_manifest=?,image_warnings=?,
-                    image_status=?,images_extracted_at=? WHERE topic_url=? AND filename=? AND bytes_total=?''',
-                    (len(images),destination,manifest,warning_json,state,receipt['completed_at'],topic,name,size))
+                    image_status=?,images_extracted_at=? WHERE topic_url=? AND filename=? AND bytes_total=?'''+suffix,
+                    (len(images),destination,manifest,warning_json,state,receipt['completed_at'],topic,name,size,*values))
         return {'images':images,'warnings':list(warnings),'state':state,'completed_at':receipt['completed_at']}
 
     def import_organized(self, job, records, images, images_destination, *, image_warnings=()):

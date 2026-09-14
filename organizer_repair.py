@@ -16,6 +16,7 @@ def candidates(job, plan):
     result=[]
     for group in job['groups']:
         if group['state']=='completed':continue
+        if group.get('version'):continue # Preferred uploads are fetched as a whole set on Apply/Retry.
         names={r['filename'] for r in group['records']}
         for part in group.get('part_requirements',[]):
             name=part['filename']

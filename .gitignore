@@ -31,6 +31,8 @@
 !/folder_organizer.py
 !/organizer_apply.py
 !/organizer_repair.py
+!/organizer_versions.py
+!/test_organizer_versions.py
 !/queue-panel.html
 !/release_images.py
 !/release_rules.py

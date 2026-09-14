@@ -207,7 +207,7 @@ function renderApplication(){
  el('repair').hidden=running||!repairFiles.length||(!pending&&!review);el('repair').disabled=active()||actionPending;
  el('repair-hint').hidden=el('repair').hidden;
  el('repair-hint').textContent=repairFiles.map(f=>f.filename+' · '+(f.bytes_total/1e9).toFixed(2)+' GB').join(' · ')+' · Incomplete originals are backed up locally before replacement.';
- const fresh=available.every(f=>f.identity),matchesChoice=sameChoice(current);
+ const fresh=available.every(f=>f.identity||f.version_download),matchesChoice=sameChoice(current);
  const extract=el('extract-images').checked,savedImages=available.filter(f=>f.image_status).length;
  const remaining=available.filter(f=>f.action==='move'||!f.already_recorded||(extract&&!f.image_status));
  const applied=planJob()?.state==='completed';
@@ -216,6 +216,8 @@ function renderApplication(){
  el('apply').disabled=!ready||actionPending||active()||current.state!=='completed'||!remaining.length||!fresh||!matchesChoice||!!pending||applied;
  el('extract-images').disabled=running||actionPending;
  el('apply-summary').textContent=!fresh?'Run a fresh preview before applying.':`${remaining.length} files need work · ${available.length-remaining.length} already complete · ${files.length-available.length} need review`;
+ const versions=current.archive_versions||[];
+ if(versions.length)el('apply-summary').textContent+=' · Preferred versions: larger complete upload, later upload on equal size. '+versions.map(v=>`${v.month}: ${(v.bytes_total/1e9).toFixed(2)} GB, ${v.download_files} downloads, ${v.backup_files} previous files kept in .previous_versions`).join(' · ');
  el('image-summary').textContent=extract?`${savedImages} files have saved image results · ${available.length-savedImages} without a saved result. Completed release extractions will be skipped.`:'Image extraction is off. Saved image results are retained.';
  el('application').hidden=!running&&!pending&&!(job?.state==='completed'&&job.warnings?.length);
  el('application-progress').hidden=!running;el('phase-progress').hidden=!running;el('phase-detail').hidden=!running;

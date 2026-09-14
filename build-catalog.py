@@ -25,8 +25,6 @@ template = r'''<!doctype html>
 </style>
 <main class="app-main">__APP_LAYOUT__
 <section id="artists-view" aria-labelledby="artists-tab" hidden>
-<p>Creators from your configured Table of Contents.</p>
-<p class="notice">Choose a starting month or All (archiving) for each creator, then save your subscriptions. Start downloads manually with Download all subscriptions on the queue page.</p>
 <div class="artist-controls">
 <div class="filters"><label>Search creators<input id="search" type="search" placeholder="Creator name"></label><label>Subscription<select id="subscription-filter" disabled><option value="">All creators</option><option value="subscribed">Subscribed</option><option value="not_subscribed">Not subscribed</option></select></label></div>
 <div class="subscription-toolbar"><div><span id="selected-count"></span><small id="saved-summary"></small></div><div class="subscription-buttons"><button id="save-subscriptions" disabled>Save subscriptions</button><button id="load-subscriptions" disabled>Load saved subscriptions</button></div></div>

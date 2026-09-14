@@ -41,6 +41,13 @@ template = r'''<!doctype html>
 .artist-controls button{height:44px;padding:11px 14px;font-size:14px}
 .artist-controls button:disabled,#save-subscriptions:disabled{background:#f3f1f6;color:#908896;border-color:#e3dfe9;cursor:default}
 .artist-controls #save-status:empty{display:none}
+.subscription-toggle{position:relative;display:inline-flex;align-items:center;width:48px;height:44px;vertical-align:middle;cursor:pointer}
+.subscription-toggle input[type=checkbox]{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;cursor:pointer}
+.subscription-track{position:relative;display:block;width:48px;height:28px;border:1px solid #aaa0b5;border-radius:999px;background:#b7aebe;pointer-events:none}
+.subscription-track:before{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:white;box-shadow:0 1px 3px #27233230}
+.subscription-toggle input:checked+.subscription-track{background:#7651a6;border-color:#7651a6}
+.subscription-toggle input:checked+.subscription-track:before{transform:translateX(20px)}
+.subscription-toggle input:focus-visible+.subscription-track{outline:2px solid #7651a6;outline-offset:3px}
 @media(max-width:850px){.artist-controls{padding:20px}.artist-controls .filters{grid-template-columns:1fr}}
 </style>
 <div id="count" aria-live="polite"></div><div class="table"><table><thead><tr><th>Subscribe</th><th>Creator</th><th>Creator folder</th><th>Download scope</th></tr></thead><tbody id="rows"></tbody></table></div><nav><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></nav>

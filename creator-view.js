@@ -34,17 +34,21 @@ function render(reset=false){
   for(const r of filtered.slice(offset,offset+50)){
     const row=element('tr'),choice=element('td'),creator=element('td'),folderCell=element('td'),scopeCell=element('td');
     const draft=selected[r.topic_url],isSaved=saved.has(r.topic_url);
-    const checkbox=element('input');checkbox.type='checkbox';checkbox.checked=!!draft;checkbox.setAttribute('aria-label','Subscribe to '+r.name);
+    const toggle=element('label'),track=element('span');toggle.className='subscription-toggle';track.className='subscription-track';track.setAttribute('aria-hidden','true');
+    const checkbox=element('input');checkbox.type='checkbox';checkbox.checked=!!draft;checkbox.value=r.topic_url;checkbox.setAttribute('role','switch');checkbox.setAttribute('aria-label','Subscribe to '+r.name);
+    toggle.append(checkbox,track);
     checkbox.onchange=()=>{
+      const hadFocus=document.activeElement===checkbox;
       if(checkbox.checked){
         const saved=savedSubscriptions.find(record=>record.topic_url===r.topic_url);
         selected[r.topic_url]=saved?SelectionRules.migrate({...saved,selection_version:2},inventory):{selection_version:2,creator:r.name,topic_url:r.topic_url,creator_folder:SelectionRules.suggest(r.name,inventory.folders),layout:'monthly',download_scope:'from_month',start_month:SelectionRules.defaultStartMonth()};
       }
       else delete selected[r.topic_url];
       persist();render();
+      if(hadFocus)Array.from(body.querySelectorAll('input[role="switch"]')).find(input=>input.value===r.topic_url)?.focus({preventScroll:true});
     };
     const membership=element('small',isSaved?(draft?'Subscribed':'Removal pending'):(draft?'Not saved yet':'Not subscribed'));
-    if(!!draft!==isSaved)membership.className='changed';choice.append(checkbox,membership);
+    if(!!draft!==isSaved)membership.className='changed';choice.append(toggle,membership);
     creator.append(element('strong',r.name));
     const details=element('details');details.append(element('summary',r.ocr_confidence<80?'Check spelling · source details':'Source details'),element('code',r.topic_url));
     if(r.aliases?.length)details.append(element('small','Other readings: '+r.aliases.map(a=>a.name).join(', ')));

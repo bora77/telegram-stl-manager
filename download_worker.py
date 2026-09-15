@@ -58,7 +58,7 @@ class Worker:
     def transfer(self,sub,item,month,downloaded=None):
         if is_image_attachment(item):self.exclude_image(sub,item);return
         filename=item['filename']
-        if self.history.was_downloaded(item['source_message_id']):return
+        if self.history.should_skip(item['source_message_id']):return
         row=self.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=sub['topic_url'],filename=filename,bytes_total=item.get('bytes_total'),release_month=month,batch_id=self.batch)
         item_id=row['id']
         with self.history.connect() as db:db.execute("UPDATE downloads SET batch_id=?,state='queued',error=NULL WHERE id=? AND state!='downloaded'",(self.batch,item_id))
@@ -334,7 +334,7 @@ class Worker:
         return [entry for entry in entries if entry['item']['source_message_id'] not in excluded]
     def queue_item(self,sub,item,month):
         if is_image_attachment(item):self.exclude_image(sub,item);return
-        if self.history.was_downloaded(item['source_message_id']):return
+        if self.history.should_skip(item['source_message_id']):return
         item={**item,'topic_url':sub['topic_url']}
         row=self.history.register(source_message_id=item['source_message_id'],creator=sub['creator'],topic_url=sub['topic_url'],
                                   filename=item['filename'],bytes_total=item['bytes_total'],release_month=month,batch_id=self.batch)

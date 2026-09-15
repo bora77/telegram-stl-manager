@@ -24,6 +24,8 @@
   <p id="download-speed" aria-live="polite"></p>
   </div>
   <small id="history-summary">Download history is retained when files are moved.</small>
+  <div id="corrupt-files" class="corrupt-files" hidden></div>
+  <details id="ignored-details" hidden><summary id="ignored-summary">Ignored corrupt sources</summary><ul id="ignored-files"></ul></details>
   <div id="parallel-panel" class="move-panel" hidden><strong>Active downloads</strong><div id="parallel-files"></div></div>
   <div id="extraction-panel" class="move-panel" hidden><strong id="extraction-title">Extracting release images locally</strong><progress id="extraction-progress" max="100" aria-label="Image extraction progress"></progress><p id="extraction-status" aria-live="polite"></p><small id="extraction-help">Images go into release_images inside the monthly release folder. Archive files remain intact.</small></div>
   <div id="move-panel" class="move-panel" hidden><strong id="move-title">Moving from local disk to Kronos</strong><progress id="move-progress" max="100" value="0" aria-label="Move to Kronos progress"></progress><p id="move-status" aria-live="polite"></p><small>The local file is removed after destination verification and history recording.</small></div><details id="review-details"><summary id="review-summary">Items needing review</summary><ul id="run-warnings"></ul></details>
@@ -32,6 +34,7 @@
   </div>
 </section>
 <style>
+.corrupt-files{margin:18px 0;padding:16px 18px;border:1px solid #e2c491;border-radius:12px;background:#fff8ec}.corrupt-file{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:12px 0}.corrupt-file+.corrupt-file{border-top:1px solid #ecdfc7}.corrupt-file>div:first-child{flex:1;min-width:180px;overflow-wrap:anywhere}.corrupt-file strong{font-size:13px}.corrupt-actions{display:flex;gap:8px;flex-wrap:wrap}.corrupt-actions button{min-height:40px}.corrupt-file small{font-size:12px;line-height:1.5}#ignored-details{margin:18px 0;font-size:13px;color:#706879}
 #parallel-files,#queue-list{overflow-x:auto}.queue-file.active-transfer{display:grid;grid-template-columns:minmax(200px,1fr) 130px 170px 165px minmax(85px,max-content) 140px;align-items:center;gap:14px;min-width:1000px;padding:12px 0;font-size:12px}.active-transfer>strong,.active-transfer .transfer-creator{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.active-transfer .transfer-detail{white-space:nowrap;color:#776c81}.active-transfer .transfer-creator{color:#776c81}.queue-file.active-transfer progress{margin:0;height:7px}
 .queue-file.queue-file-compact{display:flex;align-items:center;gap:16px;padding:9px 0;min-width:0;font-size:13px}.queue-file-compact>strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.queue-file-compact .transfer-summary{max-width:65%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#776c81}@media(max-width:600px){.queue-file.queue-file-compact{gap:8px;font-size:12px}.queue-file-compact .transfer-summary{max-width:48%;font-size:11px}}
 .run-activity .queue-overview{margin-top:14px}.run-activity #download-speed:empty{display:none}.run-activity .gauge-value{stroke:#fff}

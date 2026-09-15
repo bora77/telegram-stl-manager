@@ -169,6 +169,8 @@ class SubscriptionStore:
         organizer_active=Organizer(self).status()['state'] in ACTIVE
         count=len(self.read()['subscriptions'])
         queue=self.history.queue(run.get('id'))
+        from run_manager import corrupt_download
+        for file in queue['files']:file['corrupt_archive']=corrupt_download(file)
         transferring=[f for f in queue['files'] if f['state']=='downloading' and f.get('download_finished_at') is None] if active and run['state']=='downloading' else []
         measured=[f['download_speed_bps'] for f in transferring if type(f.get('download_speed_bps')) in (int,float) and math.isfinite(f['download_speed_bps']) and f['download_speed_bps']>=0]
         target=self.config()['download_bandwidth_target_mbps']

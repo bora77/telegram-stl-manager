@@ -35,6 +35,10 @@ schedule.
   Runs with unfinished files offer Resume and show received bytes separately
   from completed files. The review panel shows the latest attempt's unresolved
   issues instead of replaying warnings from earlier attempts.
+- **Handle corrupt downloads.** Integrity errors offer **Redownload** to fetch
+  fresh bytes while retaining the old local copy, or **Ignore corrupt source**
+  to skip that attachment in future runs. Ignored files remain separate from
+  successfully downloaded files and no longer hold the run open.
 - **Remember completed work.** SQLite records attachment identities, exact
   sizes, destinations and transfer results. Moving a completed release out of
   Incoming later does not cause it to be downloaded again.

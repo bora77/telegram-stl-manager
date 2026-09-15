@@ -94,7 +94,7 @@ class Handler(SimpleHTTPRequestHandler):
         host=self.headers.get('Host')
         if not self.valid_host() or self.headers.get('Origin') != 'http://'+host:
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
-        if self.path not in ('/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -128,7 +128,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if self.path.endswith(('/apply','/resume','/repair')):
                     self.reply_json(start_application(self.store,payload,resume=self.path.endswith(('/resume','/repair')),repair=self.path.endswith('/repair')));return
                 self.reply_json(organizer.start(payload) if self.path.endswith('/preview') else organizer.stop());return
-            result=(self.store.runs.start(payload) if self.path=='/api/run' else self.store.runs.resume(payload) if self.path=='/api/run/resume' else self.store.runs.stop() if self.path=='/api/stop' else self.store.save_config(payload) if self.path.endswith('config') else self.store.save(payload))
+            result=(self.store.runs.start(payload) if self.path=='/api/run' else self.store.runs.resume(payload) if self.path=='/api/run/resume' else self.store.runs.ignore_corrupt(payload) if self.path=='/api/run/ignore' else self.store.runs.stop() if self.path=='/api/stop' else self.store.save_config(payload) if self.path.endswith('config') else self.store.save(payload))
             self.reply_json(result)
         except FileExistsError as error:
             self.reply_json({'error':str(error)},409)

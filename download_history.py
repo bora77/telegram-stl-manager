@@ -40,6 +40,8 @@ class DownloadHistory:
                 identity TEXT PRIMARY KEY, topic_url TEXT NOT NULL, archives TEXT NOT NULL,
                 destination TEXT NOT NULL, manifest TEXT NOT NULL, warnings TEXT NOT NULL,
                 state TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
+            for name in ('ignored_at','ignore_reason'):
+                if name not in columns:db.execute(f'ALTER TABLE downloads ADD COLUMN {name} TEXT')
             db.execute('''CREATE TABLE IF NOT EXISTS organized_files (
                 operation_id TEXT NOT NULL, topic_url TEXT NOT NULL, source_path TEXT NOT NULL,
                 destination TEXT NOT NULL, filename TEXT NOT NULL, bytes_total INTEGER NOT NULL,
@@ -185,6 +187,13 @@ class DownloadHistory:
                 (str(source_chat_id),source_message_id,attachment_index)).fetchone()
             return bool(row and row['state']=='downloaded')
 
+    def should_skip(self, source_message_id, attachment_index=0):
+        """Completed downloads and explicitly ignored corrupt sources stay skipped."""
+        with self.connect() as db:
+            row=db.execute('SELECT state,ignored_at FROM downloads WHERE source_chat_id=? AND source_message_id=? AND attachment_index=?',
+                           (str(self.source.chat_id),source_message_id,attachment_index)).fetchone()
+            return bool(row and (row['state']=='downloaded' or row['ignored_at']))
+
     def set_progress(self, item_id, bytes_downloaded):
         with self.connect() as db:
             row=db.execute('SELECT * FROM downloads WHERE id=?',(item_id,)).fetchone()
@@ -224,12 +233,13 @@ class DownloadHistory:
 
     def batch_outcome(self,batch_id):
         with self.connect() as db:
-            row=db.execute("SELECT count(*) AS total_files,coalesce(sum(state='downloaded'),0) AS completed_files FROM downloads WHERE batch_id=?",(batch_id,)).fetchone()
-        return {**dict(row),'unfinished_files':row['total_files']-row['completed_files']}
+            row=db.execute("SELECT count(*) AS total_files,coalesce(sum(state='downloaded'),0) AS completed_files FROM downloads WHERE batch_id=? AND ignored_at IS NULL",(batch_id,)).fetchone()
+            ignored=db.execute('SELECT count(*) FROM downloads WHERE batch_id=? AND ignored_at IS NOT NULL',(batch_id,)).fetchone()[0]
+        return {**dict(row),'unfinished_files':row['total_files']-row['completed_files'],'ignored_count':ignored}
 
     def run_warnings(self,batch_id):
         with self.connect() as db:
-            rows=db.execute("SELECT creator,filename,state,error,image_warnings FROM downloads WHERE batch_id=? ORDER BY id",(batch_id,)).fetchall()
+            rows=db.execute("SELECT creator,filename,state,error,image_warnings FROM downloads WHERE batch_id=? AND ignored_at IS NULL ORDER BY id",(batch_id,)).fetchall()
         warnings=[]
         for row in rows:
             if row['state']!='downloaded' and row['error']:
@@ -243,6 +253,8 @@ class DownloadHistory:
             batch={'batch_id':batch_id} if batch_id else db.execute('SELECT batch_id FROM downloads ORDER BY id DESC LIMIT 1').fetchone()
             rows=[dict(r) for r in db.execute('SELECT * FROM downloads WHERE batch_id=? ORDER BY id',(batch['batch_id'],))] if batch else []
             completed=db.execute("SELECT count(*) FROM downloads WHERE state='downloaded'").fetchone()[0]
+        ignored=[{k:r[k] for k in ('id','creator','filename','ignore_reason','ignored_at')} for r in rows if r.get('ignored_at')]
+        rows=[r for r in rows if not r.get('ignored_at')]
         for row in rows:
             row['progress_total']=row['bytes_total'] if row['bytes_total'] is not None else row['bytes_total_estimate']
             row['total_is_estimate']=row['bytes_total'] is None and row['bytes_total_estimate'] is not None
@@ -252,4 +264,4 @@ class DownloadHistory:
                 'progress_total':sum(r['progress_total'] for r in rows) if rows and all(r['progress_total'] is not None for r in rows) else None,
                 'total_is_estimate':any(r['total_is_estimate'] for r in rows),
                 'recent_completed':[r for r in rows if r['state']=='downloaded'][-10:],
-                'history_completed':completed}
+                'history_completed':completed,'ignored_files':ignored}

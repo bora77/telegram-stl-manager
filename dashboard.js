@@ -63,6 +63,16 @@ function renderRunActivity(queue){
   document.getElementById('review-summary').textContent=`Items needing review (${run.warnings?.length||0})`;
 }
 let resumableRunId=null,runRequestPending=false;
+async function corruptFileAction(runId,fileId,ignore){
+  if(runRequestPending)return;
+  runRequestPending=true;
+  document.querySelectorAll('#corrupt-files button,#download-all,#resume-downloads').forEach(button=>button.disabled=true);
+  let errorMessage='';
+  try{
+    await api(ignore?'/api/run/ignore':'/api/run/resume',ignore?{run_id:runId,file_ids:[fileId]}:{run_id:runId,redownload_ids:[fileId]});
+  }catch(error){errorMessage=error.message}
+  finally{runRequestPending=false;await refreshQueue();if(errorMessage)document.getElementById('run-detail').textContent=errorMessage}
+}
 async function refreshQueue(){
   try{
     const queue=await api('/api/queue');
@@ -84,6 +94,20 @@ async function refreshQueue(){
     document.getElementById('history-summary').textContent=`${queue.history_completed||0} completed downloads in permanent history · retained when files move`;
     document.getElementById('queue-bytes').textContent=queue.total_files?bytes(queue.bytes_downloaded)+' / '+(queue.total_is_estimate?'≈ ':'')+bytes(total):checking?'Scanning before downloading':emptyFinished?'No data transferred':'No transfers yet';
     const warnings=document.getElementById('run-warnings');warnings.replaceChildren();for(const text of queue.run.warnings||[])warnings.append(element('li',text));
+    const corrupt=document.getElementById('corrupt-files'),badFiles=queue.files.filter(file=>file.corrupt_archive);
+    corrupt.hidden=!badFiles.length;corrupt.replaceChildren();
+    for(const file of badFiles){
+      const row=element('div'),description=element('div'),actions=element('div');row.className='corrupt-file';actions.className='corrupt-actions';
+      description.append(element('strong',file.filename),element('small','Archive data failed integrity checks. Redownload keeps the current copy locally; Ignore skips this Telegram attachment in future runs.'));
+      for(const [label,ignore] of [['Redownload',false],['Ignore corrupt source',true]]){
+        const button=element('button',label);button.disabled=queue.active||!queue.can_resume||runRequestPending;
+        button.onclick=()=>corruptFileAction(queue.run.id,file.id,ignore);actions.append(button);
+      }
+      row.append(description,actions);corrupt.append(row);
+    }
+    const ignored=queue.ignored_files||[];document.getElementById('ignored-details').hidden=!ignored.length;
+    document.getElementById('ignored-summary').textContent=`Ignored corrupt sources (${ignored.length})`;
+    document.getElementById('ignored-files').replaceChildren(...ignored.map(file=>element('li',file.creator+' · '+file.filename)));
     const moving=queue.worker_state==='copying';document.getElementById('move-panel').hidden=!moving;
     const extracting=queue.worker_state==='extracting';document.getElementById('extraction-panel').hidden=!extracting;
     const extraction=queue.run;

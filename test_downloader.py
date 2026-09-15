@@ -231,6 +231,107 @@ class ResumeTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):store.runs.resume({'run_id':run['id']})
             launch.assert_called_once()
 
+    def corrupt_fixture(self,root):
+        from download_plan import DownloadPlan
+        store,state,run=self.fixture(root);sub=run['subscriptions'][0];item=self.item(sub,201)
+        row=store.history.register(source_message_id=201,creator=sub['creator'],topic_url=sub['topic_url'],
+            filename=item['filename'],bytes_total=item['bytes_total'],release_month='2026-09',batch_id=run['id'])
+        with store.history.connect() as db:
+            db.execute("UPDATE downloads SET state='paused',error='ERROR: Data Error : inner.zip',bytes_downloaded=bytes_total,download_finished_at='finished' WHERE id=?",(row['id'],))
+        run.update(state='needs_review');store.atomic_write(store.runs.path,run)
+        DownloadPlan(store,run).save(sub,[{'item':item,'month':'2026-09'}],{'creator':sub['creator']},[])
+        staging=state/'staging'/str(row['id']);staging.mkdir(parents=True)
+        (staging/item['filename']).write_bytes(b'corrupt archive');(staging/'receipt.json').write_text('{}')
+        cli=root/'cli';cache=cli/'transfers'/'201';cache.mkdir(parents=True)
+        (cache/'payload.part').write_bytes(b'cached bad bytes');(cache/'complete.json').write_text('{}')
+        return store,state,cli,run,item,row,staging,cache
+
+    def test_corrupt_redownload_preserves_old_copies_and_resets_both_caches(self):
+        with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
+            root=Path(temp);store,state,cli,run,item,row,staging,cache=self.corrupt_fixture(root)
+            self.assertTrue(store.queue()['files'][0]['corrupt_archive'])
+            with patch('telegram_cli.STATE',state),patch('telegram_cli.CLI_STATE',cli):
+                result=store.runs.resume({'run_id':run['id'],'redownload_ids':[row['id']]})
+            self.assertEqual(result['id'],run['id']);launch.assert_called_once()
+            self.assertFalse(staging.exists());self.assertFalse(cache.exists())
+            backups=[Path(p) for p in result['redownloads'][-1]['backups']]
+            self.assertEqual((backups[0]/item['filename']).read_bytes(),b'corrupt archive')
+            self.assertEqual((backups[1]/'payload.part').read_bytes(),b'cached bad bytes')
+            fresh=store.history.queue(run['id'])['files'][0]
+            self.assertEqual((fresh['state'],fresh['bytes_downloaded'],fresh['download_finished_at']),('queued',0,None))
+            self.assertFalse(store.history.was_downloaded(201))
+
+    def test_ignore_corrupt_source_finishes_run_without_claiming_download_or_removing_file(self):
+        import download_worker
+        with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
+            root=Path(temp);store,state,cli,run,item,row,staging,cache=self.corrupt_fixture(root)
+            result=store.runs.ignore_corrupt({'run_id':run['id'],'file_ids':[row['id']]})
+            self.assertEqual(result['state'],'completed');self.assertEqual(result['unfinished_files'],0)
+            self.assertEqual(result['ignored_count'],1);self.assertFalse(store.history.was_downloaded(201))
+            self.assertTrue(store.history.should_skip(201));self.assertFalse(store.history.should_skip(202))
+            self.assertTrue(staging.is_dir());self.assertTrue(cache.is_dir());launch.assert_not_called()
+            q=store.queue();self.assertEqual(q['total_files'],0);self.assertEqual(q['history_completed'],0)
+            self.assertEqual(len(q['ignored_files']),1);self.assertEqual(q['run']['warnings'],[])
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state):
+                worker=download_worker.Worker(run['id'])
+                worker.queue_item(run['subscriptions'][0],item,'2026-09');self.assertEqual(worker.planned,[])
+                worker.transfer(run['subscriptions'][0],item,'2026-09') # Must not access Telegram.
+
+    def test_redownload_fetches_new_bytes_instead_of_reusing_the_corrupt_archive(self):
+        import download_worker
+        from file_delivery import digest
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store,state,cli,run,item,row,staging,cache=self.corrupt_fixture(root)
+            with patch('telegram_cli.STATE',state),patch('telegram_cli.CLI_STATE',cli),patch('run_manager.subprocess.Popen'):
+                store.runs.resume({'run_id':run['id'],'redownload_ids':[row['id']]})
+            source=root/'fresh.part';source.write_bytes(b'N'*item['bytes_total'])
+            from unittest.mock import Mock
+            client=Mock();client.download.return_value=source
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state):
+                worker=download_worker.Worker(run['id']);worker.telegram=client
+                def finish(records):
+                    self.assertEqual(records[0]['staged'].read_bytes(),b'N'*item['bytes_total'])
+                    store.history.complete(row['id'],destination=str(root/'destination'/'archive.zip'),
+                        verified_size=item['bytes_total'],sha256=digest(records[0]['staged']))
+                with patch.object(worker,'finish_release',side_effect=finish):worker.transfer(run['subscriptions'][0],item,'2026-09')
+            client.download.assert_called_once();self.assertTrue(store.history.was_downloaded(201))
+
+    def test_failed_cache_reset_restores_both_original_copies(self):
+        with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
+            root=Path(temp);store,state,cli,run,item,row,staging,cache=self.corrupt_fixture(root)
+            rename=Path.rename
+            def fail_second(source,target):
+                if source==cache:raise OSError('test cache rename failure')
+                return rename(source,target)
+            with patch('telegram_cli.STATE',state),patch('telegram_cli.CLI_STATE',cli),patch.object(Path,'rename',fail_second):
+                with self.assertRaises(OSError):store.runs.resume({'run_id':run['id'],'redownload_ids':[row['id']]})
+            self.assertEqual((staging/item['filename']).read_bytes(),b'corrupt archive')
+            self.assertEqual((cache/'payload.part').read_bytes(),b'cached bad bytes')
+            self.assertEqual(store.history.queue(run['id'])['files'][0]['state'],'paused');launch.assert_not_called()
+
+    def test_corrupt_actions_reject_stale_ids_completed_files_and_noncorruption_errors(self):
+        with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
+            root=Path(temp);store,state,cli,run,item,row,staging,cache=self.corrupt_fixture(root)
+            for ids in ([],[True],[row['id'],row['id']],[9999]):
+                with self.assertRaises(ValueError):store.runs.ignore_corrupt({'run_id':run['id'],'file_ids':ids})
+            with self.assertRaises(FileExistsError):store.runs.ignore_corrupt({'run_id':'old','file_ids':[row['id']]})
+            with store.history.connect() as db:db.execute("UPDATE downloads SET error='No space left on device' WHERE id=?",(row['id'],))
+            with self.assertRaises(ValueError):store.runs.resume({'run_id':run['id'],'redownload_ids':[row['id']]})
+            self.assertTrue(staging.is_dir());self.assertTrue(cache.is_dir());launch.assert_not_called()
+            with store.history.connect() as db:db.execute("UPDATE downloads SET state='downloaded',error='ERROR: Data Error' WHERE id=?",(row['id'],))
+            run['state']='failed';store.atomic_write(store.runs.path,run)
+            with self.assertRaises(ValueError):store.runs.ignore_corrupt({'run_id':run['id'],'file_ids':[row['id']]})
+
+    def test_corrupt_redownload_rejects_changed_checkpoint_before_touching_cached_bytes(self):
+        from download_plan import DownloadPlan
+        with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
+            root=Path(temp);store,state,cli,run,item,row,staging,cache=self.corrupt_fixture(root)
+            plan=DownloadPlan(store,run);sub=run['subscriptions'][0]
+            plan.save(sub,[{'item':{**item,'bytes_total':999},'month':'2026-09'}],{'creator':sub['creator']},[])
+            with patch('telegram_cli.STATE',state),patch('telegram_cli.CLI_STATE',cli):
+                with self.assertRaises(ValueError):store.runs.resume({'run_id':run['id'],'redownload_ids':[row['id']]})
+            self.assertTrue(staging.is_dir());self.assertTrue(cache.is_dir());launch.assert_not_called()
+
     def test_resume_rejects_stale_run_busy_worker_changed_folder_and_source(self):
         with tempfile.TemporaryDirectory() as temp,patch('run_manager.subprocess.Popen') as launch:
             root=Path(temp);store,state,run=self.fixture(root);run['state']='failed';store.atomic_write(store.runs.path,run)

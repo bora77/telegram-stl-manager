@@ -12,6 +12,29 @@ from subscription_store import SubscriptionStore
 
 
 class OrganizerTests(unittest.TestCase):
+    def test_existing_month_folder_supplies_missing_archive_date(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/'2024-04';root.mkdir()
+            month=root/'2023-03';month.mkdir()
+            for path in (month/'Undated release.zip',month/'CreatorDec2023.part1.rar',
+                         month/'Artist 2023-04.zip',root/'Undated loose.zip'):
+                path.write_bytes(b'archive')
+            before={str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()}
+            rows={r['source']:r for r in inventory(root)}
+            for name in ('Undated release.zip','CreatorDec2023.part1.rar'):
+                row=rows['2023-03/'+name]
+                self.assertEqual((row['month'],row['action'],row['destination'],row['reason']),
+                                 ('2023-03','keep','2023-03/'+name,''))
+            self.assertEqual((rows['2023-03/Artist 2023-04.zip']['month'],rows['2023-03/Artist 2023-04.zip']['action']),('2023-04','move'))
+            self.assertIsNone(rows['Undated loose.zip']['month'])
+            self.assertEqual(rows['Undated loose.zip']['action'],'review')
+            matched=rows['2023-03/Undated release.zip']
+            match_files([matched],[{'filename':matched['filename'],'bytes_total':7,'source_message_id':123,
+                                   'message_url':'https://t.me/c/123456789/123'}],set())
+            self.assertEqual(matched['telegram_status'],'matched')
+            self.assertTrue(matched['would_record'])
+            self.assertEqual(before,{str(p.relative_to(root)):p.read_bytes() for p in root.rglob('*') if p.is_file()})
+
     def test_inventory_ignores_loose_images_and_collages_without_changing_files(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);month=root/'2026-01';month.mkdir()

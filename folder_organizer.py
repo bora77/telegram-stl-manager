@@ -36,6 +36,8 @@ def inventory(folder):
             continue
         relative = str(path.relative_to(folder))
         month = release_month(path.name)
+        if month is None and path.parent != folder and re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])', path.parent.name):
+            month = path.parent.name
         target = folder / month / path.name if month else None
         action = 'review' if month is None else 'keep' if path == target else 'conflict' if target.exists() else 'move'
         info=path.stat()

@@ -31,6 +31,7 @@ class SubscriptionStore:
         data.setdefault('server_speed_threshold_mbps',0)
         data.setdefault('download_bandwidth_target_mbps',28)
         data.setdefault('adaptive_downloads',True)
+        data.setdefault('availability_interval_hours',4)
         return data
 
     def atomic_write(self, path, data):
@@ -65,9 +66,12 @@ class SubscriptionStore:
             target=payload.get('download_bandwidth_target_mbps',current['download_bandwidth_target_mbps'])
             if type(target) not in (int,float) or not 0<target<=1000 or not math.isfinite(target):
                 raise ValueError('Enter a total download bandwidth target greater than 0 and at most 1000 MB/s.')
+            interval=payload.get('availability_interval_hours',current['availability_interval_hours'])
+            if type(interval) not in (int,float) or not math.isfinite(interval) or not .25<=interval<=168:
+                raise ValueError('Choose an availability check interval between 0.25 and 168 hours.')
             adaptive=payload.get('adaptive_downloads',current['adaptive_downloads'])
             if type(adaptive) is not bool:raise ValueError('Choose whether adaptive parallel downloads are enabled.')
-            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive}
+            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval}
             self.atomic_write(self.config_path,data)
             return data
 

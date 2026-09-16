@@ -76,3 +76,9 @@
 **/*.pyc
 **/node_modules/
 **/.pytest_cache/
+
+!/availability.py
+!/test_availability.py
+!/start.sh
+!/install.sh
+!/Start-Windows.cmd

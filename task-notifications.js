@@ -136,3 +136,31 @@
   window.TaskNotifications=Object.freeze({refresh});
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
+
+
+/* Open browsers schedule checks; the web server has no recurring timer. */
+(()=>{
+ let busy=false;
+ async function pollAvailability(){
+  if(busy)return;busy=true;
+  const label=document.getElementById('availability-status');
+  try{
+   let response=await fetch('/api/availability',{cache:'no-store'});
+   if(!response.ok)throw Error();let state=await response.json();
+   if(state.subscribed&&!state.checking&&Date.now()/1000>=state.next_check_at){
+    response=await fetch('/api/availability/check',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    if(!response.ok)throw Error();state=await response.json();
+   }
+   if(label){
+    label.hidden=!state.subscribed;
+    const result=state.files?`${state.files} files available · ${state.releases} releases · ${state.creators} artists`:(state.errors.length?'Availability check incomplete':'No downloads available');
+    label.textContent=state.checking?'Checking for available downloads…':state.deferred?'Next check: due now · Waiting for the current task to finish.':
+     `${result}${state.checked_at?' · Checked '+new Date(state.checked_at*1000).toLocaleString():''} · Next check: ${new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · Every ${state.interval_seconds/3600} hours while this tool is open. Downloads stay manual.`;
+    if(state.errors.length&&state.files)label.textContent+=' · Some artists could not be checked.';
+   }
+  }catch{if(label){label.hidden=false;label.textContent='Availability check unavailable; the browser will retry.'}}
+  finally{busy=false}
+ }
+ function start(){window.addEventListener('availability-config-saved',pollAvailability);pollAvailability();setInterval(pollAvailability,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollAvailability()})}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();

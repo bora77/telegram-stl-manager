@@ -53,7 +53,7 @@ const sameChoice=plan=>plan.topic_url===el('artist').value&&plan.creator_folder=
 const choiceKey=()=>JSON.stringify([el('artist').value,el('folder').value]);
 const previewRunning=()=>['starting','scanning'].includes(current.state);
 const planJob=()=>current.application?.plan_id===current.id?current.application:null;
-const applicable=f=>['move','keep'].includes(f.action)&&f.telegram_status==='matched'&&f.month;
+const applicable=f=>['move','keep','duplicate'].includes(f.action)&&f.telegram_status==='matched'&&f.month;
 function cleanMessage(message=''){
  const lines=String(message).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').replace(/\x08+|\r/g,'\n').replace(/[\x00-\x07\x0b-\x1f\x7f]/g,'').split('\n').map(line=>line.replace(/[ \t]+/g,' ').trim()).filter(line=>line&&!/^\d{1,3}%(?:\s|$)/.test(line));
  return [...new Set(lines)].join('\n');
@@ -145,7 +145,7 @@ function renderTable(){
  const recorded=f=>f.already_recorded||f.outcome?.recorded;
  const needsReview=f=>f.outcome?.state==='needs_review'||['review','conflict'].includes(f.action)||!['matched','pending'].includes(f.telegram_status);
  const toRecord=f=>f.would_record&&!recorded(f)&&!needsReview(f);
- const toMove=f=>f.action==='move'&&!f.outcome?.moved&&!needsReview(f);
+ const toMove=f=>['move','duplicate'].includes(f.action)&&!f.outcome?.moved&&!needsReview(f);
  el('metrics').replaceChildren();
  for(const [label,count] of [['Files',files.length],['Matched',files.filter(f=>f.telegram_status==='matched').length],['To move',files.filter(toMove).length],['To record',files.filter(toRecord).length],['Recorded',files.filter(recorded).length],['Needs review',files.filter(needsReview).length]]){
   const box=node('div','','metric');box.append(node('strong',String(count)),node('span',label));el('metrics').append(box);
@@ -166,9 +166,9 @@ function renderTable(){
  const focusedRelease=el('rows').contains(document.activeElement)?document.activeElement.dataset.releaseKey:null;
  function fileRow(f){
   const row=node('tr',''),name=node('td',f.source),destination=node('td',f.destination||'Month needs review'),action=node('td','');
-  const moved=f.action==='move'&&f.outcome?.moved,skipped=f.outcome?.state==='needs_review';
-  action.append(node('span',moved?'Moved':skipped?'Needs review':({move:'Would move',keep:'Keep in place',conflict:'Conflict',review:'Needs review'})[f.action],'badge '+(moved?'moved':skipped?'review':f.action)));
-  const phase=({pending:'Waiting',waiting:'Waiting for download',preparing:'Preparing release',extracting:'Extracting images',images:'Moving release images',moving:'Moving archives',recording:'Recording in history',moved:'Waiting for history',repair_download:'Downloading replacement',repair_backup:'Backing up incomplete original',repair_move:'Moving replacement',paused:'Paused',needs_review:'Skipped; other releases continue',completed:'Complete'})[f.outcome?.state];
+  const moved=['move','duplicate'].includes(f.action)&&f.outcome?.moved,skipped=f.outcome?.state==='needs_review';
+  action.append(node('span',moved?(f.action==='duplicate'?'Duplicate removed':'Moved'):skipped?'Needs review':({duplicate:'Compare and remove duplicate',move:'Would move',keep:'Keep in place',conflict:'Conflict',review:'Needs review'})[f.action],'badge '+(moved?'moved':skipped?'review':f.action)));
+  const phase=({checking_duplicates:'Comparing duplicate contents',pending:'Waiting',waiting:'Waiting for download',preparing:'Preparing release',extracting:'Extracting images',images:'Moving release images',moving:'Moving archives',recording:'Recording in history',moved:'Waiting for history',repair_download:'Downloading replacement',repair_backup:'Backing up incomplete original',repair_move:'Moving replacement',paused:'Paused',needs_review:'Skipped; other releases continue',completed:'Complete'})[f.outcome?.state];
   if(phase)action.append(node('small',phase));
   if(f.reason)action.append(node('small',f.reason));
   if(f.outcome?.error){const details=node('details','');details.append(node('summary','Release error'),node('pre',cleanMessage(f.outcome.error)));action.append(details)}
@@ -232,7 +232,7 @@ function renderApplication(){
  el('repair-hint').textContent=repairFiles.map(f=>f.filename+' · '+(f.bytes_total/1e9).toFixed(2)+' GB').join(' · ')+' · Incomplete originals are backed up locally before replacement.';
  const fresh=available.every(f=>f.identity||f.version_download),matchesChoice=sameChoice(current);
  const extract=el('extract-images').checked,savedImages=available.filter(f=>f.image_status).length;
- const remaining=available.filter(f=>f.action==='move'||!f.already_recorded||(extract&&!f.image_status));
+ const remaining=available.filter(f=>['move','duplicate'].includes(f.action)||!f.already_recorded||(extract&&!f.image_status));
  const applied=planJob()?.state==='completed';
  el('apply-controls').hidden=el('preview-results').hidden||current.state!=='completed'||!available.length||!matchesChoice||!!pending||running||applied;
  el('apply').textContent=remaining.length?'Apply remaining work':'Already complete';

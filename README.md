@@ -198,3 +198,9 @@ git config --local core.hooksPath .githooks
 The check uses `distribution.json` and validates staged content against the public
 file list and locally configured source identity. Keep that allowlist intact.
 You can also run it manually with `python3 tools/check-git.py`.
+
+During organizer Preview, loose files whose names and sizes match an existing monthly copy are marked for duplicate cleanup. Manual Apply verifies their contents with SHA-256 before removing only the loose copy. Different contents stay untouched and are flagged for review. Preview never deletes files.
+
+Split archives with mixed names such as `release.7z.001`, `release.002`, and `release.003` are grouped together. Extraction uses temporary consistent names while preserving the original filenames; retrying an older organizer job also repairs this grouping.
+
+The browser checks subscribed creators for available downloads at the interval saved in Configuration (four hours by default) while the tool is open; it never starts downloads automatically. The Linux x64 runtime package includes Python, the web server, SQLite, Pillow, Telegram CLI and 7-Zip. Run `start.sh`; Windows uses WSL2. See INSTALL.md for first-time account/source setup and supported platforms.

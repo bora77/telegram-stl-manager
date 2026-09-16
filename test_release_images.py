@@ -66,6 +66,18 @@ class ExtractionTests(unittest.TestCase):
             with zipfile.ZipFile(archive,'w') as z:z.writestr('preview\u0085.jpg',b'image')
             self.assertEqual([p.read_bytes() for p in extract_images(archive,root/'work')],[b'image'])
 
+    def test_mixed_numbered_volume_names_extract_without_renaming_originals(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'preview.jpg';source.write_bytes(os.urandom(12000))
+            subprocess.run(['7z','a','-mx0','-v4k',str(root/'release.7z'),str(source)],stdout=subprocess.DEVNULL,check=True)
+            for part in sorted(root.glob('release.7z.*')):
+                if part.suffix!='.001':part.rename(root/('release'+part.suffix))
+            names={p.name for p in root.iterdir()}
+            images=extract_images(root/'release.7z.001',root/'work')
+            self.assertEqual([p.read_bytes() for p in images],[source.read_bytes()])
+            self.assertEqual({p.name for p in root.iterdir()}-{'work'},names)
+            self.assertEqual(volume_key('release.7z.001')[0],volume_key('release.002')[0])
+
     def test_bare_and_underscore_7z_parts_extract_as_one_set(self):
         for name in ('release','release_7z'):
             with self.subTest(name=name),tempfile.TemporaryDirectory() as temp:
@@ -158,7 +170,7 @@ class ExtractionTests(unittest.TestCase):
                 self.assertEqual(volume_key('Example 2026-01'+separator+'part01.rar'),('example 2026-01.rar',1))
                 self.assertEqual(volume_key('Example 2026-01'+separator+'PART2.RAR'),('example 2026-01.rar',2))
         self.assertEqual(volume_key('Example 2026-01.rar'),('example 2026-01.rar',0))
-        self.assertEqual(volume_key('Example 2026-01.7z.002'),('example 2026-01.7z',2))
+        self.assertEqual(volume_key('Example 2026-01.7z.002'),('example 2026-01',2))
         self.assertEqual(volume_key('Example 2026-01.r00'),('example 2026-01.rar',1))
         self.assertEqual(volume_key('Example partisans 2026-01.rar'),('example partisans 2026-01.rar',0))
 

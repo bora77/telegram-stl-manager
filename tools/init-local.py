@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Create blank private settings without replacing an existing installation."""
 import os
+import json
 from pathlib import Path
 
 
 def initialize(root):
     root = Path(root)
     (root / 'data').mkdir(exist_ok=True, mode=0o700)
+    settings=root/'data/settings.json'
+    if not settings.exists():
+        downloads=root/'downloads';downloads.mkdir(exist_ok=True)
+        try:
+            with settings.open('x') as stream:json.dump({'revision':0,'download_directory':str(downloads.resolve())},stream,indent=2)
+        except FileExistsError:pass
     for name in ('source', 'creators', 'incoming-folders'):
         target = root / 'data' / (name + '.json')
         try:

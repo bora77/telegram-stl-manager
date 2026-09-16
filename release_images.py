@@ -1,4 +1,5 @@
 """Extract image members locally without unpacking the release's model files."""
+from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path, PurePosixPath
@@ -63,7 +64,7 @@ def archive_error(text, archive):
 def volume_key(name):
     """Group archive volumes without confusing a part number with a month."""
     match = re.fullmatch(r'(.+\.(?:7z|zip|rar))\.(\d{3,})', name, re.I)
-    if match:return match[1].casefold(), int(match[2])
+    if match:return Path(match[1]).stem.casefold(), int(match[2])
     match = re.fullmatch(r'(.+)[._ -]part(\d+)\.rar', name, re.I)
     if match:return (match[1] + '.rar').casefold(), int(match[2])
     match = re.fullmatch(r'(.+)\.([rz])(\d{2,})', name, re.I)
@@ -71,6 +72,31 @@ def volume_key(name):
     match = re.fullmatch(r'(.+)\.(\d{3,})', name, re.I)
     if match:return match[1].casefold(),int(match[2])
     return name.casefold(), 0
+
+
+@contextmanager
+def split_input_aliases(source, work):
+    """Give mixed numbered volumes consistent temporary names, never rename originals."""
+    match=re.fullmatch(r'(.+)\.(0+1)',source.name)
+    if not match:
+        yield source,False
+        return
+    key,_=volume_key(source.name)
+    parts={}
+    for path in source.parent.iterdir():
+        if not re.fullmatch(r'.+\.\d{3,}',path.name) or volume_key(path.name)[0]!=key:continue
+        index=volume_key(path.name)[1]
+        if index in parts:raise ExtractionError('Ambiguous split archive parts; originals retained.')
+        if path.is_symlink() or not path.is_file():raise ExtractionError('Archive volume is not a regular file.')
+        parts[index]=path
+    expected=lambda index:match[1]+'.'+str(index).zfill(len(match[2]))
+    if all(path.name==expected(index) for index,path in parts.items()):
+        yield source,False
+        return
+    with tempfile.TemporaryDirectory(prefix='volume-aliases-',dir=work) as directory:
+        directory=Path(directory)
+        for index,path in parts.items():(directory/expected(index)).symlink_to(path.resolve(strict=True))
+        yield directory/source.name,True
 
 
 def is_archive(name):
@@ -236,7 +262,7 @@ def listing(archive, work, stopped, tick=lambda: None):
     return header, entries
 
 
-def complete_split_7z(archive, header):
+def complete_split_7z(archive, header, *, internal_aliases=False):
     """Check split 7z volume lengths against its parsed header without decoding models.
 
     7-Zip has already opened the archive and validated its headers. Selected
@@ -262,7 +288,7 @@ def complete_split_7z(archive, header):
         suffix = path.name[len(match[1]):]
         if not re.fullmatch(r'\d{3,}', suffix):continue
         index = int(suffix)
-        if index in volumes or path.is_symlink() or not path.is_file():
+        if index in volumes or (path.is_symlink() and not internal_aliases) or not path.is_file():
             raise ExtractionError('Ambiguous split archive parts; originals retained.')
         volumes[index] = path.stat().st_size
     if set(volumes) != set(range(1, count + 1)) or any(size <= 0 for size in volumes.values()) or sum(volumes.values()) != expected:
@@ -403,6 +429,10 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
         if warnings is not None and message not in warnings:warnings.append(message)
 
     def unpack(source, prefix=Path(), depth=0):
+        with split_input_aliases(source,work) as (aliased,internal_aliases):
+            unpack_members(aliased,prefix,depth,internal_aliases)
+
+    def unpack_members(source, prefix, depth, internal_aliases):
         if depth > 6:raise ExtractionError('Nested archive depth needs review; local archive retained.')
         progress('listing', len(results), None, 0, None)
         try:header, entries = listing(source, work, stopped, lambda: progress('listing', len(results), None, 0, None))
@@ -424,7 +454,7 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
             def checking():
                 progress('checking_parts', len(results), None, checked or 0, 100 if checked is not None else None)
             checking()
-            if not complete_split_7z(source, header):
+            if not complete_split_7z(source, header, internal_aliases=internal_aliases):
                 try:command(['t', '-bsp1', '-bb0', '-mmt=2', '-p-', '--', str(source)], work, stopped, checking, percent)
                 except ArchiveReadError:
                     if warnings is None:raise

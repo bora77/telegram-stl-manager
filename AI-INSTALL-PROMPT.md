@@ -173,3 +173,5 @@ Leave the installed application able to run without an AI agent or an open
 Telegram desktop window. Make only changes needed for installation, preserve the
 current feature set, and update the local install notes for any platform-specific
 adjustment you actually make.
+
+If given the bundled Linux x64 runtime package, use its runtime/python/bin/python3 and start.sh. Do not install another Python, database server, web server, or Go compiler. Initialize user-specific Telegram/source settings; never distribute account sessions or databases. Windows requires WSL2 Ubuntu 24.04. Do not install a recurring scheduler: availability checks are triggered by an open browser only.

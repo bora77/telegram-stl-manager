@@ -60,7 +60,12 @@
     ".githooks/pre-commit",
     "test_git_privacy.py",
     "adaptive_downloads.py",
-    "test_adaptive_downloads.py"
+    "test_adaptive_downloads.py",
+    "availability.py",
+    "test_availability.py",
+    "start.sh",
+    "install.sh",
+    "Start-Windows.cmd"
   ],
   "trees": [
     "templates",

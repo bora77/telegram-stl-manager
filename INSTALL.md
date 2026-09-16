@@ -1,3 +1,19 @@
+## Bundled application package (Linux x64 / Windows WSL2)
+
+Download `telegram-stl-linux-x64.tar.gz` and verify its accompanying SHA-256 file. Extract it into a writable directory, then run `./start.sh` (or `bash start.sh`). Open `http://localhost:6093`. Optional: `./install.sh` copies it into your per-user application directory without installing a service. Existing installations are never overwritten.
+
+This package includes a relocatable CPython 3.12 runtime, Python's HTTP web server and SQLite database engine, Pillow, the compiled Telegram CLI, and 7-Zip with the RAR codec. No separate Python, pip, Go compiler, database server, or web server installation is needed. SQLite databases are created locally on first use; no existing user's database, account session or Telegram source configuration is included. The package uses the [Astral standalone Python distribution](https://github.com/astral-sh/python-build-standalone), with its download SHA-256 pinned in the runtime builder.
+
+Supported runtime target: Linux x86-64 with glibc, tested on Ubuntu/Zorin 24.04. The OS still provides normal Linux utilities (`bash`, `findmnt`) and any required network-share mount support. On Windows, install WSL2 with Ubuntu 24.04 (`wsl --install -d Ubuntu-24.04`), then use `Start-Windows.cmd`, or run `bash start.sh` inside that distribution. Windows/WSL launching is supplied but has not been verified on a Windows machine; this is not a native Windows executable. ARM and macOS packages are not provided.
+
+First launch creates blank local configuration and a local `downloads` directory. Configure your own Telegram login, approved source/TOC, artist catalog and destination using the setup steps below. The bundled CLI is `.tools/tdl-stl/tdl`; substitute `runtime/python/bin/python3` for `python3` in those steps. You can skip dependency installation and CLI compilation. Keep the application folder writable; private settings and SQLite files live in its `data` directory. Do not replace this directory when upgrading. The CLI's per-user authentication location is described below and must never be distributed.
+
+The availability timer lives in the browser: while the app is open, it requests a metadata-only check at the configured interval (four hours by default; adjustable from 15 minutes to 7 days in Configuration), using saved incremental cursors and the selected creator scopes. Completed or explicitly ignored files are excluded. No download starts automatically, and no scheduled service is installed. Browsers may delay checks while sleeping or suspending tabs; an overdue check runs when the page becomes active again. A check already requested can finish after the tab closes.
+
+Maintainers: `python3 tools/package-runtime.py` builds the bundled archive from the public allowlist and locally built CLI/7-Zip binaries. The builder downloads the pinned Python runtime and Pillow wheel; recipients do not need those build-time downloads. The existing source-only package remains available separately.
+
+---
+
 # Install Telegram STL manager on another machine
 
 This guide installs the current application: the web interface, customized

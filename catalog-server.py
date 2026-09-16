@@ -12,9 +12,12 @@ from telegram_cli import TelegramCLI, CLIError, server_view
 from collages import CollageStore
 from file_delivery import DeliveryError
 import fcntl
+import os
 
 ROOT = Path(__file__).resolve().parent
 STORE = SubscriptionStore(ROOT)
+from availability import Availability
+AVAILABILITY = Availability(STORE)
 
 class Handler(SimpleHTTPRequestHandler):
     store = STORE
@@ -58,6 +61,8 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.valid_host():
             self.send_error(403);return
         path=urlsplit(self.path).path
+        if path=='/api/availability':
+            self.reply_json(AVAILABILITY.status());return
         if path=='/api/tasks':
             try:self.reply_json(self.store.task_status())
             except (OSError,ValueError):self.reply_json({'error':'Task status is temporarily unavailable.'},503)
@@ -94,7 +99,7 @@ class Handler(SimpleHTTPRequestHandler):
         host=self.headers.get('Host')
         if not self.valid_host() or self.headers.get('Origin') != 'http://'+host:
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
-        if self.path not in ('/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -123,7 +128,9 @@ class Handler(SimpleHTTPRequestHandler):
                         try:client.refresh_servers()
                         finally:client.close()
                     self.reply_json(server_view(self.root));return
-            if self.path.startswith('/api/organizer/'):
+            if self.path=='/api/availability/check':
+                self.reply_json(AVAILABILITY.start());return
+            if self.path.startswith('/api/organizer'):
                 organizer=Organizer(self.store)
                 if self.path.endswith(('/apply','/resume','/repair')):
                     self.reply_json(start_application(self.store,payload,resume=self.path.endswith(('/resume','/repair')),repair=self.path.endswith('/repair')));return
@@ -144,4 +151,4 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 6093), Handler).serve_forever()
+    ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("TELEGRAM_STL_PORT","6093"))), Handler).serve_forever()

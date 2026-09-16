@@ -41,11 +41,13 @@ def inventory(folder):
         target = folder / month / path.name if month else None
         action = 'review' if month is None else 'keep' if path == target else 'conflict' if target.exists() else 'move'
         info=path.stat()
+        if action == 'conflict' and path.parent == folder and not target.is_symlink() and target.is_file() and target.stat().st_size == info.st_size:
+            action = 'duplicate'
         rows.append({'filename': path.name, 'source': relative, 'size': info.st_size,
                      'identity': {'size':info.st_size,'mtime_ns':info.st_mtime_ns,'device':info.st_dev,'inode':info.st_ino},
                      'month': month, 'destination': str(target.relative_to(folder)) if target else None,
                      'action': action, 'telegram_status': 'pending', 'would_record': False,
-                     'reason': 'Release month is unclear.' if not month else 'Destination already exists; review both files.' if action == 'conflict' else ''})
+                     'reason': 'Apply will compare contents and remove the loose copy only if identical.' if action == 'duplicate' else 'Release month is unclear.' if not month else 'Destination already exists; review both files.' if action == 'conflict' else ''})
     targets={}
     for row in rows:
         if row['destination']:targets.setdefault(row['destination'].casefold(),[]).append(row)
@@ -116,7 +118,7 @@ def match_files(files, attachments, downloaded, complete=True):
             score,item=max(found[i],key=lambda match:match[0])
             file.update(telegram_status='matched',telegram_name=item['filename'],telegram_size=item['size_text'],
                         match_kind='Name + size' if score==1 else 'Displayed name + size')
-            file['would_record']=not file['already_recorded'] and file.get('action') in ('move','keep')
+            file['would_record']=not file['already_recorded'] and file.get('action') in ('move','keep','duplicate')
         else:
             readable=display_size(file.get('telegram_size','')) is not None
             file['telegram_status']='ambiguous' if i in ambiguous else ('size_mismatch' if readable else 'size_unreadable') if i in name_seen else 'unmatched' if complete else 'pending'
@@ -137,7 +139,7 @@ def match_exact_files(files, attachments, downloaded, complete=True):
                         telegram_size=f"{item['bytes_total']:,} bytes",match_kind='Exact filename + bytes',
                         source_message_ids=[m['source_message_id'] for m in matched],
                         source_message_id=item['source_message_id'],message_url=item['message_url'])
-            file['would_record']=not file['already_recorded'] and file.get('action') in ('move','keep')
+            file['would_record']=not file['already_recorded'] and file.get('action') in ('move','keep','duplicate')
         elif candidates:
             item=candidates[-1]
             file.update(telegram_status='size_mismatch',telegram_name=item['filename'],telegram_bytes=item['bytes_total'],telegram_size=f"{item['bytes_total']:,} bytes")

@@ -526,13 +526,31 @@ class OrganizerApplyTests(unittest.TestCase):
             self.assertEqual(self.job(store)['state'],'completed')
             self.assertFalse((folder/'2026-01/release_images').exists())
 
+    def test_existing_loose_duplicate_is_removed_only_when_contents_match(self):
+        for identical in (True,False):
+            with self.subTest(identical=identical), tempfile.TemporaryDirectory() as temporary:
+                store,folder=self.setup_store(Path(temporary))
+                source=folder/'Example 2026-01.zip';source.write_bytes(b'original')
+                target=folder/'2026-01'/source.name;target.parent.mkdir()
+                target.write_bytes(b'original' if identical else b'different'[:8])
+                inode=target.stat().st_ino
+                plan=self.preview(store,folder)
+                self.assertTrue(source.exists()) # Preview is read-only.
+                self.assertEqual(next(r for r in plan['files'] if r['source']==source.name)['action'],'duplicate')
+                job_id=self.start(store,images=False);ApplyWorker(store,job_id).execute()
+                self.assertEqual(target.stat().st_ino,inode)
+                self.assertEqual(target.read_bytes(),b'original' if identical else b'different'[:8])
+                self.assertEqual(source.exists(),not identical)
+                self.assertEqual(self.job(store)['releases_review'],0 if identical else 1)
+                self.assertEqual(store.history.was_downloaded(100),identical)
+
     def test_unsafe_destinations_and_conflicts_are_never_applied(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);store,folder=self.setup_store(root);source=folder/'Example 2026-01.zip';source.write_bytes(b'original')
             month=folder/'2026-01';month.mkdir();(month/source.name).write_bytes(b'original')
             plan=self.preview(store,folder);groups=ready_groups(plan)
             self.assertEqual(len(groups),1);self.assertEqual(len(groups[0]['records']),1)
-            self.assertEqual(groups[0]['records'][0]['action'],'keep')
+            self.assertEqual(groups[0]['records'][0]['action'],'duplicate')
             plan['files'][0]['destination']='../outside.zip'
             with self.assertRaises(ValueError):ready_groups(plan)
             pinned=PinnedFolder(folder.parent,'Example')
@@ -587,6 +605,33 @@ class OrganizerApplyTests(unittest.TestCase):
             self.assertEqual(self.job(store)['state'],'completed');self.assertGreater(self.job(store)['releases_review'],0)
             self.assertEqual(source.read_bytes(),b'original');self.assertEqual(target.read_bytes(),b'conflict')
             self.assertFalse(store.history.was_downloaded(100))
+
+    def test_mixed_volume_resume_rejoins_completed_first_part(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);store,folder=self.setup_store(root)
+            image=root/'preview.jpg';image.write_bytes(os.urandom(12000))
+            subprocess.run(['7z','a','-mx0','-v4k',str(folder/'Example 2026-01.7z'),str(image)],stdout=subprocess.DEVNULL,check=True)
+            for part in folder.glob('*.7z.*'):
+                if part.suffix!='.001':part.rename(folder/('Example 2026-01'+part.suffix))
+            plan=self.preview(store,folder);job_id=self.start(store)
+            job=self.job(store);records=job['groups'][0]['records']
+            first=next(r for r in records if r['filename'].endswith('.001'))
+            pinned=PinnedFolder(folder.parent,'Example')
+            try:
+                first['move_started']=True;pinned.move(first);first['moved']=True
+            finally:pinned.close()
+            job['groups']=[{'key':'2026-01/example 2026-01.7z','month':'2026-01','records':[first],'state':'completed'},
+                           {'key':'2026-01/example 2026-01','month':'2026-01','records':[r for r in records if r is not first],'state':'needs_review'}]
+            job.update(state='completed',releases_review=1,files_done=1,moves_done=1)
+            store.atomic_write(store.root/'data/organizer-apply.json',job)
+            with patch('organizer_apply.Popen'):start_application(store,{'job_id':job_id},resume=True)
+            self.assertEqual(len(self.job(store)['groups']),1)
+            ApplyWorker(store,job_id).execute()
+            final=self.job(store)
+            self.assertEqual(final['releases_review'],0)
+            self.assertEqual(final['files_done'],len(records))
+            self.assertEqual([p.read_bytes() for p in (folder/'2026-01/release_images').iterdir()],[image.read_bytes()])
+            for r in records:self.assertTrue((folder/r['destination']).is_file())
 
     def legacy_parts_job(self, root):
         store,folder=self.setup_store(root)

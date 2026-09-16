@@ -147,6 +147,8 @@ class PinnedFolder:
             if source != record['identity']:raise ValueError('File changed since preview: ' + record['source'])
             if record['source'] != record['destination']:
                 target=self.info(record['destination'])
+                if record.get('action') == 'duplicate' and target is None:
+                    raise ValueError('Organized copy is missing; duplicate cleanup skipped.')
                 if target is not None and target != record.get('destination_identity'):
                     # A concurrent downloader may have delivered this exact
                     # archive since Preview. Reuse it only after byte validation.
@@ -194,10 +196,12 @@ def ready_groups(plan):
     versions=choices(plan)
     attachments = {a['source_message_id']: a for a in plan.get('attachments', []) if 'source_message_id' in a}
     groups = {}
+    duplicate_targets={r['destination'] for r in plan.get('files',[])
+                       if r.get('action')=='duplicate' and r.get('telegram_status')=='matched' and r.get('month')}
     for original in plan.get('files', []):
         if is_image_attachment(original):continue
         if (original.get('month') or '')+'/'+volume_key(original['filename'])[0] in versions:continue
-        if original.get('action') not in ('move', 'keep') or original.get('telegram_status') != 'matched' or not original.get('month'):
+        if original.get('action') not in ('move', 'keep', 'duplicate') or original.get('telegram_status') != 'matched' or not original.get('month'):
             continue
         if not original.get('identity'):raise ValueError('Run a fresh preview before applying this older plan.')
         record = json.loads(json.dumps(original))
@@ -209,6 +213,9 @@ def ready_groups(plan):
             item = attachments.get(message, {})
             if item.get('filename') != record['filename'] or item.get('bytes_total') != record['size']:
                 raise ValueError('Plan differs from its exact Telegram file metadata.')
+        if record['action']=='duplicate' and record['source']!=record['filename']:
+            raise ValueError('Only loose files may be removed as duplicates.')
+        if record['action']=='keep' and record['destination'] in duplicate_targets:continue
         key = record['month'] + '/' + volume_key(record['filename'])[0]
         groups.setdefault(key, {'key': key, 'month': record['month'], 'records': [], 'state': 'pending'})['records'].append(record)
     for group in groups.values():
@@ -343,7 +350,7 @@ def start_application(store, payload, resume=False, repair=False):
             job.update(id=uuid.uuid4().hex, plan_id=plan['id'], groups=groups, mount=mounted,
                        extract_images=payload['extract_images'], started_at=datetime.now(timezone.utc).isoformat(),
                        releases_total=len(groups), releases_done=0, releases_review=0, files_total=sum(len(g['records']) for g in groups), files_done=0, files_review=0,
-                       moves_total=sum(r['action']=='move' for g in groups for r in g['records']), moves_done=0,
+                       moves_total=sum(r['action'] in ('move','duplicate') for g in groups for r in g['records']), moves_done=0,
                        skipped_files=len(plan['files'])-sum(len(g['records']) for g in groups))
         job.update(state='starting', message='Preparing the saved organization plan.', heartbeat=time.time())
         store.atomic_write(path, job)
@@ -470,7 +477,10 @@ class ApplyWorker:
                             from organizer_versions import apply
                             images=apply(self,group,pinned,work)
                         else:
-                            for record in group['records']:pinned.locate(record)
+                            for record in group['records']:
+                                if record['action']=='duplicate':
+                                    self.progress('checking_duplicates','Comparing duplicate archive · '+record['filename'],None,None)
+                                pinned.locate(record)
                             if group.get('repairs'):
                                 from organizer_repair import run
                                 run(self,group,pinned)
@@ -485,7 +495,7 @@ class ApplyWorker:
                                 pinned.move(record)
                                 if not record.get('moved'):
                                     record['moved']=True
-                                    if record['action']=='move':self.job['moves_done']+=1
+                                    if record['action'] in ('move','duplicate'):self.job['moves_done']+=1
                                 self.save()
                         self.check()
                         for record in group['records']:

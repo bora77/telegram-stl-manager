@@ -13,7 +13,7 @@ import time
 from datetime import datetime,timezone
 from subscription_store import SubscriptionStore
 from telegram_cli import TelegramCLI, CLIError as WorkerError, STATE, CLI_STATE, safe_filename, completed_transfer_receipt
-from release_rules import release_month,in_scope
+from release_rules import release_month,in_scope,existing_release_directory
 from download_plan import DownloadPlan
 from transfer_metrics import TransferMeter
 from file_delivery import deliver,mount_identity,digest,release_lock
@@ -146,7 +146,7 @@ class Worker:
                 extra={'move_seconds':elapsed,'move_average_bps':move_result['average']}
             message='Verifying '+filename+' on Kronos…' if phase=='verifying' else 'Moving '+filename+' to Kronos…' if phase=='transferring' else 'Preparing move to Kronos…'
             self.update('copying',message,move_stage=phase,move_speed_bps=None,**extra)
-        destination,size,checksum=deliver(source,self.run['download_directory'],sub['creator_folder'],month,filename,copy_progress,copy_phase,subdirectories=subdirectories)
+        destination,size,checksum=deliver(source,self.run['download_directory'],sub['creator_folder'],month,filename,copy_progress,copy_phase,subdirectories=subdirectories,release_directory=existing_release_directory(Path(self.run['download_directory'])/sub['creator_folder'],month))
         move_result=move_result or {'seconds':None,'average':None}
         return {'destination':str(destination),'size':size,'sha256':checksum,'move_seconds':move_result['seconds'],'move_average_bps':move_result['average']}
     def finish_release(self,records):
@@ -169,7 +169,7 @@ class Worker:
                         companions.append(row);names.add(row['filename'])
                 first=min(names,key=lambda name:key(name)[1])
             if key(first)[1]>1:raise ExtractionError('First archive volume is missing; all downloaded parts were kept locally.')
-            image_destination=Path(self.run['download_directory'])/sub['creator_folder']/month/'release_images'
+            image_destination=Path(self.run['download_directory'])/sub['creator_folder']/existing_release_directory(Path(self.run['download_directory'])/sub['creator_folder'],month)/'release_images'
             archives=[{'filename':r['filename'],'size':r['staged'].stat().st_size} for r in records]
             archives.extend({'filename':r['filename'],'size':r['bytes_total']} for r in companions)
             for archive,record in zip(archives,records+companions):

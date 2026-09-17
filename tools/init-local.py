@@ -10,6 +10,7 @@ def initialize(root):
     (root / 'data').mkdir(exist_ok=True, mode=0o700)
     settings=root/'data/settings.json'
     if not settings.exists():
+        (root/'data/setup-required').touch(mode=0o600)
         downloads=root/'downloads';downloads.mkdir(exist_ok=True)
         try:
             with settings.open('x') as stream:json.dump({'revision':0,'download_directory':str(downloads.resolve())},stream,indent=2)

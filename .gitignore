@@ -90,3 +90,25 @@
 
 !/mmf_repack.py
 !/test_mmf_repack.py
+
+!/first_run.py
+!/setup-view.js
+!/templates/first-run.html
+!/test_first_run.py
+!/tools/package-windows.py
+!/windows/
+!/windows/*
+
+!/VERSION
+!/COPYRIGHT.txt
+
+!/docker/
+!/docker/**
+
+!/artist_profiles.py
+!/artist-profiles.js
+!/test_artist_profiles.py
+!/assets/
+!/assets/artist-profiles/
+!/assets/artist-profiles/*.json
+!/assets/artist-profiles/*.png

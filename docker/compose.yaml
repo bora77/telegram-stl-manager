@@ -1,0 +1,23 @@
+name: telegram-stl-manager
+services:
+  manager:
+    build:
+      context: ./support
+    init: true
+    ports:
+      - "127.0.0.1:6093:6093"
+    environment:
+      STL_UID: "${STL_UID:-1000}"
+      STL_GID: "${STL_GID:-1000}"
+      TZ: "${STL_TIMEZONE:-Etc/UTC}"
+    volumes:
+      - app-data:/state
+      - type: bind
+        source: "${STL_DOWNLOAD_DIRECTORY:?Use Start.command to choose your download folder}"
+        target: /downloads
+        bind:
+          create_host_path: false
+    stop_grace_period: 60s
+volumes:
+  app-data:
+    name: telegram-stl-manager-data

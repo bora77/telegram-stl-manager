@@ -1,10 +1,72 @@
+## Windows guided test package
+
+Download and extract `Telegram-STL-Manager-Windows.zip`, then double-click
+`Install.cmd`. This Intel/AMD x64 test package enables WSL when necessary,
+imports a dedicated `TelegramSTL` Ubuntu environment, installs its dependencies,
+and creates desktop Start/Stop shortcuts. Internet access is needed for Ubuntu
+and OS package downloads. Accept Windows administrator approval if requested;
+if Windows needs a restart, setup continues at the next sign-in. An existing
+Ubuntu installation and global WSL settings are not modified.
+
+MyMiniFactory is an optional **Beta** feature, hidden by default. Enable
+**Show MyMiniFactory** under **Configuration → Beta features** and save to
+show its tab and account settings. Hidden MMF features do not run automatic
+availability checks. Existing MMF sessions and history are retained.
+
+On a fresh installation, only **Configuration** is accessible. Connect Telegram,
+import the Table of Contents, choose a usable download folder, review all settings
+and click **Save configuration**, then **Finish setup**. Other tabs unlock only
+after these checks pass. If MMF Beta is enabled, connect that account too.
+
+All application setup is under **Configuration**: Telegram sign-in, the private
+Table of Contents link, MMF credentials, and the destination. Under **Download
+location**, choose **Local folder** (the default) or **Network share**. Local
+storage needs no network credentials; an existing Windows folder such as
+`C:\Users\YourName\Downloads` is accepted. For a NAS, select **Network share**
+and enter its Windows UNC path, username and password. The dedicated environment restores this connection on application
+start. No Linux username, terminal commands, fstab editing or manual dependency
+installation is required. Local downloads work without a network share.
+
+Setup displays WSL commands, Ubuntu download progress and speed, and dependency
+installation output. Application startup opens a visible console and saves its
+output to a log. Passwords and session contents are not printed.
+
+The runtime is bundled; Ubuntu is downloaded from Canonical with a pinned SHA-256.
+The installer and launcher are currently unsigned and are a Windows test build:
+Validated on Windows 11 Enterprise 25H2 in a QEMU/KVM VM: WSL installation,
+reboot continuation, browser access, shortcuts, reset, cached reinstallation and
+full uninstall. Tests verified preservation of finished local downloads and
+external destination files, including a disconnected share configuration. Real
+NAS authentication and account downloads were not exercised in that VM.
+Use the desktop Stop shortcut before restarting or upgrading; it stops only
+`TelegramSTL`, including any unfinished transfers. Do not delete its environment
+folder: it contains the local database, settings and staged downloads.
+
+The ZIP’s top level contains only the user-facing `.cmd` launchers and instructions.
+Internal scripts, runtime archives and checksums are in `support/`; leave that
+folder intact and do not run its files directly.
+
+For repeated installation testing, double-click `Reset-test-install.cmd` and
+confirm removal of local app data. It unregisters only this app's WSL environment
+and removes its shortcuts/reboot continuation, retaining cached installer files
+and Windows logs. Run `Install.cmd` again for a clean app setup. For full removal,
+use `Uninstall.cmd` or **Windows Settings → Installed apps → Telegram STL Manager**.
+Both remove local sessions, settings, history and unfinished staged downloads after
+confirmation. Finished downloads inside the WSL disk are first copied to Windows
+Documents and verified; failure cancels removal. All configured external download
+destinations, other WSL distributions and the shared WSL feature remain.
+The uninstaller verifies the registered environment's storage path before removal.
+
+Build with `python3 tools/package-runtime.py` followed by
+`python3 tools/package-windows.py`.
+
 ## Bundled application package (Linux x64 / Windows WSL2)
 
 Download `telegram-stl-linux-x64.tar.gz` and verify its accompanying SHA-256 file. Extract it into a writable directory, then run `./start.sh` (or `bash start.sh`). Open `http://localhost:6093`. Optional: `./install.sh` copies it into your per-user application directory without installing a service. Existing installations are never overwritten.
 
 This package includes a relocatable CPython 3.12 runtime, Python's HTTP web server and SQLite database engine, Pillow, the compiled Telegram CLI, and 7-Zip with the RAR codec. No separate Python, pip, Go compiler, database server, or web server installation is needed. SQLite databases are created locally on first use; no existing user's database, account session or Telegram source configuration is included. The package uses the [Astral standalone Python distribution](https://github.com/astral-sh/python-build-standalone), with its download SHA-256 pinned in the runtime builder.
 
-Supported runtime target: Linux x86-64 with glibc, tested on Ubuntu/Zorin 24.04. The OS still provides normal Linux utilities (`bash`, `findmnt`) and any required network-share mount support. On Windows, install WSL2 with Ubuntu 24.04 (`wsl --install -d Ubuntu-24.04`), then use `Start-Windows.cmd`, or run `bash start.sh` inside that distribution. Windows/WSL launching is supplied but has not been verified on a Windows machine; this is not a native Windows executable. ARM and macOS packages are not provided.
+Supported runtime target: Linux x86-64 with glibc, tested on Ubuntu/Zorin 24.04. The OS still provides normal Linux utilities (`bash`, `findmnt`) and any required network-share mount support. On Windows, install WSL2 with Ubuntu 24.04 (`wsl --install -d Ubuntu-24.04`), then use `Start-Windows.cmd`, or run `bash start.sh` inside that distribution. For the tested guided Windows installer, use the Windows ZIP described above; this is not a native Windows executable. ARM and macOS packages are not provided.
 
 First launch creates blank local configuration and a local `downloads` directory. Configure your own Telegram login, approved source/TOC, artist catalog and destination using the setup steps below. The bundled CLI is `.tools/tdl-stl/tdl`; substitute `runtime/python/bin/python3` for `python3` in those steps. You can skip dependency installation and CLI compilation. Keep the application folder writable; private settings and SQLite files live in its `data` directory. Do not replace this directory when upgrading. The CLI's per-user authentication location is described below and must never be distributed.
 
@@ -21,10 +83,10 @@ Telegram CLI, manual download queue, download history, image extraction and
 folder organizer. For an AI-assisted installation, use
 [AI-INSTALL-PROMPT.md](AI-INSTALL-PROMPT.md).
 
-Last checked against the source on **2026-09-13**. Linux operation has been
-tested on Zorin/Ubuntu 24.04, x86-64. The Windows route below uses **WSL2 with
-Ubuntu 24.04**; it is based on the code requirements and Microsoft's documentation
-and has not yet been tested end to end on a Windows machine.
+Last checked against the source on **2026-09-17**. Linux operation has been
+tested on Zorin/Ubuntu 24.04, x86-64. Windows uses **WSL2 with Ubuntu 24.04**.
+The guided Windows ZIP was tested in a Windows 11 VM as described above; the
+manual source installation below is an alternative for advanced users.
 
 ## 1. Choose the installation route
 
@@ -820,3 +882,13 @@ is used for the archive and destination folder, including names like Welcome Pac
 unpacked contents and compressed output. Repacking uses the existing bundled
 7-Zip; no extra library is needed. Original downloads are removed from staging
 only after verified delivery and completion recording.
+
+## Docker on macOS and Linux
+
+The optional Docker tester package has a separate [step-by-step guide](docker/README.md).
+Install Docker Desktop on macOS, or Docker Engine with Compose on Linux, then
+extract `Telegram-STL-Manager-Docker.zip` and run `Start.command`. First startup
+builds the image with visible output. Account configuration remains in the app.
+The selected host destination is mapped to `/downloads`; application data uses
+the persistent `telegram-stl-manager-data` Docker volume. Do not remove that
+volume during updates. Public packages contain no saved credentials or sessions.

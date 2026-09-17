@@ -11,7 +11,8 @@ function artists(){const body=$('artists');body.replaceChildren();const search=$
  const scope=document.createElement('select');scope.setAttribute('aria-label',creator.name+' scope');scope.append(new Option('From month','month'),new Option('All (archiving)','all'));scope.value=sub&&sub.start_month===''?'all':'month';const month=document.createElement('input');month.type='month';month.setAttribute('aria-label',creator.name+' starting month');const now=new Date();now.setDate(1);now.setMonth(now.getMonth()-1);month.value=sub?.start_month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
  const enable=()=>{folder.disabled=scope.disabled=month.disabled=!toggle.checked||data.active;month.hidden=scope.value==='all'};enable();
  const update=()=>{if(toggle.checked){const old=draft.findIndex(s=>s.id===creator.id);const entry={id:creator.id,name:creator.name,folder:folder.value,start_month:scope.value==='all'?'':month.value};if(old<0)draft.push(entry);else draft[old]=entry}else draft=draft.filter(s=>s.id!==creator.id);enable();changed()};toggle.onchange=folder.oninput=scope.onchange=month.oninput=update;
- for(const node of [toggle,text('span',creator.name),folder]){const td=document.createElement('td');td.append(node);row.append(td)}const td=document.createElement('td');td.append(scope,month);row.append(td);body.append(row);
+ const identity=text('span',creator.name);identity.prepend(ArtistProfiles.badge(creator.name));
+ for(const node of [toggle,identity,folder]){const td=document.createElement('td');td.append(node);row.append(td)}const td=document.createElement('td');td.append(scope,month);row.append(td);body.append(row);
  }}
 function releaseGroups(){
  const groups=new Map();
@@ -25,7 +26,7 @@ function queue(){
  const signature=JSON.stringify([data.items,data.active,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
  for(const group of rows.slice(page*50,page*50+50)){
   const details=document.createElement('details');details.className='release-row';details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
-  const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';heading.append(text('strong',group.name),text('small',group.creator));
+  const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';const creatorLabel=text('small',group.creator);creatorLabel.prepend(ArtistProfiles.badge(group.creator,{compact:true}));heading.append(text('strong',group.name),creatorLabel);
   const info=document.createElement('span');info.className='release-info';info.append(text('span',`${group.items.length} ${group.items.length===1?'file':'files'} · ${sizeLabel(group.size)}`));
   const first=group.items[0];info.append(text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':'')));
   const status=text('span',group.recorded===group.items.length?'Recorded':group.recorded?`${group.recorded}/${group.items.length} recorded`:'Available');status.className='release-status '+(group.recorded===group.items.length?'recorded':'');summary.append(heading,info,status);details.append(summary);

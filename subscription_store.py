@@ -25,7 +25,9 @@ class SubscriptionStore:
         self.runs=RunManager(self)
 
     def config(self):
-        data=json.loads(self.config_path.read_text()) if self.config_path.exists() else {'revision':0,'download_directory':'/mnt/kronos-stl/'+INCOMING}
+        data=json.loads(self.config_path.read_text()) if self.config_path.exists() else {'revision':0,'download_directory':str(self.root/'downloads')}
+        data.setdefault('download_storage','network' if str(data.get('download_directory','')).startswith(('/mnt/kronos-stl/','/mnt/telegram-stl-share/')) else 'local')
+        data.setdefault('mmf_beta_enabled',False)
         data.setdefault('download_servers',{})
         data.setdefault('server_check_frequency','cached')
         data.setdefault('server_speed_threshold_mbps',0)
@@ -48,6 +50,8 @@ class SubscriptionStore:
     def save_config(self,payload):
         if not isinstance(payload,dict):raise ValueError('Invalid settings.')
         value=payload.get('download_directory')
+        if isinstance(value,str) and Path('/etc/telegram-stl-managed').exists() and re.match(r'^[A-Za-z]:[\\/]',value):
+            value='/mnt/'+value[0].lower()+'/'+value[3:].replace('\\','/')
         if not isinstance(value,str) or not value or '\x00' in value or not Path(value).is_absolute():
             raise ValueError('Enter an absolute folder path on this machine.')
         directory=Path(value).resolve()
@@ -56,6 +60,10 @@ class SubscriptionStore:
         with self.lock:
             current=self.config()
             if payload.get('revision')!=current['revision']:raise FileExistsError('Settings changed in another tab. Reload before saving.')
+            mmf_beta=payload.get('mmf_beta_enabled',current['mmf_beta_enabled'])
+            if type(mmf_beta) is not bool:raise ValueError('Choose whether to show the MyMiniFactory beta.')
+            storage=payload.get('download_storage',current['download_storage'])
+            if storage not in ('local','network'):raise ValueError('Choose local storage or a network share.')
             from telegram_cli import validate_servers
             servers=validate_servers(payload.get('download_servers',current['download_servers']),self.root)
             frequency=payload.get('server_check_frequency',current['server_check_frequency'])
@@ -71,12 +79,13 @@ class SubscriptionStore:
                 raise ValueError('Choose an availability check interval between 0.25 and 168 hours.')
             adaptive=payload.get('adaptive_downloads',current['adaptive_downloads'])
             if type(adaptive) is not bool:raise ValueError('Choose whether adaptive parallel downloads are enabled.')
-            data={'revision':current['revision']+1,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval}
+            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval}
             self.atomic_write(self.config_path,data)
             return data
 
     def config_view(self):
         data=self.config()
+        data['local_download_directory']=str(self.root/'downloads')
         from telegram_cli import server_view
         data.update(telegram_servers=server_view(self.root),download_backend='cli')
         try:

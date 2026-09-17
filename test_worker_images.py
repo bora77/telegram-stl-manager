@@ -20,6 +20,16 @@ from subscription_store import SubscriptionStore
 
 
 class WorkerImageTests(unittest.TestCase):
+    def test_download_reuses_artist_prefixed_release_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            worker,store,sub,state,base=self.setup_worker(Path(temp))
+            release=base/'Example'/'Example 2026-09';release.mkdir(parents=True)
+            source=state/'archive.zip';source.write_bytes(b'archive')
+            result=worker.move_one(source,sub,'2026-09','archive.zip')
+            self.assertEqual(result['destination'],str(release/'archive.zip'))
+            self.assertFalse((base/'Example'/'2026-09').exists())
+
+
     def test_repeated_split_upload_finishes_once_using_selected_message_ids(self):
         from download_plan import DownloadPlan
         with tempfile.TemporaryDirectory() as temp:

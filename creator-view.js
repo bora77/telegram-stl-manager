@@ -49,14 +49,16 @@ function render(reset=false){
     };
     choice.append(toggle);
     if(!!draft!==isSaved){const membership=element('small',isSaved?'Removal pending':'Not saved yet');membership.className='changed';choice.append(membership)}
-    creator.append(element('strong',r.name));
+    const artistHeading=element('div');artistHeading.className='artist-heading';
+    artistHeading.append(ArtistProfiles.badge(r.name),element('strong',r.name));creator.append(artistHeading);
+    const profileLink=element('button','Creator links / logo');profileLink.type='button';profileLink.className='artist-profile-link';profileLink.onclick=()=>ArtistProfiles.show(r.name);creator.append(profileLink);
     const details=element('details');details.append(element('summary',r.ocr_confidence<80?'Check spelling · source details':'Source details'),element('code',r.topic_url));
     if(r.aliases?.length)details.append(element('small','Other readings: '+r.aliases.map(a=>a.name).join(', ')));
     const evidenceUrl=r.toc_source_url||r.evidence;
     if(evidenceUrl){const evidence=element('a',r.toc_source_url?'View TOC entry':'View source screenshot');evidence.href=evidenceUrl;evidence.target='_blank';evidence.rel='noopener';details.append(evidence)}creator.append(details);
     const folder=element('input');folder.type='text';folder.setAttribute('list','incoming-folders');folder.setAttribute('aria-label',r.name+' creator folder');folder.placeholder='Choose or type a folder';folder.value=draft?.creator_folder||SelectionRules.suggest(r.name,inventory.folders);folder.disabled=!draft;
     const destination=element('small');
-    function updateDestination(){destination.textContent=folder.value?folder.value+'/YYYY-MM/filename · '+(inventory.folders.includes(folder.value)?'existing creator folder':'new creator folder'):'Select creator, then choose its folder.'}
+    function updateDestination(){destination.textContent=folder.value?folder.value+'/release folder/filename · '+(inventory.folders.includes(folder.value)?'existing creator folder':'new creator folder'):'Select creator, then choose its folder.'}
     folder.oninput=()=>{draft.creator_folder=folder.value;persist();updateDestination()};updateDestination();folderCell.append(folder,destination);
     if(draft?.legacy_directory&&!draft.creator_folder)folderCell.append(element('small','Previous folder: '+draft.legacy_directory+' — please reassign.'));
     const scope=element('select');scope.setAttribute('aria-label',r.name+' download scope');

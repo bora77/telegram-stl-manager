@@ -48,20 +48,22 @@ def release_date_month(name, created_at):
     except (ValueError,TypeError,AttributeError):return None,None
 
 
-def releases(items):
+def releases(items, base=None):
     groups={}
     for item in items:groups.setdefault(release_key(item),[]).append(item)
     for key,group in groups.items():
         name=group[0].get('release') or group[0].get('object_name') or 'Unnamed release'
         month,basis=release_date_month(name,group[0].get('release_created_at'))
-        folder=month if basis=='created_at' else safe_component(name)
+        from release_rules import release_directory_name
+        artist=group[0].get('folder') or group[0].get('creator') or ''
+        folder=safe_component(release_directory_name(artist,month,safe_component(name)))
         for item in group:
             item['release_key']=key;item['release_folder']=folder
             item['release_month']=month;item['release_month_basis']=basis
     # Distinct source releases with identical/sanitized names must not merge on disk.
     folders={}
     for key,group in groups.items():
-        if group[0].get('release_month_basis')!='created_at':folders.setdefault((str(group[0]['creator_id']),group[0]['release_folder'].casefold()),[]).append(key)
+        if not group[0].get('release_month'):folders.setdefault((str(group[0]['creator_id']),group[0]['release_folder'].casefold()),[]).append(key)
     for keys in folders.values():
         if len(keys)>1:
             for key in keys:
@@ -103,7 +105,7 @@ class MMFManager:
         if not active and job.get('phase') in ('checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive'):
             job={**job,'phase':'interrupted','message':'Task interrupted. Resume the saved queue.'}
         checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()['availability_interval_hours']*3600
-        known=self.completed();items=self.get('items',[]);releases(items)
+        known=self.completed();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])
         counts={'available':0,'review':0,'completed':0}
         for item in items:counts['completed' if item['key'] in known else 'available']+=1
         resumable=any(i['key'] not in known for i in self.get('queue',[]))
@@ -141,7 +143,7 @@ class MMFManager:
             if not settings.get('subscriptions'):return {'started':False}
             if action=='download':
                 if not self.get('checked_at',0):raise MMFError('Check availability before starting downloads.')
-                known=self.completed();groups=releases(self.get('items',[]));queue=[i for group in groups.values() if any(i['key'] not in known for i in group) for i in group]
+                known=self.completed();groups=releases(self.get('items',[]),self.store.config()['download_directory']);queue=[i for group in groups.values() if any(i['key'] not in known for i in group) for i in group]
                 if not queue:raise MMFError('No files are available in the selected scope.')
                 self.put('queue',queue);self.put('run_base',self.store.config()['download_directory'])
             if action=='resume' and not self.get('queue',[]):raise MMFError('No saved queue to resume.')
@@ -176,13 +178,13 @@ class MMFManager:
                 item={'object_id':int(obj['originalId']),'archive_id':int(archive['id']),'size':size,'filename':filename,'updated_at':archive.get('updatedAt',''),'creator':sub['name'],'creator_id':sub['id'],'folder':sub['folder'],'object_name':obj['name'],'release':label,'release_created_at':release.get('createdAt'),'release_id':str(obj['release']) if obj.get('release') is not None else None,'month':month_for(filename,label),'start_month':sub['start_month']}
                 item['key']=version_key(item);item['month']=overrides.get(item['key'],item['month'])
                 items[item['key']]=item
-        groups=releases(list(items.values()))
+        groups=releases(list(items.values()),self.store.config()['download_directory'])
         included=[i for group in groups.values() if any(not i['start_month'] or not i['release_month'] or i['release_month']>=i['start_month'] for i in group) for i in group]
         self.put('items',included);self.put('checked_at',time.time());client.save()
         self.progress(phase='complete',message=f'Check complete · {len({release_key(i) for i in included})} releases in scope.',done=len(selected),total=len(selected))
     def download(self):
         client=self.client();queue=self.get('queue',[]);known=self.completed();base=self.get('run_base');errors=[];run_warnings=[];done=sum(i['key'] in known for i in queue)
-        groups=releases(queue)
+        groups=releases(queue,base)
         for group in groups.values():
             remaining=[i for i in group if i['key'] not in known]
             if not remaining:continue

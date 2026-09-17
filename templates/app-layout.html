@@ -1,4 +1,5 @@
 <style>
+.artist-profile-link{font-size:12px;padding:3px 0;border:0;background:none;color:#754aaf}.artist-profile-badge{display:inline-flex;align-items:center;gap:10px;vertical-align:middle;margin-right:10px}.artist-logo-button{padding:0!important;width:44px;height:44px;border:1px solid #e3dfe9;border-radius:9px;background:#fff;flex-shrink:0;overflow:hidden;cursor:pointer}.artist-logo-button img{width:100%;height:100%;object-fit:contain;display:block}.artist-profile-badge.compact .artist-logo-button{width:28px;height:28px}.artist-platform-links{display:flex;flex-wrap:wrap;gap:5px 10px;font-size:12px}.artist-profile-dialog{max-width:520px;width:calc(100% - 32px);border:1px solid #ded6e8;border-radius:16px;padding:24px;color:#272332}.artist-profile-dialog::backdrop{background:#241a3666}.artist-profile-preview{display:block;width:160px;height:160px;object-fit:contain;margin:12px auto}.artist-profile-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}.artist-profile-dialog input{min-width:0}.artist-profile-dialog [role=status]{color:#a12632}.artist-heading{display:flex;align-items:center;gap:8px}.artist-heading .artist-profile-badge{margin:0}
 body{margin:0;background:#f6f5f9;color:#272332;font:15px system-ui,sans-serif}
 main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
 .app-header{display:flex;align-items:center;flex-wrap:wrap;gap:20px 32px;margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid #ded6e8}
@@ -8,14 +9,18 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
 .app-brand small{display:block;margin:3px 0 0;color:#807787;font-size:12px;line-height:1.4;font-weight:400}
 .app-navigation{display:flex;flex:1 1 600px;align-items:center;justify-content:flex-start;gap:6px;flex-wrap:wrap;margin:0;padding:0}
 .app-navigation a{display:block;padding:12px 18px;border-radius:9px;text-decoration:none;font-size:14px;font-weight:600;line-height:20px;color:#706478;white-space:nowrap;transition:background .15s,color .15s}
+.app-navigation a[aria-disabled=true]{opacity:.4;cursor:not-allowed}
+.app-navigation a[hidden]{display:none!important}.beta-badge{font-size:10px;text-transform:uppercase;padding:2px 6px;border-radius:5px;background:#f5dfaa;color:#785216;vertical-align:middle;margin-left:5px}
 .app-navigation a:hover{background:#eae3f3;color:#5d378a}
 .app-navigation a[aria-current=page]{background:#7651a6;color:#fff;box-shadow:0 2px 6px #51307618}
 .app-navigation a:focus-visible,.app-brand:focus-visible{outline:3px solid #aa8fce;outline-offset:3px}
 .app-navigation a.task-notice{position:relative;box-shadow:inset 0 0 0 2px #329c73}.app-navigation a.task-notice:after{content:'✓';position:absolute;right:3px;top:0;color:#227752;font-size:12px;background:#e2f5eb;border-radius:50%;width:16px;height:16px;line-height:16px;text-align:center}.app-navigation a.task-notice[data-task-warning=true]{box-shadow:inset 0 0 0 2px #c68b25}.app-navigation a.task-notice[data-task-warning=true]:after{content:'!';color:#875b11;background:#fff0d3}.app-navigation a.task-flash{animation:task-complete-pulse .9s ease-in-out 6}.task-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}@keyframes task-complete-pulse{50%{background:#d6f3e5;color:#245e45;box-shadow:0 0 0 4px #58b18b33}}@media(prefers-reduced-motion:reduce){.app-navigation a.task-flash{animation:none}}
+.app-copyright{margin:32px 0 16px;padding-top:16px;border-top:1px solid #e3dfe9;color:#807787;font-size:12px;text-align:center}
 .configuration-content{max-width:900px}
 @media(max-width:600px){main.app-main{margin:24px auto;padding:0 16px}.app-header{gap:16px}.app-navigation{display:grid;flex-basis:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.app-navigation a{text-align:center;padding:12px 8px;font-size:14px}}
 @media(prefers-reduced-motion:reduce){.app-navigation a{transition:none}}
 </style>
+<script>__ARTIST_PROFILES__</script>
 <header class="app-header">
   <a class="app-brand" href="/" aria-label="Telegram STL manager home"><img src="/favicon.svg" width="44" height="44" alt=""><span><strong>Telegram STL manager</strong><small>Even chaos deserves a folder.</small></span></a>
   <nav class="app-navigation" aria-label="Main navigation">
@@ -23,10 +28,9 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
     <a id="artists-tab" href="__ARTISTS_HREF__" __CURRENT_ARTISTS__>Artists</a>
     <a id="organize-tab" href="/organize" __CURRENT_ORGANIZE__>Organize folders</a>
     <a id="collages-tab" href="/collages" __CURRENT_COLLAGES__>Collages</a>
-    <a id="mmf-tab" href="/mmf" __CURRENT_MMF__>MyMiniFactory</a>
+    <a id="mmf-tab" hidden href="/mmf" __CURRENT_MMF__>MyMiniFactory <span class="beta-badge">Beta</span></a>
     <a id="config-tab" href="/config" __CURRENT_CONFIG__>Configuration</a>
   </nav>
   <span id="task-completion-announcement" class="task-announcement" role="status" aria-live="polite"></span>
 </header>
-<p id="availability-status" role="status" style="color:#654091;font-size:13px;margin:0 0 18px" hidden></p>
 <script>__TASK_NOTIFICATIONS__</script>

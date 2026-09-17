@@ -3,6 +3,8 @@
     ".gitignore",
     "distribution.json",
     "README.md",
+    "COPYRIGHT.txt",
+    "VERSION",
     "INSTALL.md",
     "AI-INSTALL-PROMPT.md",
     "CATALOG.md",
@@ -71,13 +73,34 @@
     "mmf-view.js",
     "test_mmf.py",
     "mmf_repack.py",
-    "test_mmf_repack.py"
+    "test_mmf_repack.py",
+    "first_run.py",
+    "setup-view.js",
+    "templates/first-run.html",
+    "test_first_run.py",
+    "tools/package-windows.py",
+    "windows/bootstrap.sh",
+    "windows/Start.ps1",
+    "windows/Install.cmd",
+    "windows/share-helper.py",
+    "windows/session.sh",
+    "windows/Install.ps1",
+    "windows/Uninstall.cmd",
+    "windows/Uninstall.ps1",
+    "windows/Reset-test-install.cmd",
+    "windows/preserve-downloads.py",
+    "windows/import-profile.py",
+    "artist_profiles.py",
+    "artist-profiles.js",
+    "test_artist_profiles.py"
   ],
   "trees": [
     "templates",
     "tools",
     "examples",
     ".tools/tdl-stl/src",
-    ".tools/tdl-stl/gotd"
+    ".tools/tdl-stl/gotd",
+    "docker",
+    "assets/artist-profiles"
   ]
 }

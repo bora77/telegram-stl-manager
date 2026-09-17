@@ -1,5 +1,6 @@
 """A single, explicitly requested batch. No polling scheduler or automatic restart."""
 import fcntl
+import sys
 import json
 import os
 import re
@@ -75,7 +76,7 @@ class RunManager:
             (self.root/'data/stop-request').unlink(missing_ok=True)
             self.store.atomic_write(self.path,run)
             with (self.root/'data/worker.log').open('ab') as log:
-                self.process=subprocess.Popen(['python3',str(self.root/'download_worker.py'),batch],cwd=self.root,stdout=log,stderr=log,start_new_session=True)
+                self.process=subprocess.Popen([sys.executable,str(self.root/'download_worker.py'),batch],cwd=self.root,stdout=log,stderr=log,start_new_session=True)
             return run
     def resume(self,payload):
         with self.lock,(self.root/'data/operation.lock').open('a') as operation:
@@ -104,7 +105,7 @@ class RunManager:
             self.store.atomic_write(self.path,run)
             try:
                 with (self.root/'data/worker.log').open('ab') as log:
-                    self.process=subprocess.Popen(['python3',str(self.root/'download_worker.py'),run['id']],cwd=self.root,stdout=log,stderr=log,start_new_session=True)
+                    self.process=subprocess.Popen([sys.executable,str(self.root/'download_worker.py'),run['id']],cwd=self.root,stdout=log,stderr=log,start_new_session=True)
             except OSError as error:
                 run.update(state='failed',message='Could not launch the download worker; the saved queue was kept.')
                 self.store.atomic_write(self.path,run)

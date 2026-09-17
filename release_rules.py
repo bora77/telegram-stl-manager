@@ -27,3 +27,25 @@ def baseline_month(timestamp):
 
 def in_scope(subscription,month):
     return subscription['download_scope']=='all_and_future' or month is None or month>=subscription['start_month']
+
+
+
+def release_directory_name(artist_folder, month=None, label=None):
+    """One naming rule for monthly releases and named collections."""
+    from pathlib import Path
+    artist=re.sub(r'^[-!\s]+','',Path(artist_folder).name).strip()
+    label=month or label
+    if not isinstance(label,str) or not label.strip():raise ValueError('Release name is missing.')
+    label=label.strip()
+    return label if not artist or label.casefold().startswith(artist.casefold()+' ') else artist+' '+label
+
+
+def existing_release_directory(artist_folder, month, fallback=None):
+    """Prefer canonical names, retaining an existing legacy folder when needed."""
+    from pathlib import Path
+    artist_folder=Path(artist_folder)
+    named=artist_folder/release_directory_name(artist_folder,month)
+    if named.is_dir() and not named.is_symlink():return named.name
+    legacy=artist_folder/month
+    if legacy.is_dir() and not legacy.is_symlink():return month
+    return fallback or named.name

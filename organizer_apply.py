@@ -303,6 +303,47 @@ def regroup_saved_volumes(job):
     return True
 
 
+def revalidate_reconnected_mount(job):
+    """Refresh transient CIFS IDs only at an explicit resume boundary."""
+    current=list(mount_identity(job['base']))
+    if current==job['mount']:return False
+    if current[:3]!=job['mount'][:3] or current[2]!='cifs':
+        raise ValueError('Destination is a different filesystem or share. Restore the original destination before resuming.')
+    pinned=PinnedFolder(job['base'],job['creator_folder'])
+    changes=[]
+    def check(record, field, relative, missing_ok=False):
+        expected=record.get(field)
+        if not expected:return
+        actual=pinned.info(relative)
+        if actual is None and missing_ok:return
+        if actual is None or any(actual[k]!=expected[k] for k in ('size','mtime_ns')):
+            raise ValueError('File changed or disappeared since preview: '+relative+'. Run a fresh preview.')
+        changes.append((record,field,actual))
+    try:
+        for group in job['groups']:
+            if group['state']=='completed':continue
+            if group.get('version'):
+                raise ValueError('The share reconnected during archive version replacement. Run a fresh preview before retrying.')
+            for record in group['records']:
+                source=record['source']
+                if record.get('move_started') and pinned.info(source) is None:
+                    source=record['destination']
+                check(record,'identity',source)
+                check(record,'destination_identity',record['destination'])
+            for repair in group.get('repairs',[]):
+                original=repair.get('original')
+                if original and not repair.get('installed'):
+                    check(original,'identity',original['source'],repair.get('removal_started',False))
+        if list(pinned.mount)!=current or list(mount_identity(job['base']))!=current:
+            raise ValueError('Destination changed again during recovery; retry when the connection is stable.')
+        # Commit only after every pending file and repair original passed.
+        for record,field,actual in changes:record[field]=actual
+        job['mount']=current
+        job['mount_revalidated_at']=datetime.now(timezone.utc).isoformat()
+        return True
+    finally:pinned.close()
+
+
 def start_application(store, payload, resume=False, repair=False):
     from folder_organizer import Organizer, ACTIVE
     with (store.root / 'data/operation.lock').open('a') as operation:
@@ -328,6 +369,7 @@ def start_application(store, payload, resume=False, repair=False):
             if repair:
                 from organizer_repair import prepare
                 prepare(job,plan,store.history.source)
+            revalidate_reconnected_mount(job)
             for group in job['groups']:
                 if group['state']=='needs_review':group['state']='pending'
                 group.pop('error',None)

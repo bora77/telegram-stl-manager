@@ -20,6 +20,7 @@ from collage_layout import COLORS, FORMATS, LAYOUTS, geometry, render
 from file_delivery import deliver, digest
 from organizer_apply import PinnedFolder, identity
 from release_images import IMAGES, volume_key
+from release_rules import release_month
 from subscription_store import SubscriptionStore
 from transfer_metrics import TransferMeter
 
@@ -42,9 +43,16 @@ def token(value):
 def key(value):return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:32]
 
 
+def valid_release_folder(value):
+    return isinstance(value,str) and bool(value) and value==value.strip() and not value.startswith('.') and not re.search(r'[\\/<>:"|?*\x00-\x1f]',value) and len(os.fsencode(value))<=255
+
+
 def collage_filename(release):
     artist=release['folder'].lstrip('-! ').strip() or release['folder']
-    name=artist+'-'+release['month']+'.jpg'
+    date=release_month(release['month'])
+    label=release['month']
+    if not date and label.casefold().startswith(artist.casefold()+' '):label=label[len(artist):].lstrip(' -_')
+    name=artist+'-'+(date or label)+'.jpg'
     if len(os.fsencode(name))>255:raise CollageError('Artist folder name is too long for a collage filename.')
     return name
 
@@ -96,11 +104,11 @@ class CollageStore:
             months = []
             with os.scandir(pinned.fd) as entries:
                 for entry in entries:
-                    if not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])', entry.name) or not entry.is_dir(follow_symlinks=False):continue
+                    if not valid_release_folder(entry.name) or not entry.is_dir(follow_symlinks=False):continue
                     try:fd, _ = pinned.parent(entry.name+'/release_images/placeholder')
                     except (FileNotFoundError, NotADirectoryError):continue
                     else:os.close(fd);months.append(entry.name)
-            return sorted(months, reverse=True)
+            return sorted(months,key=lambda name:(release_month(name) or '',name.casefold()),reverse=True)
         finally:pinned.close()
 
     def _archive_names(self, release):
@@ -108,7 +116,7 @@ class CollageStore:
         result = {}
         destination = Path(release['base'])/release['folder']/release['month']/'release_images'
         with self.store.history.connect() as db:
-            rows = db.execute('SELECT filename,images_destination,images_manifest FROM downloads WHERE release_month=? AND images_manifest IS NOT NULL', (release['month'],)).fetchall()
+            rows = db.execute('SELECT filename,images_destination,images_manifest FROM downloads WHERE release_month=? AND images_manifest IS NOT NULL', (release_month(release['month']) or release['month'],)).fetchall()
         for row in rows:
             try:
                 prefix = Path(row['images_destination']).relative_to(destination)
@@ -118,7 +126,7 @@ class CollageStore:
         return result
 
     def index(self, folder, month):
-        if not isinstance(month, str) or not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])', month):raise CollageError('Choose a release month.')
+        if not valid_release_folder(month):raise CollageError('Choose a release folder.')
         base = str(Path(self.store.config()['download_directory']).resolve(strict=True))
         release = {'id': key([base, folder, month]), 'base': base, 'folder': folder, 'month': month}
         found, warnings = [], []
@@ -367,7 +375,7 @@ class CollageStore:
                 else:
                     # A crash after delivery can be completed without replacing again.
                     self.verified_data(pinned,relative,checksum,output.stat().st_size)
-                    return deliver(output,release['base'],release['folder'],release['month'],job['filename'],progress,phase)
+                    return deliver(output,release['base'],release['folder'],release['month'],job['filename'],progress,phase,release_directory=release['month'])
             info=pinned.info(relative)
             if info:
                 data,info=self.verified_data(pinned,relative);old_checksum=hashlib.sha256(data).hexdigest()
@@ -378,7 +386,7 @@ class CollageStore:
                     move={'source':relative,'destination':release['month']+'/.collage-'+job['id']+'-previous.jpg','identity':info,'move_started':True}
                     previous={'move':move,'sha256':old_checksum};self.store.atomic_write(journal,previous)
                     pinned.move(move)
-            try:return deliver(output,release['base'],release['folder'],release['month'],job['filename'],progress,phase)
+            try:return deliver(output,release['base'],release['folder'],release['month'],job['filename'],progress,phase,release_directory=release['month'])
             except Exception:
                 if previous and pinned.info(relative) is None and pinned.info(previous['move']['destination']):
                     old=previous['move'];self.verified_data(pinned,old['destination'],previous['sha256'],old['identity']['size'])

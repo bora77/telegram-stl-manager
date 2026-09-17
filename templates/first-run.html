@@ -1,0 +1,10 @@
+<section class="panel" id="setup-checklist" hidden><h2>Complete initial setup</h2><p>Review all settings below and save your configuration. The other tabs unlock when setup is complete.</p><ul id="setup-missing"></ul><button id="setup-finish" type="button" disabled>Finish setup</button><p id="setup-finish-status" role="status"></p></section>
+<section class="panel" id="first-run"><h2>Telegram account and artist catalog</h2>
+<p>Connect your account, then paste the Table of Contents link for the group you want to use. Only creator links from that source are imported.</p>
+<button id="setup-login" type="button">Connect Telegram account</button><p id="setup-login-status" role="status"></p>
+<form id="setup-answer-form" hidden><label id="setup-answer-label" for="setup-answer">Sign-in response</label><input id="setup-answer" autocomplete="off" required><button type="submit">Continue</button></form>
+<form id="setup-source-form"><label for="setup-toc">Table of Contents message link</label><input id="setup-toc" type="url" placeholder="https://t.me/c/…/…" required><button id="setup-import" type="submit">Import artists</button><small id="setup-source-status"></small></form>
+<p id="setup-message" role="status" aria-live="polite"></p>
+</section>
+
+<script>__SETUP_VIEW__</script>

@@ -84,6 +84,27 @@ class StoreTests(unittest.TestCase):
         for changes in [dict(creator_folder='../escape'),dict(download_scope=''),dict(download_scope='future'),dict(topic_url='https://t.me/c/9/123'),dict(layout='flat')]:
             with self.subTest(changes=changes),self.assertRaises(ValueError): self.save(**changes)
         self.assertEqual(self.store.read()['revision'],0)
+    def test_mmf_beta_defaults_off_and_preserves_saved_choice(self):
+        self.assertFalse(self.store.config()['mmf_beta_enabled'])
+        self.store.save_config(dict(revision=0,download_directory=str(self.root),mmf_beta_enabled=True))
+        self.store.save_config(dict(revision=1,download_directory=str(self.root)))
+        self.assertTrue(self.store.config()['mmf_beta_enabled'])
+        with self.assertRaises(ValueError):
+            self.store.save_config(dict(revision=2,download_directory=str(self.root),mmf_beta_enabled='false'))
+        self.store.save_config(dict(revision=2,download_directory=str(self.root),mmf_beta_enabled=False))
+        self.assertFalse(self.store.config()['mmf_beta_enabled'])
+
+    def test_storage_choice_survives_reload_and_older_clients(self):
+        self.assertEqual(self.store.config()['download_storage'],'local')
+        saved=self.store.save_config(dict(revision=0,download_directory=str(self.root),download_storage='network'))
+        self.assertEqual(saved['download_storage'],'network')
+        self.store.save_config(dict(revision=1,download_directory=str(self.root)))
+        self.assertEqual(self.store.config()['download_storage'],'network')
+        self.store.save_config(dict(revision=2,download_directory=str(self.root),download_storage='local'))
+        self.assertEqual(self.store.config()['download_storage'],'local')
+        with self.assertRaises(ValueError):
+            self.store.save_config(dict(revision=3,download_directory=str(self.root),download_storage='invalid'))
+
     def test_config_change_invalidates_old_subscription_form(self):
         self.store.save_config(dict(revision=0,download_directory=str(self.root)))
         with self.assertRaises(FileExistsError):self.save()

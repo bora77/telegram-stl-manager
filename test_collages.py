@@ -98,6 +98,25 @@ class CollageTests(unittest.TestCase):
         with patch('collages.subprocess.Popen') as spawn:job=self.collages.start_export({'preview_id':preview['id']})
         spawn.assert_called_once();return job
 
+    def test_artist_prefixed_and_named_release_folders_open_and_export(self):
+        old=self.images.parent
+        renamed=old.with_name('Example 2026-08');old.rename(renamed)
+        welcome=renamed.with_name('Example Welcome Pack')/'release_images';welcome.mkdir(parents=True)
+        (welcome/'welcome.jpg').write_bytes((renamed/'release_images/image-1.jpg').read_bytes())
+        hidden=renamed.with_name('.previous_versions')/'release_images';hidden.mkdir(parents=True)
+        linked=renamed.with_name('Linked release');linked.symlink_to(renamed,target_is_directory=True)
+        self.assertEqual(self.collages.months('Example'),['Example 2026-08','Example Welcome Pack'])
+        opened=self.collages.index('Example','Example 2026-08')
+        self.assertEqual(len(opened['images']),9)
+        payload={**opened['selection'],'release_id':opened['release']['id'],'revision':0,'images':[i['id'] for i in opened['images'][:6]]}
+        job=self.start(self.collages.preview(payload));self.collages.run_export(job['id'])
+        result=self.collages.export_status(job['id']);self.assertEqual(result['state'],'completed',result['message'])
+        self.assertTrue((renamed/'Example-2026-08.jpg').is_file());self.assertFalse(old.exists())
+        self.assertEqual(len(self.collages.index('Example','Example Welcome Pack')['images']),1)
+        self.assertEqual(collage_filename({'folder':'Example','month':'Example Welcome Pack'}),'Example-Welcome Pack.jpg')
+        for bad in ('../escape','Example/2026-08','.previous_versions'):
+            with self.assertRaises(CollageError):self.collages.index('Example',bad)
+
     def test_index_draft_and_layout_do_not_export_or_modify_originals(self):
         before={p.name:(p.stat().st_mtime_ns,hashlib.sha256(p.read_bytes()).hexdigest()) for p in self.images.iterdir()}
         self.assertEqual(self.collages.months('Example'),['2026-08'])

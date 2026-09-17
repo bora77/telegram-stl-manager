@@ -18,11 +18,13 @@ function filterFolders(){
 }
 async function loadMonths(){
  const version=++pickerVersion,folder=el('folder').value;clearWorkspace();el('month').replaceChildren(new Option('Choose a month',''));el('month').disabled=true;el('open-release').disabled=true;
+ let logo=document.getElementById('collage-artist-logo');if(!logo){logo=document.createElement('span');logo.id='collage-artist-logo';el('folder').parentElement.append(logo)}
+ logo.replaceChildren(...(folder?[ArtistProfiles.badge(folder.replace(/^[-!\s]+/,''))]:[]));
  el('picker-status').textContent=folder?'Finding releases with extracted images…':'Choose an artist folder.';
  if(!folder)return;
  try{const data=await api('/api/collages/months?folder='+encodeURIComponent(folder));if(version!==pickerVersion)return;
   el('month').replaceChildren(...(data.months.length?data.months.map(m=>new Option(m,m)):[new Option('No extracted images','')]));el('month').disabled=!data.months.length;el('open-release').disabled=!data.months.length;
-  el('picker-status').textContent=data.months.length?`${data.months.length} release months with images.`:'Extract images for this artist first, using Downloads or Organize folders.';
+  el('picker-status').textContent=data.months.length?`${data.months.length} releases with images.`:'Extract images for this artist first, using Downloads or Organize folders.';
  }catch(e){if(version===pickerVersion){error(e.message);el('picker-status').textContent='Could not read release folders.'}}
 }
 function showImage(record){el('image-dialog-title').textContent=record.name;el('large-image').src='/api/collages/image/'+record.id;el('image-dialog').showModal()}

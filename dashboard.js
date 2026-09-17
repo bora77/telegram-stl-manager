@@ -33,12 +33,12 @@ function speed(value){return value==null?'Speed unavailable':(value/1e6).toFixed
 function compactTransfer(file,details){
   const row=element('div');row.className='queue-file queue-file-compact';
   const name=element('strong',file.filename),info=element('span',details);info.className='transfer-summary';
-  name.title=file.filename;info.title=details;row.append(name,info);return row;
+  name.title=file.filename;info.title=details;if(file.creator)info.prepend(ArtistProfiles.badge(file.creator,{compact:true}));row.append(name,info);return row;
 }
 function activeTransfer(file,fields,done,total,label){
   const row=element('div');row.className='queue-file active-transfer';
   const name=element('strong',file.filename);name.title=file.filename;row.append(name);
-  fields.forEach((text,index)=>{const detail=element('span',text);detail.className=index===0?'transfer-creator':'transfer-detail';detail.title=text;row.append(detail)});
+  fields.forEach((text,index)=>{const detail=element('span',text);detail.className=index===0?'transfer-creator':'transfer-detail';detail.title=text;if(index===0&&file.creator)detail.prepend(ArtistProfiles.badge(file.creator,{compact:true}));row.append(detail)});
   const bar=element('progress');bar.max=100;bar.setAttribute('aria-label',file.filename+' '+label);progress(bar,done,total);row.append(bar);return row;
 }
 function receivedFile(file){return Boolean(file.download_finished_at)||(file.bytes_total>0&&file.bytes_downloaded>=file.bytes_total)}
@@ -62,7 +62,8 @@ function renderRunActivity(queue){
   if(state==='downloading'&&run.download_server&&!queue.scheduler)document.getElementById('run-detail').textContent+=' · Server: '+run.download_server;
   document.getElementById('review-summary').textContent=`Items needing review (${run.warnings?.length||0})`;
 }
-let resumableRunId=null,runRequestPending=false;
+let resumableRunId=null,runRequestPending=false,queueDetailsShown=false;
+function revealQueue(){queueDetailsShown=true;document.getElementById('queue-details').hidden=false}
 async function corruptFileAction(runId,fileId,ignore){
   if(runRequestPending)return;
   runRequestPending=true;
@@ -76,6 +77,11 @@ async function corruptFileAction(runId,fileId,ignore){
 async function refreshQueue(){
   try{
     const queue=await api('/api/queue');
+    if(queue.active||queue.can_resume)revealQueue();
+    document.getElementById('queue-details').hidden=!queueDetailsShown;
+    document.getElementById('stop-downloads').hidden=!queue.active;
+    document.getElementById('review-details').hidden=!(queue.run.warnings?.length);
+    document.getElementById('recent-details').hidden=!(queue.recent_completed?.length);
     renderRunActivity(queue);
     const checking=['starting','scanning'].includes(queue.worker_state),emptyFinished=['completed','needs_review'].includes(queue.worker_state)&&queue.total_files===0;
     const stopped=['failed','interrupted','stopped'].includes(queue.worker_state);
@@ -83,8 +89,8 @@ async function refreshQueue(){
     resumableRunId=queue.can_resume?queue.run.id:null;
     const resume=document.getElementById('resume-downloads');resume.hidden=!queue.can_resume;resume.disabled=!queue.can_resume||saving||runRequestPending;
     resume.textContent=queue.worker_state==='needs_review'?'Resume unfinished downloads':'Resume download queue';
-    document.getElementById('download-start-help').hidden=queue.active;
-    document.getElementById('download-start-help').textContent=queue.active?'':queue.can_resume?'Resume uses this run’s saved artists, scope and folders, without rechecking finished artists. Completed files and verified local downloads are reused.':queue.subscriptions_saved?'Runs all saved subscriptions; unsaved edits are excluded.':'Save at least one subscription to start.';
+    document.getElementById('download-start-help').hidden=queue.active||(!queue.can_resume&&!!queue.subscriptions_saved);
+    document.getElementById('download-start-help').textContent=queue.active?'':queue.can_resume?'Resume uses this run’s saved artists, scope and folders, without rechecking finished artists. Completed files and verified local downloads are reused.':queue.subscriptions_saved?'':'Save at least one subscription to start.';
     const total=queue.progress_total??queue.bytes_total;
     const percent=total>0?Math.min(100,100*queue.bytes_downloaded/total):null;
     document.getElementById('queue-percent').textContent=stopped?'Stopped'+(percent==null?'':' at '+Math.floor(percent)+'%'):checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'% processed';
@@ -170,6 +176,7 @@ document.getElementById('download-all').onclick=async()=>{
   if(runRequestPending)return;
   const button=document.getElementById('download-all');button.disabled=true;runRequestPending=true;
   document.getElementById('resume-downloads').disabled=true;
+  revealQueue();
   document.getElementById('run-phase').textContent='Starting run…';document.getElementById('run-detail').textContent='Sending your manual download request.';document.getElementById('run-activity').dataset.active='true';
   try{await api('/api/run',{revision:serverRevision,config_revision:configRevision});await refreshQueue()}
   catch(error){document.getElementById('run-phase').textContent='Could not start';document.getElementById('run-detail').textContent=error.message;document.getElementById('run-activity').dataset.active='false';button.disabled=false}
@@ -179,6 +186,7 @@ document.getElementById('resume-downloads').onclick=async()=>{
   if(!resumableRunId||runRequestPending)return;
   const button=document.getElementById('resume-downloads');button.disabled=true;runRequestPending=true;
   document.getElementById('download-all').disabled=true;
+  revealQueue();
   document.getElementById('run-phase').textContent='Resuming queue…';document.getElementById('run-detail').textContent='Loading saved checks and pending files.';
   try{await api('/api/run/resume',{run_id:resumableRunId});await refreshQueue()}
   catch(error){document.getElementById('run-phase').textContent='Could not resume';document.getElementById('run-detail').textContent=error.message;button.disabled=false}

@@ -6,7 +6,9 @@
 </style>
 <main class="app-main">__APP_LAYOUT__
 <div class="configuration-content">
-<section class="panel" id="mmf-account"><h2>MyMiniFactory account</h2>
+__FIRST_RUN__
+<section class="panel" id="beta-features"><h2>Beta features</h2><label style="display:flex;align-items:center;gap:12px" for="mmf-beta-enabled"><input id="mmf-beta-enabled" type="checkbox" role="switch" style="width:20px;height:20px" disabled>Show MyMiniFactory <span class="beta-badge">Beta</span></label><small>Experimental MMF downloads and repackaging. Off by default. Save configuration to apply.</small></section>
+<section class="panel" id="mmf-account" hidden><h2>MyMiniFactory account <span class="beta-badge">Beta</span></h2>
 <style>#mmf-connection.connected{display:flex;align-items:center;gap:12px;padding:16px 18px;border:1px solid #a7d9bb;border-radius:10px;background:#eaf7ef;color:#21633f;font-weight:650}#mmf-connection.connected:before{content:"✓";display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:50%;background:#278653;color:white;font-size:22px}#mmf-account [hidden]{display:none!important}#mmf-change{margin-top:0}</style>
 <p id="mmf-connection" role="status">Checking connection…</p>
 <button id="mmf-change" type="button" class="secondary" hidden>Change account</button>
@@ -28,9 +30,17 @@
 </section>
 <section class="panel"><h2>Download location</h2>
 <p><strong>Manual downloads only.</strong> Use Download all subscriptions to start a single run. Saving settings never starts a download.</p>
-<label for="folder">Download base folder</label><input id="folder" placeholder="/mnt/kronos-stl/!! 3D STLs - INCOMING" disabled>
-<small>Choose an existing folder on this machine. Creator and monthly release folders will be placed below it.</small>
-<p>Example: <span id="example"></span></p><small>Changing this setting does not move existing files.</small>
+<label for="storage-kind">Store downloads</label><select id="storage-kind" disabled><option value="local">Local folder</option><option value="network">Network share</option></select>
+<div id="setup-share" hidden>
+<form id="setup-share-form"><label for="setup-share-path">Windows network path</label><input id="setup-share-path" placeholder="\\server\share\Incoming" required>
+<label for="setup-share-user">Share username</label><input id="setup-share-user" autocomplete="username" required>
+<label for="setup-share-password">Share password</label><input id="setup-share-password" type="password" autocomplete="current-password" required>
+<label for="setup-share-domain">Domain (optional)</label><input id="setup-share-domain">
+<button id="setup-share-connect" type="submit">Connect and use this folder</button><small>The connection is restored when the manager starts. Credentials stay in this installation and are never included in exports.</small></form>
+</div>
+<div id="storage-folder"><label for="folder">Download base folder</label><input id="folder" placeholder="Choose a folder" disabled>
+<small id="storage-help">Choose an existing local folder. No network connection or share credentials are needed.</small>
+<p>Example: <span id="example"></span></p></div><small>Creator and release folders are stored below your selected folder. Changing this setting does not move existing files.</small>
 </section>
 <section class="panel"><h2>Download availability</h2>
 <label for="availability-interval">Check interval (hours)</label><input id="availability-interval" type="number" min="0.25" max="168" step="0.25" value="4" disabled aria-describedby="availability-help">
@@ -60,7 +70,7 @@
 let revision=0;
 const availabilityInterval=document.getElementById('availability-interval');
 const folder=document.getElementById('folder'),frequency=document.getElementById('server-frequency'),threshold=document.getElementById('server-threshold'),bandwidth=document.getElementById('bandwidth-target'),adaptive=document.getElementById('adaptive-downloads'),button=document.getElementById('save'),status=document.getElementById('status'),serverStatus=document.getElementById('server-status');
-function preview(){document.getElementById('example').textContent=folder.value.replace(/\/$/,'')+'/- Atlan Forge/2026-08/filename.7z'}
+function preview(){document.getElementById('example').textContent=folder.value.replace(/\/$/,'')+'/Artist/Artist YYYY-MM/filename.7z'}
 folder.addEventListener('input',preview);
 async function request(path,data){const response=await fetch(path,{cache:'no-store',...(data!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}:{})});const result=await response.json();if(!response.ok)throw Error(result.error);return result}
 function choices(){const result={};for(const select of document.querySelectorAll('[data-dc]'))result[select.dataset.dc]=select.value;return result}
@@ -79,8 +89,12 @@ function renderServers(data,saved){
   box.append(row);
  }
 }
-request('/api/config').then(data=>{revision=data.revision;availabilityInterval.value=data.availability_interval_hours??4;availabilityInterval.disabled=false;folder.value=data.download_directory;frequency.value=data.server_check_frequency||'cached';threshold.value=data.server_speed_threshold_mbps??0;bandwidth.value=data.download_bandwidth_target_mbps??28;adaptive.value=String(data.adaptive_downloads??true);renderServers(data.telegram_servers||{},data.download_servers||{});folder.disabled=false;frequency.disabled=false;threshold.disabled=false;bandwidth.disabled=false;adaptive.disabled=false;button.disabled=false;document.getElementById('refresh-servers').disabled=false;document.getElementById('retest-servers').disabled=false;preview();status.textContent=data.available?'Settings loaded.':'The download folder is currently unavailable.'}).catch(error=>status.textContent=error.message);
-button.onclick=async()=>{if(!availabilityInterval.reportValidity()||!threshold.reportValidity()||!bandwidth.reportValidity())return;const intervalValue=Number(availabilityInterval.value),value=folder.value,servers=choices(),frequencyValue=frequency.value,thresholdValue=Number(threshold.value),bandwidthValue=Number(bandwidth.value),adaptiveValue=adaptive.value==='true';button.disabled=true;status.textContent='Saving…';try{const data=await request('/api/config',{revision,download_directory:value,download_servers:servers,server_check_frequency:frequencyValue,server_speed_threshold_mbps:thresholdValue,download_bandwidth_target_mbps:bandwidthValue,adaptive_downloads:adaptiveValue,availability_interval_hours:intervalValue});revision=data.revision;window.dispatchEvent(new Event('availability-config-saved'));status.textContent=Number(availabilityInterval.value)===intervalValue&&folder.value===value&&JSON.stringify(choices())===JSON.stringify(servers)&&frequency.value===frequencyValue&&Number(threshold.value)===thresholdValue&&Number(bandwidth.value)===bandwidthValue&&(adaptive.value==='true')===adaptiveValue?'Configuration saved.':'Configuration saved; newer edits are not saved yet.'}catch(error){status.textContent='Not saved: '+error.message}finally{button.disabled=false}};
+const storageKind=document.getElementById('storage-kind');let storageSettings=null,managedStorage=false;
+function updateStorage(){const network=storageKind.value==='network';document.getElementById('setup-share').hidden=!(network&&managedStorage);document.getElementById('storage-folder').hidden=network&&managedStorage;document.getElementById('storage-help').textContent=network?'Choose an existing mounted network folder.':(managedStorage?'Choose an existing Windows folder, for example C:\\Users\\YourName\\Downloads, or keep the default local folder. No network credentials are needed.':'Choose an existing local folder. No network credentials are needed.');}
+window.addEventListener('setup-state',e=>{managedStorage=e.detail.share_supported;updateStorage()});
+storageKind.onchange=()=>{if(storageSettings){folder.value=storageKind.value===storageSettings.download_storage?storageSettings.download_directory:(storageKind.value==='local'?storageSettings.local_download_directory:'');preview()}updateStorage()};
+request('/api/config').then(data=>{storageSettings=data;document.getElementById('mmf-beta-enabled').checked=data.mmf_beta_enabled===true;document.getElementById('mmf-beta-enabled').disabled=false;storageKind.value=data.download_storage||'local';storageKind.disabled=false;updateStorage();revision=data.revision;availabilityInterval.value=data.availability_interval_hours??4;availabilityInterval.disabled=false;folder.value=data.download_directory;frequency.value=data.server_check_frequency||'cached';threshold.value=data.server_speed_threshold_mbps??0;bandwidth.value=data.download_bandwidth_target_mbps??28;adaptive.value=String(data.adaptive_downloads??true);renderServers(data.telegram_servers||{},data.download_servers||{});folder.disabled=false;frequency.disabled=false;threshold.disabled=false;bandwidth.disabled=false;adaptive.disabled=false;button.disabled=false;document.getElementById('refresh-servers').disabled=false;document.getElementById('retest-servers').disabled=false;preview();status.textContent=data.available?'Settings loaded.':'The download folder is currently unavailable.'}).catch(error=>status.textContent=error.message);
+button.onclick=async()=>{if(!availabilityInterval.reportValidity()||!threshold.reportValidity()||!bandwidth.reportValidity())return;const intervalValue=Number(availabilityInterval.value),value=folder.value,servers=choices(),frequencyValue=frequency.value,thresholdValue=Number(threshold.value),bandwidthValue=Number(bandwidth.value),adaptiveValue=adaptive.value==='true';button.disabled=true;status.textContent='Saving…';try{const data=await request('/api/config',{revision,download_directory:value,download_storage:storageKind.value,mmf_beta_enabled:document.getElementById('mmf-beta-enabled').checked,download_servers:servers,server_check_frequency:frequencyValue,server_speed_threshold_mbps:thresholdValue,download_bandwidth_target_mbps:bandwidthValue,adaptive_downloads:adaptiveValue,availability_interval_hours:intervalValue});revision=data.revision;window.dispatchEvent(new CustomEvent('beta-config-saved',{detail:data}));window.dispatchEvent(new Event('availability-config-saved'));status.textContent=Number(availabilityInterval.value)===intervalValue&&folder.value===value&&JSON.stringify(choices())===JSON.stringify(servers)&&frequency.value===frequencyValue&&Number(threshold.value)===thresholdValue&&Number(bandwidth.value)===bandwidthValue&&(adaptive.value==='true')===adaptiveValue?'Configuration saved.':'Configuration saved; newer edits are not saved yet.'}catch(error){status.textContent='Not saved: '+error.message}finally{button.disabled=false}};
 for(const [id,action] of [['refresh-servers','refresh'],['retest-servers','retest']])document.getElementById(id).onclick=async()=>{const target=document.getElementById(id);target.disabled=true;serverStatus.textContent=action==='refresh'?'Reading Telegram server list…':'Clearing speed comparisons…';try{const data=await request('/api/servers/'+action,{});renderServers(data,choices());serverStatus.textContent=action==='refresh'?'Server list refreshed. Save configuration to keep changed choices.':'Auto will compare servers on the next eligible manual download.'}catch(error){serverStatus.textContent=error.message}finally{target.disabled=false}};
 </script><script>
 (()=>{
@@ -89,8 +103,8 @@ for(const [id,action] of [['refresh-servers','refresh'],['retest-servers','retes
  let submitting=false,editing=false,connected=false;
  function show(state){connected=state.connected;connection.textContent=connected?'MMF account connected':'Not connected';connection.classList.toggle('connected',connected);form.hidden=connected&&!editing;change.hidden=!connected;change.disabled=state.active||submitting;change.textContent=editing?'Cancel':'Change account';connect.disabled=state.active||submitting;connect.textContent='Connect MMF account'}
  change.onclick=()=>{editing=!editing;form.hidden=connected&&!editing;change.textContent=editing?'Cancel':'Change account';message.textContent='';document.getElementById('mmf-password').value='';if(editing)document.getElementById('mmf-username').focus()};
- async function refresh(){try{show(await request('/api/mmf/status'))}catch(error){connection.textContent=error.message;connect.disabled=false}}
+ async function refresh(){if(!window.mmfBetaEnabled)return;try{show(await request('/api/mmf/status'))}catch(error){connection.textContent=error.message;connect.disabled=false}}
  form.onsubmit=async event=>{event.preventDefault();submitting=true;connect.disabled=true;message.style.color='';message.textContent='Connecting…';const password=document.getElementById('mmf-password').value;document.getElementById('mmf-password').value='';try{const state=await request('/api/mmf/login',{username:document.getElementById('mmf-username').value,password});editing=false;show(state);message.textContent=''}catch(error){message.textContent=error.message;message.style.color='#a12632'}finally{submitting=false;await refresh()}};
- refresh();setInterval(()=>{if(!submitting)refresh()},15000);
+ window.addEventListener('mmf-beta-changed',()=>{if(window.mmfBetaEnabled)refresh()});refresh();setInterval(()=>{if(!submitting)refresh()},15000);
 })();
 </script></html>

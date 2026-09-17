@@ -755,3 +755,23 @@ class OrganizerApplyTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+class OrganizerRemountTests(unittest.TestCase):
+ def test_remount(self):
+  import copy
+  from organizer_apply import identity,revalidate_reconnected_mount
+  with tempfile.TemporaryDirectory() as d:
+   base=Path(d);folder=base/'Artist';folder.mkdir();f=folder/'part.001';f.write_bytes(b'archive')
+   actual=identity(f.stat());old={**actual,'device':123,'inode':456}
+   current=[d,'//server/share','cifs',actual['device']]
+   job={'base':d,'creator_folder':'Artist','mount':[d,'//server/share','cifs',123],'groups':[{'state':'pending','records':[{'source':f.name,'destination':f.name,'identity':old}], 'repairs':[{'original':{'source':f.name,'identity':old}}]}]}
+   with patch('organizer_apply.mount_identity',return_value=tuple(current)):
+    bad=copy.deepcopy(job);bad['groups'][0]['repairs'][0]['original']['identity']['size']+=1
+    before=copy.deepcopy(bad)
+    with self.assertRaisesRegex(ValueError,'File changed'):revalidate_reconnected_mount(bad)
+    self.assertEqual(bad,before)
+    wrong=copy.deepcopy(job);wrong['mount'][1]='//other/share'
+    with self.assertRaisesRegex(ValueError,'different filesystem'):revalidate_reconnected_mount(wrong)
+    self.assertTrue(revalidate_reconnected_mount(job));self.assertEqual(job['groups'][0]['records'][0]['identity'],actual)
+    self.assertEqual(job['groups'][0]['repairs'][0]['original']['identity'],actual)
+    self.assertFalse(revalidate_reconnected_mount(job))

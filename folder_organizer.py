@@ -15,7 +15,7 @@ from functools import lru_cache
 from file_delivery import mount_identity
 from file_size import display_size, matches_size
 from release_images import is_image_attachment, volume_key, image_warnings
-from release_rules import release_month
+from release_rules import release_month,existing_release_directory
 from subscription_store import SubscriptionStore
 from telegram_cli import TelegramCLI
 
@@ -40,10 +40,10 @@ def inventory(folder):
             month = release_month(path.parent.name)
         release_dir=month
         if month:
-            named=folder/(re.sub(r'^-\s*','',folder.name).strip()+' '+month)
+            existing=existing_release_directory(folder,month)
             if path.parent!=folder and release_month(path.parent.name)==month:
                 release_dir=path.parent.name
-            elif named.is_dir() and not named.is_symlink():release_dir=named.name
+            else:release_dir=existing
         target = folder / release_dir / path.name if month else None
         action = 'review' if month is None else 'keep' if path == target else 'conflict' if target.exists() else 'move'
         info=path.stat()

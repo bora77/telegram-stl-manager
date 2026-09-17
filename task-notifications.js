@@ -146,6 +146,7 @@
   const label=document.getElementById('availability-status');
   try{
    let response=await fetch('/api/availability',{cache:'no-store'});
+   if(response.status===403){const blocked=await response.json();if(blocked.setup_required){if(label)label.hidden=true;return}}
    if(!response.ok)throw Error();let state=await response.json();
    if(state.subscribed&&!state.checking&&Date.now()/1000>=state.next_check_at){
     response=await fetch('/api/availability/check',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
@@ -155,7 +156,7 @@
     label.hidden=!state.subscribed;
     const result=state.files?`${state.files} files available · ${state.releases} releases · ${state.creators} artists`:(state.errors.length?'Availability check incomplete':'No downloads available');
     label.textContent=state.checking?'Checking for available downloads…':state.deferred?'Next check: due now · Waiting for the current task to finish.':
-     `${result}${state.checked_at?' · Checked '+new Date(state.checked_at*1000).toLocaleString():''} · Next check: ${new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · Every ${state.interval_seconds/3600} hours while this tool is open. Downloads stay manual.`;
+     `${result}${state.checked_at?' · Checked '+new Date(state.checked_at*1000).toLocaleString():''} · Next check: ${new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · Every ${state.interval_seconds/3600} hours while this tool is open.`;
     if(state.errors.length&&state.files)label.textContent+=' · Some artists could not be checked.';
    }
   }catch{if(label){label.hidden=false;label.textContent='Availability check unavailable; the browser will retry.'}}
@@ -165,5 +166,22 @@
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();
 
+/* MMF beta is opt-in. Hidden by default, including automatic checks. */
+(()=>{
+ window.mmfBetaEnabled=false;
+ function apply(config){const enabled=config.mmf_beta_enabled===true;window.mmfBetaEnabled=enabled;const tab=document.getElementById('mmf-tab'),account=document.getElementById('mmf-account');if(tab)tab.hidden=!enabled;if(account)account.hidden=!enabled;window.dispatchEvent(new Event('mmf-beta-changed'))}
+ async function refresh(){try{const r=await fetch('/api/config',{cache:'no-store'});if(r.ok)apply(await r.json())}catch{}}
+ window.addEventListener('beta-config-saved',e=>apply(e.detail));
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+ refresh();setInterval(refresh,60000);
+})();
 /* MMF availability is requested only while a manager page is open. */
-(()=>{let busy=false;async function check(){if(busy)return;busy=true;try{const response=await fetch('/api/mmf/status',{cache:'no-store'});if(!response.ok)return;const state=await response.json();const link=document.getElementById('mmf-tab');if(link)link.title=state.counts.available+' MMF files available';if(state.connected&&!state.active&&state.settings.subscriptions.length&&Date.now()/1000>=state.next_check_at)await fetch('/api/mmf/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({due:true})})}catch{}finally{busy=false}}check();setInterval(check,60000)})();
+(()=>{let busy=false;async function check(){if(busy||!window.mmfBetaEnabled)return;busy=true;try{const response=await fetch('/api/mmf/status',{cache:'no-store'});if(!response.ok)return;const state=await response.json();const link=document.getElementById('mmf-tab');if(link)link.title=state.counts.available+' MMF files available';if(state.connected&&!state.active&&state.settings.subscriptions.length&&Date.now()/1000>=state.next_check_at)await fetch('/api/mmf/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({due:true})})}catch{}finally{busy=false}}check();setInterval(check,60000)})();
+
+/* Initial setup is also enforced by the server for direct links and APIs. */
+(()=>{
+ function apply(state){for(const link of document.querySelectorAll('.app-navigation a:not(#config-tab)')){if(state.setup_required){link.setAttribute('aria-disabled','true');link.tabIndex=-1;link.title='Complete initial setup first'}else{link.removeAttribute('aria-disabled');link.removeAttribute('tabindex');if(link.title==='Complete initial setup first')link.removeAttribute('title')}}}
+ window.addEventListener('initial-setup-state',e=>apply(e.detail));
+ document.addEventListener('click',e=>{const link=e.target.closest('.app-navigation a[aria-disabled=true]');if(link){e.preventDefault();document.getElementById('setup-checklist')?.scrollIntoView({behavior:'smooth'})}});
+ fetch('/api/setup',{cache:'no-store'}).then(r=>r.json()).then(apply).catch(()=>{});
+})();

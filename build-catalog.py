@@ -2,10 +2,13 @@
 """Build a local, searchable review page and CSV from the captured TOC."""
 import csv
 import json
+import re
 from pathlib import Path
 from source_scope import load_source
 
 root = Path(__file__).parent
+version=(root/'VERSION').read_text().strip()
+if not re.fullmatch(r'\d+\.\d+\.\d+',version):raise ValueError('Invalid application version.')
 catalog = json.loads((root / "data/creators.json").read_text())
 inventory = json.loads((root / "data/incoming-folders.json").read_text())
 if catalog['creators']:
@@ -71,12 +74,16 @@ def app_layout(page):
     layout = layout.replace('__QUEUE_HREF__', '#queue' if page == 'queue' else '/')
     layout = layout.replace('__ARTISTS_HREF__', '#artists' if page == 'queue' else '/#artists')
     layout = layout.replace('__TASK_NOTIFICATIONS__', (root / 'task-notifications.js').read_text())
+    library=root/'assets/artist-profiles/index.json'
+    revision=str(library.stat().st_mtime_ns) if library.exists() else '0'
+    layout = layout.replace('__ARTIST_PROFILES__', (root / 'artist-profiles.js').read_text().replace('__ARTIST_LIBRARY_REVISION__',revision))
     for name in ('queue', 'artists', 'organize', 'collages', 'config', 'mmf'):
         layout = layout.replace('__CURRENT_' + name.upper() + '__', 'aria-current="page"' if name == page else '')
     return layout
 
 
 def write_page(name, content):
+    content=content.replace('</main>', f'<footer class="app-copyright">v{version} · Copyright © 2026 trumphater77</footer></main>')
     # The running server always sees a complete page; no restart is needed.
     temporary = root / (name + '.tmp')
     temporary.write_text(content)
@@ -100,3 +107,6 @@ pages = {
 for name, content in pages.items():
     write_page(name, content)
 print(f"Built five pages with shared navigation and data/creators.csv with {len(catalog['creators'])} records.")
+
+configuration=root/'configuration.html'
+configuration.write_text(configuration.read_text().replace('__FIRST_RUN__',(root/'templates/first-run.html').read_text().replace('__SETUP_VIEW__',(root/'setup-view.js').read_text())))

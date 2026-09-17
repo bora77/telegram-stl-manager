@@ -20,6 +20,19 @@ class MMFTests(unittest.TestCase):
         self.manager.put('creators',[{'id':1,'name':'Example Creator'}])
         self.item={'object_id':22,'archive_id':33,'size':3,'updated_at':'v1','filename':'January2025_Model.zip','creator':'Example Creator','creator_id':1,'folder':'Example Creator','month':'2025-01','release':'January 2025','object_name':'Model','start_month':''}
         self.item['key']=version_key(self.item)
+    def test_existing_artist_prefixed_release_is_used_for_mmf(self):
+        from mmf_manager import releases
+        existing=self.root/'Example Creator'/'Example Creator 2025-01';existing.mkdir(parents=True)
+        item=dict(self.item)
+        releases([item],self.root)
+        self.assertEqual(item['release_folder'],'Example Creator 2025-01')
+        new_month={**self.item,'release':'February 2025'}
+        releases([new_month],self.root)
+        self.assertEqual(new_month['release_folder'],'Example Creator 2025-02')
+        welcome={**self.item,'release':'Welcome Pack'}
+        releases([welcome],self.root)
+        self.assertEqual(welcome['release_folder'],'Example Creator Welcome Pack')
+
     def test_months_and_loyalty(self):
         self.assertEqual(month_for('August2025Reward.zip','1 Year Rewards'),'2025-08')
         self.assertEqual(month_for('model.zip','September 2026'),'2026-09')
@@ -103,9 +116,9 @@ class MMFTests(unittest.TestCase):
             self.manager.download();self.manager.download()
         self.assertEqual(client.calls,1)
         self.assertIn(item['key'],self.manager.completed())
-        images=list((self.root/'Example Creator'/'January 2025'/'release_images').iterdir())
+        images=list((self.root/'Example Creator'/'Example Creator 2025-01'/'release_images').iterdir())
         self.assertEqual(len(images),1);self.assertTrue(images[0].is_file())
-        self.assertEqual(len(list((self.root/'Example Creator'/'January 2025').glob('*.7z'))),1)
+        self.assertEqual(len(list((self.root/'Example Creator'/'Example Creator 2025-01').glob('*.7z'))),1)
         self.assertFalse(list((self.manager.directory/'staging').glob('**/*.zip')))
         with self.manager.db() as db:record=json.loads(db.execute('SELECT data FROM completed').fetchone()[0])
         self.assertEqual(record['image_count'],1);self.assertTrue(record['images_extracted']);self.assertEqual(len(record['sha256']),64)
@@ -132,7 +145,7 @@ class ReleasePackagingTests(MMFTests):
         with patch.object(self.manager,'client',return_value=client):self.manager.download();self.manager.download()
         self.assertEqual(self.manager.get('job')['errors'],[])
         self.assertEqual(client.calls,2);self.assertEqual(self.manager.completed(),{i['key'] for i in items})
-        destination=self.root/'Example Creator'/'Welcome Pack'
+        destination=self.root/'Example Creator'/'Example Creator Welcome Pack'
         self.assertEqual([p.name for p in destination.glob('*.7z')],['Welcome Pack.7z'])
         _,entries=listing(destination/'Welcome Pack.7z',self.root,lambda:False)
         self.assertEqual({e['name'] for e in entries},{'Model 101/original/model.stl','Model 102/original/model.stl'})
@@ -166,8 +179,8 @@ class ReleasePackagingTests(MMFTests):
         monthly={**first,'release_id':'monthly','release':'September 2026'}
         groups=releases([first,second,monthly])
         self.assertEqual(sorted(map(len,groups.values())),[1,2])
-        self.assertEqual(first['release_folder'],'Welcome Pack')
-        self.assertEqual(monthly['release_folder'],'September 2026')
+        self.assertEqual(first['release_folder'],'Example Creator Welcome Pack')
+        self.assertEqual(monthly['release_folder'],'Example Creator 2026-09')
 
 class ReleaseDateTests(unittest.TestCase):
     def test_creation_date_and_special_names(self):

@@ -10,14 +10,19 @@ from folder_organizer import Organizer
 from organizer_apply import start_application
 from telegram_cli import TelegramCLI, CLIError, server_view
 from collages import CollageStore
+from artist_profiles import ArtistProfiles
 from file_delivery import DeliveryError
 import fcntl
+import subprocess
 import os
 
 ROOT = Path(__file__).resolve().parent
 STORE = SubscriptionStore(ROOT)
+PROFILES = ArtistProfiles(ROOT)
 from mmf_manager import MMFManager
 MMF = MMFManager(STORE)
+from first_run import FirstRun
+SETUP = FirstRun(STORE)
 from availability import Availability
 AVAILABILITY = Availability(STORE)
 
@@ -38,6 +43,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(403)
             return None
         path = unquote(urlsplit(self.path).path)
+        if SETUP.setup_required and path not in ('/config','/config/','/configuration.html','/favicon.svg'):
+            self.send_response(303);self.send_header('Location','/config#setup-checklist');self.end_headers();return None
         if path == "/":
             self.path = "/catalog.html"
         elif path in ('/config','/config/'):
@@ -65,6 +72,21 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.valid_host():
             self.send_error(403);return
         path=urlsplit(self.path).path
+        if SETUP.setup_required and path.startswith('/api/') and path not in ('/api/setup','/api/config','/api/mmf/status'):
+            self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
+        if path=='/api/setup':
+            self.reply_json(SETUP.state());return
+        if path in ('/api/artist-profiles','/api/artist-profiles/image'):
+            try:
+                name=parse_qs(urlsplit(self.path).query).get('name',[''])[0]
+                profiles=PROFILES
+                if path.endswith('/image'):
+                    data,mime=profiles.image(name)
+                    self.send_response(200);self.send_header('Content-Type',mime)
+                    self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+                else:self.reply_json(profiles.info(name))
+            except (ValueError,OSError) as error:self.reply_json({'error':str(error)},400)
+            return
         if path in ('/api/mmf','/api/mmf/status'):
             result=MMF.state()
             if path.endswith('/status'):
@@ -108,15 +130,23 @@ class Handler(SimpleHTTPRequestHandler):
         host=self.headers.get('Host')
         if not self.valid_host() or self.headers.get('Origin') != 'http://'+host:
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
-        if self.path not in ('/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/resume','/api/mmf/stop','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if SETUP.setup_required and self.path not in ('/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/servers/refresh','/api/servers/retest'):
+            self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
+        if self.path not in ('/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/resume','/api/mmf/stop','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
         try:
             length=int(self.headers.get('Content-Length','0'))
-            if not 0 < length <= 1_000_000:raise ValueError('Invalid request size.')
+            if not 0 < length <= (7_000_000 if self.path=='/api/artist-profiles' else 1_000_000):raise ValueError('Invalid request size.')
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):raise ValueError('Expected an object.')
+            if self.path=='/api/artist-profiles':
+                self.reply_json(PROFILES.save(payload));return
+            if self.path.startswith('/api/setup/'):
+                action=self.path.rsplit('/',1)[1]
+                result=SETUP.complete(MMF) if action=='complete' else SETUP.start_login() if action=='login' else SETUP.answer(payload) if action=='answer' else SETUP.configure_source(payload) if action=='source' else SETUP.share(payload)
+                self.reply_json(result);return
             if self.path.startswith('/api/mmf/'):
                 action=self.path.rsplit('/',1)[1]
                 result=(MMF.login(payload) if action=='login' else MMF.save(payload) if action=='save' else MMF.stop() if action=='stop' else MMF.start(action,due=payload.get('due') is True))
@@ -149,7 +179,10 @@ class Handler(SimpleHTTPRequestHandler):
                     self.reply_json(start_application(self.store,payload,resume=self.path.endswith(('/resume','/repair')),repair=self.path.endswith('/repair')));return
                 self.reply_json(organizer.start(payload) if self.path.endswith('/preview') else organizer.stop());return
             result=(self.store.runs.start(payload) if self.path=='/api/run' else self.store.runs.resume(payload) if self.path=='/api/run/resume' else self.store.runs.ignore_corrupt(payload) if self.path=='/api/run/ignore' else self.store.runs.stop() if self.path=='/api/stop' else self.store.save_config(payload) if self.path.endswith('config') else self.store.save(payload))
+            if self.path=='/api/config' and SETUP.setup_required:(self.root/'data/setup-settings-reviewed').touch(mode=0o600)
             self.reply_json(result)
+        except subprocess.TimeoutExpired:
+            self.reply_json({'error':'The connection timed out. Check network access and try again.'},504)
         except FileExistsError as error:
             self.reply_json({'error':str(error)},409)
         except (ValueError,TypeError,CLIError,DeliveryError) as error:
@@ -159,9 +192,12 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply_json({'error':message},500)
 
     def end_headers(self):
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "private, max-age=300" if urlsplit(self.path).path=='/api/artist-profiles/image' else "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         super().end_headers()
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("TELEGRAM_STL_PORT","6093"))), Handler).serve_forever()
+    bind = os.environ.get("TELEGRAM_STL_BIND", "127.0.0.1")
+    if bind not in ("127.0.0.1", "0.0.0.0"):
+        raise ValueError("Unsupported web server bind address.")
+    ThreadingHTTPServer((bind, int(os.environ.get("TELEGRAM_STL_PORT","6093"))), Handler).serve_forever()

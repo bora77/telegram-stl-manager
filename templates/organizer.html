@@ -119,6 +119,10 @@ function acceptPlan(plan){
  if(plan.id&&sameChoice(plan)&&(previewRunning()||(planJob()&&followingJobId===job?.id))){previewPlanId=plan.id;previewChoice=choiceKey()}
 }
 function render(){
+ const chosen=creators.find(c=>c.topic_url===el('artist').value);
+ let logo=document.getElementById('organizer-artist-logo');
+ if(!logo){logo=document.createElement('span');logo.id='organizer-artist-logo';el('artist').parentElement.append(logo)}
+ if(logo.dataset.name!==(chosen?.name||'')){logo.dataset.name=chosen?.name||'';logo.replaceChildren(...(chosen?[ArtistProfiles.badge(chosen.name)]:[]))}
  const p=current,scanning=previewRunning(),running=active();
  const visible=previewPending||scanning||(appRunning()&&!!planJob()&&sameChoice(p))||!!(previewPlanId&&p.id===previewPlanId&&previewChoice===choiceKey());
  el('preview-panel').hidden=!visible;

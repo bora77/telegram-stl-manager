@@ -12,7 +12,67 @@ no AI service, OCR, Telegram Desktop or VNC session. Downloads and folder change
 start when you request them; saving a subscription does not start a background
 schedule.
 
+## Software components and how they work together
+
+The manager runs on your own machine. Your normal browser displays the interface
+and talks to a local Python web server; that server starts workers for downloads,
+image extraction and organization. Files pass through local staging storage before
+being delivered to your chosen local folder or mounted network share.
+
+| Component | Purpose |
+| --- | --- |
+| HTML, CSS and JavaScript | The browser interface: creator selection, progress, configuration, organizer previews and the drag-and-drop collage editor. No browser extension is required. |
+| Python | Application logic, job management and the local web server, using Python's built-in `ThreadingHTTPServer`. No separate Apache or nginx installation is needed. |
+| Telegram CLI (`tdl`, written in Go) | Connects directly to Telegram through the `gotd` MTProto library. The bundled build includes this project's integration patches for transfer control and server selection. It reads the configured source and downloads attachments without controlling Telegram Desktop. |
+| SQLite and JSON files | SQLite stores download history, MMF source versions and collage records. JSON stores settings, subscriptions and saved job state. SQLite is embedded; there is no separate database server to configure. |
+| 7-Zip | Reads supported archive formats, including RAR, extracts release contents and builds MMF `.7z` sets with volumes no larger than 4000 MiB. |
+| Pillow | Processes images, creates previews and renders the final JPEG collages. |
+| Direct MMF HTTP client (beta) | Python's HTTP and cookie libraries authenticate to MyMiniFactory, read the supported library collections and fetch files. Checks and downloads do not require a separate MMF browser window or Tampermonkey. |
+| WSL2, Ubuntu and PowerShell on Windows | The installer prepares a dedicated Linux environment and the launcher starts the app inside it. You use the interface in your normal Windows browser. Linux installations run directly. |
+
+The runtime package bundles Python, the application web server, SQLite, Pillow,
+the compiled Telegram CLI and 7-Zip. Go is needed to build the CLI from source,
+not to run the packaged application. No AI service or OCR is used during normal
+operation. Installation details and platform requirements are in [INSTALL.md](INSTALL.md).
+
+### From selection to saved release
+
+1. **Configure and select.** Complete initial setup, connect your account, choose
+   a destination and save the creators and release scopes you want.
+2. **Check availability.** While a manager page is open, the browser requests
+   checks at the configured interval. These checks announce available downloads;
+   they do not start transfers. Closing the browser stops those scheduled checks.
+3. **Start a run manually.** The server saves a queue and starts a worker. Telegram
+   checks reuse saved scan positions and history. MMF tracks source versions so
+   additions or changes to older collections can be considered too.
+4. **Download and process locally.** Workers stage files on the application
+   machine, collect companion archive parts and extract images into a flat
+   `release_images` folder. MMF additionally repackages each release into one
+   7-Zip set; Telegram archives retain their original filenames.
+5. **Deliver and remember.** Files are verified during delivery to the selected
+   destination, and successful work is recorded. New monthly folders use
+   `Artist/Artist YYYY-MM/`; named MMF collections keep their names with the
+   artist prefix. Existing legacy monthly folders remain supported.
+6. **Review or continue.** Failed items remain available for review or retry.
+   Saved queues and processing records let subsequent attempts reuse completed
+   work. Organizer Apply uses the same delivery and image-processing machinery
+   for existing files, while Collages saves the finished JPEG beside the archives.
+
+An already started worker runs independently of the browser as long as the local
+application remains running. Download and organizer jobs can overlap, with locks
+coordinating changes to the same release. Account sessions and history stay in
+local application data and are excluded from the public distribution.
+
 ## What it can do
+
+- **Artist logos and creator links.** A collected library covers the catalog,
+  with initials where no confident image match is available. Click an artist's
+  logo or **Creator links / logo** to open its Patreon, MyMiniFactory, Cults or
+  other verified storefront links. Upload a replacement, choose initials, or
+  restore the collected logo. Your replacements are saved separately and survive
+  library updates. Normal use reads local files and needs no AI or web search.
+  Collected links come from matched creator pages; blank entries mean the lookup
+  could not establish a reliable match, not that the artist has no account.
 
 - **Manage creator subscriptions.** Search the catalog, filter subscribed or
   unsubscribed creators, and choose a folder and starting month for each one.
@@ -84,7 +144,7 @@ A release folder can look like this:
 ```text
 Incoming/
 └── Example Artist/
-    └── 2026-08/
+    └── Example Artist 2026-08/
         ├── Example Artist 2026-08.7z.001
         ├── Example Artist 2026-08.7z.002
         ├── Example Artist-2026-08.jpg
@@ -153,6 +213,13 @@ need attention before retrying.
 
 ## Install and configure
 
+For macOS and Linux Docker testing, use the separate
+**Telegram-STL-Manager-Docker.zip** package. It includes a launcher, persistent
+application storage and a host download-folder mapping. See the
+[Docker setup guide](docker/README.md). Docker Desktop is required on macOS;
+Linux can use Docker Engine with Compose. The Docker build targets x86-64 and
+ARM64; real Mac validation is still pending.
+
 Supported setup: **Linux**, or **Windows through WSL2**. Windows installation
 instructions use Ubuntu inside WSL2; this is not a native Windows application.
 
@@ -207,7 +274,8 @@ The browser checks subscribed creators for available downloads at the interval s
 
 ### MyMiniFactory
 
-Connect under **Configuration → MyMiniFactory account**. The manager connects directly to MMF using an MMF username/email and
+MMF is a beta feature, hidden by default. Enable it in **Configuration → Beta
+features**, then connect under **MyMiniFactory account**. The manager connects directly to MMF using an MMF username/email and
 password. A separate MMF browser, extension, Playwright or AI agent is not needed
 for checks and downloads. Google sign-in users may need to set an MMF password
 through MMF's password-reset page first. Passwords are used for login only;
@@ -228,7 +296,8 @@ subfolders to avoid collisions. Small releases use `.7z`; larger sets use
 `.7z.001`, `.002`, and so on.
 
 Files stage locally and the complete repacked archive is tested before verified
-delivery to `<creator>/<MMF release name>/`. Unsafe filename characters are
+delivery to `<creator>/<Artist YYYY-MM>/`, or an artist-prefixed named collection
+folder such as `<creator>/<Artist Welcome Pack>/`. Unsafe filename characters are
 sanitized for the filesystem. Images go into one flat `release_images` folder
 inside the release. For ordinary releases without a month in their name, the MMF release folder’s
 creation date supplies the destination month (`YYYY-MM`). Each named release
@@ -249,3 +318,18 @@ individual store purchases and standalone model/PDF downloads are not yet expose
 MMF's website endpoints can change; Cloudflare or account verification can still
 require reconnecting. Library access has been tested live; transfer and repackaging logic
 are covered by local tests, and live speed testing remains to be done.
+
+### Windows guided installation (test build)
+
+The Windows ZIP includes an installer and launcher for a dedicated WSL environment.
+Double-click `Install.cmd`, accept Windows approval/restart if needed, then use the
+desktop shortcut. Configure Telegram, the TOC, MMF and a network destination in the
+browser. No manual WSL configuration is required. Installation, reboot continuation,
+reset, reinstallation and uninstall were tested in a Windows 11 VM, including
+preservation of download files. See `INSTALL.md` for validation scope and limitations.
+
+The Git pre-commit hook increments the patch version in `VERSION` for each commit
+and refreshes the version shown beside the app copyright. Enable the repository
+hooks with `git config core.hooksPath .githooks` when cloning for development.
+
+Copyright © 2026 trumphater77

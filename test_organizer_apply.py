@@ -19,6 +19,21 @@ TOPIC='https://t.me/c/123456789/200'
 
 
 class OrganizerApplyTests(unittest.TestCase):
+    def test_named_release_stays_put_and_images_use_same_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store,folder=self.setup_store(Path(temporary))
+            release=folder/'Example Bonus 2026-01';release.mkdir()
+            archive=release/'Example Bonus 2026-01.zip';self.archive(archive)
+            original=archive.read_bytes()
+            plan=self.preview(store,folder)
+            self.assertEqual(plan['files'][0]['action'],'keep')
+            job_id=self.start(store)
+            ApplyWorker(store,job_id).execute()
+            self.assertEqual(self.job(store)['state'],'completed')
+            self.assertEqual(archive.read_bytes(),original)
+            self.assertTrue((release/'release_images').is_dir())
+            self.assertFalse((folder/'2026-01').exists())
+
     def test_apply_ignores_images_in_older_preview_and_still_extracts_archives(self):
         with tempfile.TemporaryDirectory() as temporary:
             store,folder=self.setup_store(Path(temporary))

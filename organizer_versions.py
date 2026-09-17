@@ -63,11 +63,12 @@ def choices(plan):
         # Multiple indistinguishable copies need the chosen Telegram upload;
         # never guess which same-sized local bytes were uploaded later.
         selected=sets[0] if len(sets)==1 else []
+        release_dir=rows[0].get('release_directory') or month
         records=[]
         for index,item in enumerate(preferred):
             record=copy.deepcopy(selected[index]) if selected else {'filename':item['filename'],'source':item['filename'],'size':item['bytes_total'],'identity':None}
-            record.update(month=month,destination=month+'/'+item['filename'],
-                action='keep' if selected and record['source']==month+'/'+item['filename'] else 'move',
+            record.update(month=month,release_directory=release_dir,destination=release_dir+'/'+item['filename'],
+                action='keep' if selected and record['source']==release_dir+'/'+item['filename'] else 'move',
                 telegram_status='matched',source_message_ids=[item['source_message_id']],
                 source_message_id=item['source_message_id'],message_url=item['message_url'],
                 telegram_name=item['filename'],telegram_bytes=item['bytes_total'],telegram_size=f"{item['bytes_total']:,} bytes",
@@ -76,7 +77,7 @@ def choices(plan):
             records.append(record)
         used={r['source'] for r in selected}
         previous=[copy.deepcopy(r) for r in rows if r['source'] not in used]
-        result[key]={'key':key,'month':month,'records':records,'state':'pending',
+        result[key]={'key':key,'month':month,'release_directory':release_dir,'records':records,'state':'pending',
             'version':{'id':token,'items':copy.deepcopy(preferred),'bytes_total':sum(a['bytes_total'] for a in preferred),
                        'variants':len(variants),'download':not bool(selected)},'previous_files':previous}
     return result
@@ -176,7 +177,7 @@ def apply(worker, group, pinned, work):
                 or item.get('message_url')!=item['topic_url']+'/'+str(item['source_message_id'])
                 or record['filename']!=item['filename'] or record['size']!=item['bytes_total']
                 or record['source_message_ids']!=[item['source_message_id']]
-                or record['destination']!=group['month']+'/'+item['filename']):
+                or record['destination']!=group.get('release_directory',group['month'])+'/'+item['filename']):
             raise ValueError('Preferred archive differs from its exact Telegram metadata.')
     check_parts(group)
     if group['version']['download']:
@@ -209,7 +210,7 @@ def apply(worker, group, pinned, work):
         backup=previous.get('backup_record')
         if not backup:
             backup=copy.deepcopy(previous)
-            backup.update(destination=group['month']+'/.previous_versions/'+worker.job['id']+'/'+str(index)+'/'+previous['filename'],move_started=True)
+            backup.update(destination=group.get('release_directory',group['month'])+'/.previous_versions/'+worker.job['id']+'/'+str(index)+'/'+previous['filename'],move_started=True)
             previous['backup_record']=backup;worker.save()
         worker.progress('version_backup','Keeping the previous archive version · '+previous['filename'])
         pinned.move(backup);previous['backed_up']=True;worker.save()
@@ -220,7 +221,7 @@ def apply(worker, group, pinned, work):
             def progress(done,total):
                 metrics=meter.sample(done)
                 worker.progress('repair_move','Moving preferred archive · '+record['filename'],done,total,speed_bps=metrics['download_speed_bps'])
-            target,size,checksum=deliver(source,worker.job['base'],worker.job['creator_folder'],group['month'],record['filename'],progress)
+            target,size,checksum=deliver(source,worker.job['base'],worker.job['creator_folder'],group['month'],record['filename'],progress,release_directory=group.get('release_directory'))
             if checksum!=record['repair_download']['sha256'] or size!=record['size']:raise ValueError('Preferred archive delivery did not match its download.')
             record.update(identity=pinned.info(record['destination']),move_started=True)
         else:

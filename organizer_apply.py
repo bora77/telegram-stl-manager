@@ -207,7 +207,10 @@ def ready_groups(plan):
         record = json.loads(json.dumps(original))
         ids = record.get('source_message_ids', [])
         if not ids or not safe_filename(record['filename']):raise ValueError('A file needs a fresh exact Telegram comparison.')
-        if record['destination'] != record['month'] + '/' + record['filename']:
+        release_dir=record.get('release_directory') or record['month']
+        from release_rules import release_month
+        if not safe_filename(release_dir) or release_month(release_dir)!=record['month']:raise ValueError('Invalid release directory in plan.')
+        if record['destination'] != release_dir + '/' + record['filename']:
             raise ValueError('Invalid monthly destination in plan.')
         for message in ids:
             item = attachments.get(message, {})
@@ -217,7 +220,7 @@ def ready_groups(plan):
             raise ValueError('Only loose files may be removed as duplicates.')
         if record['action']=='keep' and record['destination'] in duplicate_targets:continue
         key = record['month'] + '/' + volume_key(record['filename'])[0]
-        groups.setdefault(key, {'key': key, 'month': record['month'], 'records': [], 'state': 'pending'})['records'].append(record)
+        groups.setdefault(key, {'key': key, 'month': record['month'], 'release_directory':release_dir, 'records': [], 'state': 'pending'})['records'].append(record)
     for group in groups.values():
         indexes = [volume_key(record['filename'])[1] for record in group['records']]
         if len(set(indexes)) != len(indexes):raise ValueError('Plan contains competing archive parts; review required.')
@@ -394,7 +397,7 @@ class ApplyWorker:
 
     def images(self, group, pinned, work, *, locations=None):
         if not self.job['extract_images']:return None
-        destination=pinned.path/group['month']/'release_images'
+        destination=pinned.path/group.get('release_directory',group['month'])/'release_images'
         saved=self.store.history.image_extraction(self.job['topic_url'],group['records'],destination)
         if saved:
             group.update(images=saved['images'],image_warnings=saved['warnings'],image_status=saved['state'],
@@ -448,7 +451,7 @@ class ApplyWorker:
                 self.progress('images','Moving release images to Kronos',delivered+done,image_total,speed_bps=sample['download_speed_bps'])
             def phase(value):
                 self.progress('images','Verifying release images on Kronos' if value=='verifying' else 'Moving release images to Kronos',delivered,image_total)
-            target,size,checksum=deliver(source,self.job['base'],self.job['creator_folder'],group['month'],entry['path'],progress,phase,subdirectories=('release_images',))
+            target,size,checksum=deliver(source,self.job['base'],self.job['creator_folder'],group['month'],entry['path'],progress,phase,subdirectories=('release_images',),release_directory=group.get('release_directory'))
             if size!=entry['size'] or checksum!=entry['sha256']:raise ValueError('Delivered image differs from its saved manifest.')
             delivered+=entry['size']
         saved=self.store.history.record_image_extraction(self.job['topic_url'],group['records'],images,destination,
@@ -501,7 +504,7 @@ class ApplyWorker:
                         for record in group['records']:
                             if pinned.info(record['destination'])!=pinned.destination_identity(record):raise ValueError('Organized file changed before history recording.')
                         self.progress('recording','Recording completed files in download history',self.job['files_done'],self.job['files_total'],'files')
-                        self.store.history.import_organized(self.job,group['records'],images,pinned.path/group['month']/'release_images',image_warnings=group.get('image_warnings',[]))
+                        self.store.history.import_organized(self.job,group['records'],images,pinned.path/group.get('release_directory',group['month'])/'release_images',image_warnings=group.get('image_warnings',[]))
                         group['state']='completed'
                         self.job['releases_done']+=1
                         self.job['files_done']+=sum(not record.get('recorded') for record in group['records'])

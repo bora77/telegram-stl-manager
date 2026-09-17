@@ -56,7 +56,7 @@ def private_markers(root):
 def verify(root, paths, markers, read_content=None):
     normalized = {re.sub(r'[^a-z0-9]', '', value.casefold()) for value in markers}
     for rel in paths:
-        if rel.parts[0] in {'data', 'dist'} or (len(rel.parts) == 1 and rel.name in {'catalog.html', 'configuration.html', 'organizer.html', 'collages.html'}):
+        if rel.parts[0] in {'data', 'dist'} or (len(rel.parts) == 1 and rel.name in {'catalog.html', 'configuration.html', 'organizer.html', 'collages.html', 'mmf.html'}):
             raise ValueError('Private/generated content in distribution: ' + str(rel))
         content = (read_content(rel) if read_content else (Path(root) / rel).read_bytes()).decode('utf-8', errors='ignore')
         compact = re.sub(r'[^a-z0-9]', '', content.casefold())

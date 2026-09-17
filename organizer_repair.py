@@ -152,7 +152,7 @@ def run(worker, group, pinned):
             if source.is_symlink() or source.stat().st_size!=item['bytes_total'] or digest(source)!=proof['sha256']:
                 raise ValueError('Staged replacement failed checksum verification.')
             backup_original(worker,pinned,repair,directory)
-            destination=group['month']+'/'+name
+            destination=group.get('release_directory',group['month'])+'/'+name
             # A monthly original must be removed from its destination first;
             # its fsynced backup and verified replacement are already durable.
             if original and original['source']==destination and not repair.get('delivered'):
@@ -166,7 +166,7 @@ def run(worker, group, pinned):
                 worker.progress('repair_move','Moving replacement to the release folder · '+name,done,total,speed_bps=metrics['download_speed_bps'])
             def phase(value):
                 worker.check();worker.progress('repair_move',('Verifying replacement' if value=='verifying' else 'Moving replacement')+' · '+name,speed_bps=None)
-            target,size,checksum=deliver(source,worker.job['base'],worker.job['creator_folder'],group['month'],name,moving,phase)
+            target,size,checksum=deliver(source,worker.job['base'],worker.job['creator_folder'],group['month'],name,moving,phase,release_directory=group.get('release_directory'))
             if checksum!=proof['sha256'] or size!=item['bytes_total']:raise ValueError('Delivered replacement did not match its verified download.')
             repair['delivered']=True;worker.save()
             if original and original['source']!=destination:remove_original(worker,pinned,repair)

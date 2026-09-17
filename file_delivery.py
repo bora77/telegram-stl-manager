@@ -38,15 +38,25 @@ def digest(path):
 
 def mount_identity(base):
     base=Path(base).resolve(strict=True)
-    data=json.loads(subprocess.check_output(['findmnt','-J','-T',str(base),'-o','TARGET,SOURCE,FSTYPE'],text=True,timeout=15))['filesystems'][0]
+    # stat triggers automounts; match the actual device, not the autofs wrapper.
+    device=base.stat().st_dev
+    number=f'{os.major(device)}:{os.minor(device)}'
+    mounts=json.loads(subprocess.check_output(['findmnt','-J','-T',str(base),'-o','TARGET,SOURCE,FSTYPE,MAJ:MIN'],text=True,timeout=15))['filesystems']
+    matches=[entry for entry in mounts if entry.get('maj:min')==number and entry['fstype']!='autofs']
+    if not matches or base.stat().st_dev!=device:raise DeliveryError('Destination mount could not be verified; local files retained.')
+    data=max(matches,key=lambda entry:len(Path(entry['target']).parts))
     if str(base).startswith('/mnt/kronos-stl/') or base==Path('/mnt/kronos-stl'):
         if data['fstype']!='cifs' or data['source'].lower()!='//kronos/stl':raise DeliveryError('Kronos is not mounted; staged files were kept locally.')
-    return (data['target'],data['source'],data['fstype'],base.stat().st_dev)
+    return (data['target'],data['source'],data['fstype'],device)
 
-def deliver(source,base,folder,month,filename,progress=lambda done,total:None,phase=lambda state:None,*,subdirectories=()):
+
+def deliver(source,base,folder,month,filename,progress=lambda done,total:None,phase=lambda state:None,*,subdirectories=(),release_directory=None):
     import re
     if any(not isinstance(v,str) or not v or v in ('.','..') or re.search(r'[\\/<>:"|?*\x00-\x1f]',v) or v.strip()!=v for v in (folder,filename,*subdirectories)):raise DeliveryError('Unsafe destination filename.')
-    if not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',month or ''):raise DeliveryError('Release month needs review.')
+    if release_directory is None and not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',month or ''):raise DeliveryError('Release month needs review.')
+    if release_directory is not None:
+        if not isinstance(release_directory,str) or not release_directory or release_directory in ('.','..') or re.search(r'[\\/<>:"|?*\x00-\x1f]',release_directory) or release_directory.strip()!=release_directory:raise DeliveryError('Unsafe release folder.')
+        month=release_directory
     base=Path(base).resolve(strict=True);identity=mount_identity(base)
     source=Path(source);size=source.stat().st_size
     if shutil.disk_usage(base).free<size+64*1024*1024:raise DeliveryError('Not enough destination space.')

@@ -12,6 +12,20 @@ from file_delivery import deliver,DeliveryError,release_lock
 from subscription_store import SubscriptionStore
 
 class DownloaderTests(unittest.TestCase):
+    def test_mount_identity_selects_actual_device_below_automount(self):
+        import os
+        from file_delivery import mount_identity
+        with tempfile.TemporaryDirectory() as temp:
+            device=Path(temp).stat().st_dev;number=f'{os.major(device)}:{os.minor(device)}'
+            smb={'target':temp,'source':'//kronos/STL','fstype':'cifs','maj:min':number}
+            wrapper={'target':temp,'source':'systemd-1','fstype':'autofs','maj:min':'999:999'}
+            for entries in ([wrapper,smb],[smb,wrapper]):
+                with patch('file_delivery.subprocess.check_output',return_value=json.dumps({'filesystems':entries})):
+                    self.assertEqual(mount_identity(temp),(temp,'//kronos/STL','cifs',device))
+            for entries in ([wrapper],[{**smb,'maj:min':'999:998'}]):
+                with patch('file_delivery.subprocess.check_output',return_value=json.dumps({'filesystems':entries})):
+                    with self.assertRaises(DeliveryError):mount_identity(temp)
+
     def test_worker_status_and_stop_controls_are_independent(self):
         from folder_organizer import Organizer
         from organizer_apply import application_status

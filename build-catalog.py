@@ -71,7 +71,7 @@ def app_layout(page):
     layout = layout.replace('__QUEUE_HREF__', '#queue' if page == 'queue' else '/')
     layout = layout.replace('__ARTISTS_HREF__', '#artists' if page == 'queue' else '/#artists')
     layout = layout.replace('__TASK_NOTIFICATIONS__', (root / 'task-notifications.js').read_text())
-    for name in ('queue', 'artists', 'organize', 'collages', 'config'):
+    for name in ('queue', 'artists', 'organize', 'collages', 'config', 'mmf'):
         layout = layout.replace('__CURRENT_' + name.upper() + '__', 'aria-current="page"' if name == page else '')
     return layout
 
@@ -92,10 +92,11 @@ pages = {
         .replace("__CREATORVIEW__", (root / "creator-view.js").read_text())
         .replace("__TABS__", (root / "tabs.js").read_text())
         .replace("__APP_LAYOUT__", app_layout('queue')),
+    'mmf.html': (root / 'templates/mmf.html').read_text().replace('__APP_LAYOUT__', app_layout('mmf')).replace('__MMF_VIEW__', (root / 'mmf-view.js').read_text()),
     'configuration.html': (root / 'templates/configuration.html').read_text().replace('__APP_LAYOUT__', app_layout('config')),
     'organizer.html': (root / 'templates/organizer.html').read_text().replace('__APP_LAYOUT__', app_layout('organize')).replace('__RULES__', (root / 'selection-rules.js').read_text()),
     'collages.html': (root / 'templates/collages.html').read_text().replace('__APP_LAYOUT__', app_layout('collages')).replace('__COLLAGE_VIEW__', (root / 'collage-view.js').read_text()),
 }
 for name, content in pages.items():
     write_page(name, content)
-print(f"Built four pages with shared navigation and data/creators.csv with {len(catalog['creators'])} records.")
+print(f"Built five pages with shared navigation and data/creators.csv with {len(catalog['creators'])} records.")

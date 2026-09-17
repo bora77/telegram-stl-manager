@@ -799,3 +799,24 @@ curl --fail http://127.0.0.1:6093/api/queue
 Logs/queue output can include creator names and file paths. Share only the relevant
 error if asking for help; never attach authentication databases or NAS credentials.
 See [CATALOG.md](CATALOG.md) for the application workflow and implementation notes.
+
+## Optional MyMiniFactory connection
+
+Open **Configuration → MyMiniFactory account** in the manager and connect with your MMF username/email and
+MMF password. Google-only accounts may first need an MMF password from the site's
+Forgot password flow. Select creators in Shared with me, their destination folders
+and starting months, then save and check availability. Start downloads manually.
+No additional Python libraries, browser runtime, extension, daemon or scheduled
+service is required. Python's standard library provides HTTP/TLS, cookie sessions
+and SQLite; image extraction uses the package's existing 7-Zip installation.
+
+Sessions and MMF database/partial files live under `data/mmf/`. Treat this directory
+as private account data and exclude it from shared packages and Git. The app does
+not save your password. Reconnect when MMF expires or invalidates the session.
+
+MMF downloads are automatically repacked after manual start into one 7-Zip set
+per MMF release folder, with volumes limited to 4000M (4000 MiB). The release name
+is used for the archive and destination folder, including names like Welcome Pack. Allow local free space for the original downloads,
+unpacked contents and compressed output. Repacking uses the existing bundled
+7-Zip; no extra library is needed. Original downloads are removed from staging
+only after verified delivery and completion recording.

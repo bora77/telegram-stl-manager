@@ -24,28 +24,34 @@ ACTIVE = ('starting', 'scanning', 'applying')
 
 
 def inventory(folder):
-    """Inspect immediate files and existing month folders; never create anything."""
+    """Inspect immediate files and dated release folders; never create anything."""
     folder = Path(folder)
     rows = []
     candidates = list(folder.iterdir())
     for child in tuple(candidates):
-        if not child.is_symlink() and child.is_dir() and re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])', child.name):
+        if not child.is_symlink() and child.is_dir() and release_month(child.name) is not None:
             candidates.extend(child.iterdir())
     for path in sorted(candidates):
         if is_image_attachment({'filename':path.name}) or path.is_symlink() or not path.is_file():
             continue
         relative = str(path.relative_to(folder))
         month = release_month(path.name)
-        if month is None and path.parent != folder and re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])', path.parent.name):
-            month = path.parent.name
-        target = folder / month / path.name if month else None
+        if month is None and path.parent != folder and release_month(path.parent.name) is not None:
+            month = release_month(path.parent.name)
+        release_dir=month
+        if month:
+            named=folder/(re.sub(r'^-\s*','',folder.name).strip()+' '+month)
+            if path.parent!=folder and release_month(path.parent.name)==month:
+                release_dir=path.parent.name
+            elif named.is_dir() and not named.is_symlink():release_dir=named.name
+        target = folder / release_dir / path.name if month else None
         action = 'review' if month is None else 'keep' if path == target else 'conflict' if target.exists() else 'move'
         info=path.stat()
         if action == 'conflict' and path.parent == folder and not target.is_symlink() and target.is_file() and target.stat().st_size == info.st_size:
             action = 'duplicate'
         rows.append({'filename': path.name, 'source': relative, 'size': info.st_size,
                      'identity': {'size':info.st_size,'mtime_ns':info.st_mtime_ns,'device':info.st_dev,'inode':info.st_ino},
-                     'month': month, 'destination': str(target.relative_to(folder)) if target else None,
+                     'month': month, 'release_directory':release_dir, 'destination': str(target.relative_to(folder)) if target else None,
                      'action': action, 'telegram_status': 'pending', 'would_record': False,
                      'reason': 'Apply will compare contents and remove the loose copy only if identical.' if action == 'duplicate' else 'Release month is unclear.' if not month else 'Destination already exists; review both files.' if action == 'conflict' else ''})
     targets={}
@@ -179,13 +185,13 @@ class Organizer:
                 if file.get('archive_version'):
                     file.update(image_status=None,image_count=None,images_extracted_at=None)
                     continue
-                destination=str(Path(plan.get('base',''))/plan.get('creator_folder','')/(file.get('month') or '')/'release_images')
+                destination=str(Path(plan.get('base',''))/plan.get('creator_folder','')/(file.get('release_directory') or file.get('month') or '')/'release_images')
                 row=images.get((file['filename'],file['size'],destination),{})
                 if row.get('image_status')=='complete_with_warnings' and not image_warnings(json.loads(row['image_warnings'])):
                     row['image_status']='complete'
                 file.update({k:row.get(k) for k in ('image_status','image_count','images_extracted_at')})
             for group in plan.get('version_groups',{}).values():
-                destination=Path(plan.get('base',''))/plan.get('creator_folder','')/group['month']/'release_images'
+                destination=Path(plan.get('base',''))/plan.get('creator_folder','')/group.get('release_directory',group['month'])/'release_images'
                 saved=self.store.history.image_extraction(plan['topic_url'],group['records'],destination)
                 if saved:
                     for file in plan['files']:

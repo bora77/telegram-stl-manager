@@ -16,6 +16,8 @@ import os
 
 ROOT = Path(__file__).resolve().parent
 STORE = SubscriptionStore(ROOT)
+from mmf_manager import MMFManager
+MMF = MMFManager(STORE)
 from availability import Availability
 AVAILABILITY = Availability(STORE)
 
@@ -42,6 +44,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.path='/configuration.html'
         elif path in ('/organize','/organize/'):
             self.path='/organizer.html'
+        elif path in ('/mmf','/mmf/'):
+            self.path='/mmf.html'
         elif path in ('/collages','/collages/'):
             self.path='/collages.html'
         elif path not in ("/catalog.html", "/favicon.svg", "/data/creators.json", "/data/creators.csv") and not re.fullmatch(r"/data/toc-links/page-\d{3}\.png", path):
@@ -61,6 +65,11 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.valid_host():
             self.send_error(403);return
         path=urlsplit(self.path).path
+        if path in ('/api/mmf','/api/mmf/status'):
+            result=MMF.state()
+            if path.endswith('/status'):
+                result={k:v for k,v in result.items() if k not in ('items','folders','creators')}
+            self.reply_json(result);return
         if path=='/api/availability':
             self.reply_json(AVAILABILITY.status());return
         if path=='/api/tasks':
@@ -99,7 +108,7 @@ class Handler(SimpleHTTPRequestHandler):
         host=self.headers.get('Host')
         if not self.valid_host() or self.headers.get('Origin') != 'http://'+host:
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
-        if self.path not in ('/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/resume','/api/mmf/stop','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -108,6 +117,10 @@ class Handler(SimpleHTTPRequestHandler):
             if not 0 < length <= 1_000_000:raise ValueError('Invalid request size.')
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):raise ValueError('Expected an object.')
+            if self.path.startswith('/api/mmf/'):
+                action=self.path.rsplit('/',1)[1]
+                result=(MMF.login(payload) if action=='login' else MMF.save(payload) if action=='save' else MMF.stop() if action=='stop' else MMF.start(action,due=payload.get('due') is True))
+                self.reply_json(result);return
             if self.path.startswith('/api/collages/'):
                 action=self.path.rsplit('/',1)[1]
                 if action=='open':result=self.collages.index(payload.get('folder'),payload.get('month'))

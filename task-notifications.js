@@ -164,3 +164,6 @@
  function start(){window.addEventListener('availability-config-saved',pollAvailability);pollAvailability();setInterval(pollAvailability,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollAvailability()})}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();
+
+/* MMF availability is requested only while a manager page is open. */
+(()=>{let busy=false;async function check(){if(busy)return;busy=true;try{const response=await fetch('/api/mmf/status',{cache:'no-store'});if(!response.ok)return;const state=await response.json();const link=document.getElementById('mmf-tab');if(link)link.title=state.counts.available+' MMF files available';if(state.connected&&!state.active&&state.settings.subscriptions.length&&Date.now()/1000>=state.next_check_at)await fetch('/api/mmf/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({due:true})})}catch{}finally{busy=false}}check();setInterval(check,60000)})();

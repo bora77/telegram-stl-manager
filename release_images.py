@@ -161,7 +161,7 @@ def _limits():
     os.nice(10)
 
 
-def command(args, work, stopped, tick=lambda: None, percent=None, *, executable=None, timeout=3600):
+def command(args, work, stopped, tick=lambda: None, percent=None, *, executable=None, timeout=3600, cwd=None):
     if stopped():raise ExtractionError('Stopped by request; downloaded archives kept locally.')
     encoding_args=[] if executable else ['-sccUTF-8']
     # Ubuntu's base 7zip package can list RAR files but needs the separate
@@ -170,7 +170,7 @@ def command(args, work, stopped, tick=lambda: None, percent=None, *, executable=
     if not executable:raise ExtractionError('7-Zip is required for image extraction; archive kept locally.')
     with tempfile.TemporaryFile(dir=work) as log:
         child = subprocess.Popen([executable, *encoding_args, *args], stdin=subprocess.DEVNULL, stdout=log,
-                                 stderr=subprocess.STDOUT, env=dict(os.environ, LC_ALL='C.UTF-8'), preexec_fn=_limits)
+                                 stderr=subprocess.STDOUT, env=dict(os.environ, LC_ALL='C.UTF-8'), preexec_fn=_limits, cwd=cwd)
         started = time.monotonic()
         offset = 0
         tail = b''

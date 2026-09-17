@@ -82,3 +82,11 @@
 !/start.sh
 !/install.sh
 !/Start-Windows.cmd
+
+!/mmf_client.py
+!/mmf_manager.py
+!/mmf-view.js
+!/test_mmf.py
+
+!/mmf_repack.py
+!/test_mmf_repack.py

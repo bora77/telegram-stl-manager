@@ -204,3 +204,48 @@ During organizer Preview, loose files whose names and sizes match an existing mo
 Split archives with mixed names such as `release.7z.001`, `release.002`, and `release.003` are grouped together. Extraction uses temporary consistent names while preserving the original filenames; retrying an older organizer job also repairs this grouping.
 
 The browser checks subscribed creators for available downloads at the interval saved in Configuration (four hours by default) while the tool is open; it never starts downloads automatically. The Linux x64 runtime package includes Python, the web server, SQLite, Pillow, Telegram CLI and 7-Zip. Run `start.sh`; Windows uses WSL2. See INSTALL.md for first-time account/source setup and supported platforms.
+
+### MyMiniFactory
+
+Connect under **Configuration → MyMiniFactory account**. The manager connects directly to MMF using an MMF username/email and
+password. A separate MMF browser, extension, Playwright or AI agent is not needed
+for checks and downloads. Google sign-in users may need to set an MMF password
+through MMF's password-reset page first. Passwords are used for login only;
+the private session stays in local application data. Reconnect if it expires.
+
+Select artists from **Shared with me**, assign each creator folder, choose a
+starting month or **All (archiving)**, then save. Availability checks use the
+configured interval while any manager page is open. They include new files
+added to existing collections. Downloads start only when you click **Download
+available releases**. **Resume unfinished** reuses the saved queue and local partial
+files. One MMF transfer runs at a time in this initial implementation.
+
+The release list follows the artist’s MMF folders, including monthly releases,
+Welcome Packs and loyalty rewards. Expand a release to see its files. Each release
+produces one 7-Zip set named after that release, with a maximum volume size of
+**4000M** (4000 MiB). Original member filenames are preserved under model/archive
+subfolders to avoid collisions. Small releases use `.7z`; larger sets use
+`.7z.001`, `.002`, and so on.
+
+Files stage locally and the complete repacked archive is tested before verified
+delivery to `<creator>/<MMF release name>/`. Unsafe filename characters are
+sanitized for the filesystem. Images go into one flat `release_images` folder
+inside the release. For ordinary releases without a month in their name, the MMF release folder’s
+creation date supplies the destination month (`YYYY-MM`). Each named release
+still produces its own archive set. The UI labels this inferred month; later
+file updates never change it. Welcome Packs and loyalty rewards retain named
+folders. Missing or invalid dates also keep the release name. If an existing
+archive with the same name differs, the new version goes into
+`MMF versions/<version>` inside the release; the existing archive is preserved.
+Source downloads stay local until archive/image delivery and database recording
+succeed. Completed source versions and extraction receipts are recorded separately
+from Telegram history. A changed release is rebuilt as a complete set, which can
+require downloading its unchanged source archives again; other completed releases
+are skipped.
+Failed releases are reported and the run continues with the next release.
+
+This integration currently covers Shared with me archive downloads. Tribes,
+individual store purchases and standalone model/PDF downloads are not yet exposed.
+MMF's website endpoints can change; Cloudflare or account verification can still
+require reconnecting. Library access has been tested live; transfer and repackaging logic
+are covered by local tests, and live speed testing remains to be done.

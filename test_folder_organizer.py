@@ -12,6 +12,20 @@ from subscription_store import SubscriptionStore
 
 
 class OrganizerTests(unittest.TestCase):
+    def test_artist_prefixed_month_folders_are_scanned_without_images_or_links(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);dated=root/'Example Artist 2025-07';dated.mkdir()
+            (dated/'Undated.7z').write_bytes(b'archive')
+            (dated/'collage.jpg').write_bytes(b'image')
+            nested=dated/'release_images';nested.mkdir();(nested/'ignored.zip').write_bytes(b'ignored')
+            (root/'Example Artist 2025-08').symlink_to(dated,target_is_directory=True)
+            rows=inventory(root)
+            self.assertEqual(len(rows),1)
+            self.assertEqual((rows[0]['source'],rows[0]['month'],rows[0]['destination']),('Example Artist 2025-07/Undated.7z','2025-07','Example Artist 2025-07/Undated.7z'))
+            self.assertEqual(rows[0]['action'],'keep')
+            self.assertTrue((dated/'Undated.7z').exists())
+            self.assertFalse((root/'2025-07').exists())
+
     def test_existing_month_folder_supplies_missing_archive_date(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)/'2024-04';root.mkdir()

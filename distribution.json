@@ -1,6 +1,7 @@
 {
   "files": [
     ".gitignore",
+    "AGENTS.md",
     "distribution.json",
     "README.md",
     "TODO.md",

@@ -1,177 +1,194 @@
-# Prompt for an AI agent: install Telegram STL manager
+# Prompt for an AI agent: install Telegram STL Manager
 
-Copy the prompt below into an agent that has terminal/filesystem access on the
-**destination** machine. Give it the actual Git repository URL (or project files)
-and [INSTALL.md](INSTALL.md). The distribution contains only blank source/catalog
-templates; real configuration stays local to the destination machine.
-Replace the bracketed preferences if known; the agent can ask for missing values.
-Do not put passwords, login codes, authentication databases or QR tokens in the
-prompt.
+Checked against the **v0.1.14** installer and updater on **2026-09-18**.
+
+Copy the prompt below into an agent with terminal/filesystem access on the
+**destination machine**. Supply the release package or repository and its
+`INSTALL.md`; Docker users also need `docker/README.md` (the Docker package's
+`README.md`). Leave unknown preferences blank. Never include passwords, login
+codes, QR tokens, session files or private account data in the prompt.
+
+Project: https://github.com/bora77/telegram-stl-manager
+Latest release: https://github.com/bora77/telegram-stl-manager/releases/latest
 
 ---
 
-Install the existing Telegram STL manager application on this machine, following the
-project's `INSTALL.md`. This is an installation task, not a request to redesign
-or rewrite the application. Read the actual source and guide before choosing
-commands. Complete the setup and appropriate verification, then give me concise
-instructions for normal use.
+Install the existing Telegram STL Manager on this machine. Follow the matching
+release's `INSTALL.md` and packaged instructions. This is installation and
+configuration, not a request to rewrite the application. Prefer the packaged
+installer over a source build. Complete all independent setup, let me perform
+required local login/admin steps, and verify the installation.
 
 My preferences:
 
-- Git repository: [actual repository URL; optionally a release tag or commit].
-- Installation folder: [default: ~/Projects/telegram-stl inside Linux/WSL].
-- Operating system: [detect Linux or Windows; ask only if detection is unavailable].
-- Destination: [local Linux folder, or SMB share and folder; example:
-  //kronos/STL and !! 3D STLs - INCOMING].
-- Startup: [foreground initially; offer/implement a user service if requested].
-- Telegram source: [configure my own source and approved creator links locally; no built-in group].
-- Existing history: [fresh installation, or preserve my supplied SQLite backup].
+- Release: [latest stable release, or a specified version/package].
+- Operating system and architecture: [detect if unspecified].
+- Installation: [new installation, or update an existing installation].
+- Download destination: [local folder, or network share and folder].
+- Optional MyMiniFactory Beta: [disabled unless requested].
+- Existing data: [preserve current settings/history, or a supplied backup].
 
-I authorize installing required dependencies, building the CLI, preparing this
-project directory, configuring my chosen destination/service and verifying them
-with temporary test files. Reuse answers I have already supplied. Ask only for
-missing information, credentials I must enter locally, required administrator
-interaction or an action that would interrupt unrelated work. Never ask me to
-paste a password, Telegram code, QR token or private session into chat.
+I authorize installing the required software for the chosen route and checking
+my destination using a uniquely named temporary test directory. Reuse answers
+already supplied. Ask for missing information, local administrator/login steps,
+or a reboot that could interrupt other work. Do not ask me to paste secrets into
+chat. Do not uninstall, reset, delete a data volume or replace existing private
+state to fix an installation error.
 
-Follow these requirements:
+## 1. Choose the correct route
 
-1. **Establish the environment and preserve existing work.** Detect OS,
-   architecture, Linux username, project path, running service/jobs, disk space
-   and destination. Do not assume `/home/bora`, UID 1000 or an existing Kronos
-   mount. Do not overwrite a nonempty installation, database, systemd unit,
-   credential file or fstab entry blindly. Reuse compatible configuration and
-   make a backup before changing existing settings.
+**Windows Intel/AMD x64 — default for Windows testers**
 
-2. **Use the supported platform route.** The app currently requires Linux APIs:
-   `fcntl`, `resource`, process groups, directory file descriptors, `findmnt` and
-   glibc `renameat2(RENAME_NOREPLACE)`. On Windows use WSL2 with Ubuntu 24.04 and
-   Linux Python; keep the application, SQLite and staging inside the Linux home
-   filesystem. Do not claim native Windows support or bypass filesystem checks.
-   Coordinate a necessary WSL install/reboot/shutdown with me because other work
-   may be running. WSL services alone do not guarantee the instance stays alive.
+- New installation: obtain `Telegram-STL-Manager-Windows.zip` from the official
+  release, verify its published checksum, and extract the entire ZIP into a new
+  folder. Double-click `Install.cmd` as the normal Windows user. It requests
+  administrator approval automatically; no manual right-click elevation is
+  needed. I must approve the Windows prompt.
+- The installer enables WSL when necessary, downloads/imports its own Ubuntu
+  environment named `TelegramSTL`, installs dependencies and creates shortcuts.
+  If a reboot is required, coordinate it with me; setup continues at sign-in.
+  Do not separately install Ubuntu, create a Linux user, edit fstab, build Go,
+  install Python or install a database/web-server service for this route.
+- This is a Windows launcher backed by WSL2, not a native Windows executable.
+  Preserve unrelated WSL distributions and global settings. The package is an
+  unsigned test build. Do not disable Windows security protections.
+- Keep installation output visible. Leave `support/` intact and do not run its
+  internal scripts directly. After installation completes, close leftover
+  Welcome to WSL and completed installer PowerShell windows.
+- Use the desktop shortcut to start the app. Its tray icon keeps the server
+  running without an open PowerShell window. Double-click the tray icon to open
+  the browser; right-click for View logs or Stop and exit. The icon may be under
+  the notification-area arrow. Start the shortcut again after restarting the PC.
+- Existing installation: use the app's optional updater, or the separate
+  `Telegram-STL-Manager-Update.zip` and `Update.cmd`, as described below. Do not
+  run a reset or treat an update as a fresh installation.
 
-3. **Clone and check the installation payload.** Install Git and clone my actual
-   repository into a new directory, including any pinned submodules. Use my
-   specified release/commit when supplied and record the installed commit.
-   Authenticate privately; do not put tokens in clone URLs. Require the Python/HTML/JS sources,
-   `templates/`, `tools/build-tdl.sh`, `examples/`, `distribution.json`,
-   and the already patched
-   `.tools/tdl-stl/src` plus `.tools/tdl-stl/gotd` trees. Preserve their workspace,
-   module lockfiles and licenses. Do not invent a project clone URL or assume a
-   stock upstream tdl binary has this project's commands. Missing custom sources
-   must be obtained from the owner, not silently replaced. Use
-   `python3 tools/init-local.py` to create blank private source/catalog files
-   without replacing existing ones. Keep the public distribution free of
-   actual group names, IDs, links, catalogs, screenshots and session notes. Never
-   put these in code, examples, tests, Git or release archives. Use the explicit
-   distribution manifest and `tools/package-release.py --check`; do not weaken
-   ignore rules or force-add private data.
+**Linux x86-64 — bundled runtime or Docker**
 
-4. **Install every required dependency.** On the reference Ubuntu route this is
-   Python 3.12, `python3-pil` (Pillow), `fonts-dejavu-core`, `7zip` **and `7zip-rar`**, `zip` (damaged image ZIP recovery), `util-linux`, `iproute2`, `tzdata`,
-   `git`, `ca-certificates`, `curl`, `tar`, `coreutils` and `cifs-utils` for SMB. APT
-   resolves libraries such as SQLite, glibc and the C++ runtime. Python uses its standard library, Pillow, and `pypdf==6.14.2`. Install Pillow through APT and pypdf for the application Python as described in INSTALL.md; both are bundled by the runtime/Docker builders. Verify
-   JPEG/WebP decoding and `ImageFont.truetype("DejaVuSans.ttf", 24)`.
-   Systemd/user D-Bus are for optional background startup. Node.js is optional
-   for the supplied JavaScript tests. Do not install VNC, OCR, Telegram Desktop,
-   GTK or an AI API as runtime requirements.
+- If supplied the Linux runtime archive, verify its checksum, extract it into a
+  writable folder and run `bash start.sh`. Use its bundled Python, SQLite,
+  Pillow, pypdf, Telegram CLI and 7-Zip/RAR runtime. Do not install duplicate
+  Python, database, web-server or Go packages. Follow `INSTALL.md` for host Linux
+  utilities and optional network mounts.
+- Docker is also supported on Linux. Follow the Docker package guide and keep
+  its persistent volume, rather than running source-install commands on the host.
+- Start in the foreground unless I request another startup method. Do not add
+  a system service or scheduled task merely to check for available downloads.
 
-5. **Verify RAR decoding, not just listing.** The base Ubuntu 7zip package can
-   recognize RAR without the separate decoder. Check the `Codecs` section for
-   Rar decoders and, when available, test a small compressed RAR in temporary
-   local storage. The app prefers
-   `.tools/7zip/runtime/usr/lib/7zip/7z`, otherwise system `7z`, then `7zz`.
-   Confirm the executable actually used is compatible with this architecture
-   and has the matching RAR codec. Do not leave an incompatible copied binary
-   taking precedence over a correct system installation. The listing parser
-   must retain the fix for empty final fields such as `NT Security = `.
+**macOS / Docker**
 
-6. **Build our actual Telegram CLI.** Follow `tools/build-tdl.sh` using Linux Go
-   1.25.8 or a compatible newer compiler. The tested Go downloads/checksums are
-   in INSTALL.md. Use official/distribution sources, verify downloads and retain
-   Go checksum verification. Preserve `src/go.work`, its local core/extension
-   modules and `replace github.com/gotd/td => ../gotd`. Do not double-apply patches
-   to already patched trees. Verify `.tools/tdl-stl/tdl stl --help` lists `files`,
-   `servers` and `download`. Go is needed only for builds.
+- Use the Docker tester package and its guide. macOS uses Docker Desktop;
+  Linux uses Docker Engine with Compose. Obtain missing releases from the
+  maintainer rather than inventing an image name or downloading an unrelated app.
+- Run `Start.command` (or `bash Start.command`), choose a writable host folder,
+  and allow required Docker folder access. Keep `/downloads` as the app's base;
+  it maps to that chosen host folder. The package builds the required runtime.
+- Keep build output visible. Closing the attached log window does not stop the
+  container; use `Stop.command`. Preserve `telegram-stl-manager-data` during
+  updates. Never use `docker compose down --volumes` for a routine update.
+- Mount network shares on the host before passing them to Docker. Confirm the
+  share is actually connected. Do not represent Mac/ARM or NAS behavior as
+  tested on this machine unless it has been verified here.
 
-7. **Prepare the destination as Linux sees it.** For NAS storage, mount CIFS
-   directly inside Linux/WSL using the intended account and actual UID/GID.
-   Passwords belong in a root-only local credential file entered by me; do not
-   read or echo an existing credential file into tool/chat output. The historical
-   `setup-kronos-stl.py` hardcodes user `bora` and must not be run unchanged for
-   another user. `/mnt/kronos-stl` is guarded for exactly `//kronos/STL`; use an
-   appropriate separate mountpoint for another NAS. Preserve mount-identity,
-   stable-file-identity, verified-delivery and no-overwrite checks. Validate read,
-   write, atomic rename and cleanup in a uniquely named temporary test directory
-   under my chosen base using the procedure in INSTALL.md. Do not touch real
-   creator files during installation testing.
+**Source installation — only when requested or needed for the platform**
 
-8. **Configure the source privately and handle login interactively.** Have me
-   set my chosen chat ID and TOC message ID in local `data/source.json`, and
-   approved creator links in local `data/creators.json`, following INSTALL.md.
-   No actual Telegram source is shipped. Do not enumerate/join other groups,
-   send messages or remove scope guards. Blank or invalid source configuration
-   must block content actions. Have me use the production CLI's QR login in my
-   terminal with storage `~/.local/share/telegram-stl-tdl/data` and namespace
-   `telegram-stl-trial`. I enter any 2FA password locally. Reuse an authorized
-   working login; otherwise create a fresh one. Never print private auth files
-   or import Desktop/another person's credentials. Do not ask me to publish
-   source IDs or catalog links to complete installation.
+Follow the source-build sections of `INSTALL.md`, including the matching Python,
+Pillow, pinned pypdf, Go, custom Telegram CLI and 7-Zip/RAR requirements. Preserve
+`.tools/tdl-stl/src`, `.tools/tdl-stl/gotd`, workspace/lockfiles and licenses; a
+stock tdl binary is not a substitute. Use `tools/build-tdl.sh`. Check actual RAR
+decoding, not just archive listing. Use `tools/init-local.py` and
+`tools/build-catalog.py`, then `python3 -m app.catalog_server`. Do not build or
+install these components separately when the selected package already includes
+them. Do not install OCR, VNC, Telegram Desktop or an AI API as dependencies.
 
-9. **Preserve downloaded history deliberately.** A fresh install starts with
-   an empty database. If I supply a history backup, restore it consistently while
-   the new server is stopped, preserving any existing database. Review migrated
-   subscriptions and destination settings. Do not copy unfinished run/organizer
-   journals onto a new machine: their paths, device IDs and inode identities are
-   machine-specific. Keep old recovery data intact. Log into Telegram afresh
-   rather than including authentication in an installation package.
+## 2. Complete setup in the browser
 
-10. **Run and verify the web app.** Regenerate pages with
-    `python3 tools/build-catalog.py`. Start `python3 -m app.catalog_server` as the normal
-    Linux user, confirm `http://127.0.0.1:6093/` loads, and check Queue, Artists,
-    Organize folders, Collages and Configuration with consistent navigation. On Windows,
-    also check the same URL from the Windows browser. Set the chosen Linux
-    destination path. A server-list refresh may validate the CLI login without
-    downloading an attachment. Keep the loopback bind and Host/Origin guards;
-    do not expose port 6093 to the LAN or Internet as a workaround.
+Open `http://127.0.0.1:6093` in the normal host browser. A fresh installation
+allows only Configuration until setup is complete:
 
-11. **Keep all content actions manual.** Setup, saving subscriptions, service
-    startup and opening a page must never trigger downloads or organization.
-    Collage drafts and previews stay local; only the explicit Save action may
-    write `ARTIST-YYYY-MM.jpg` beside the release archives in their monthly folder.
-    Replacing a known collage must first preserve its previous version locally.
-    Keep checksum checks, replacement recovery and protection of unrelated files.
-    Test drag/drop and saving using
-    temporary image fixtures, not real release folders.
-    Do not click Download all subscriptions, Apply ready files or Resume as an
-    installation test unless I explicitly request the real operation. If I
-    authorize a download test, make its creator and scope concrete first; that
-    button processes every eligible saved subscription. Organizer Preview is a
-    read-only alternative within the approved creator scope. Images from a
-    real operation go directly into `creator/YYYY-MM/release_images/`; preserve
-    original archives and durable history. Scope choices are From month/year
-    and All (archiving). New subscriptions default to the previous month and
-    retain that starting month. Do not add AI decisions, schedules or GUI automation.
+1. Connect my own Telegram account using the app's login workflow. I enter any
+   code or password locally; never expose session files or authentication data.
+2. Configure my private Table of Contents/source and import its artist catalog
+   through the UI. No Telegram group or catalog is built in. Do not enumerate,
+   join, message or scrape other chats as an installation test.
+3. Choose Local folder or Network share. Windows accepts local Windows paths;
+   a mapped network drive is **not** a local disk, regardless of its drive
+   letter. Use Network share and the UNC path for NAS storage. Enter credentials
+   locally in Configuration. Do not assume a particular server, username or
+   mount point. For Docker, follow its host-mount procedure instead.
+4. Review and save configuration, then click Finish setup. Other pages unlock
+   only after required settings pass validation. MMF is optional Beta, hidden
+   by default; connect that account if I choose to enable it.
 
-12. **Configure startup only as chosen.** Use the user's actual project path in
-    a systemd user unit; do not run the app as root. On Windows, account for WSL
-    launch/lifetime and use the documented foreground or Task Scheduler route
-    if wanted. A web-service restart does not resume a job. Do not restart a
-    service, unmount storage or shut down WSL while a real worker is active.
+Keep application state, SQLite and staging in the package-managed Linux
+filesystem or Docker volume. Do not move them onto the network destination.
+Preserve destination identity checks, verified delivery and no-overwrite
+protection. Test writes only in a disposable test directory, never against real
+creator files. Never delete the configured download destination during setup,
+update, troubleshooting or uninstall.
 
-13. **Verify and hand over.** Run the supplied Python tests and optional
-    JavaScript scope tests. Use temporary fixtures
-    for extraction/delivery checks. Do not claim Windows/ARM/NAS testing that you
-    have not performed. Finish with the web URL, installation path, runtime and
-    decoder versions, destination, startup method, verification results, any
-    remaining limitation, and the next manual button for me to use. If an
-    administrator or login step requires me, finish all independent setup first
-    and give the exact local step still needed.
+## 3. Verify normal operation without starting content jobs
 
-Leave the installed application able to run without an AI agent or an open
-Telegram desktop window. Make only changes needed for installation, preserve the
-current feature set, and update the local install notes for any platform-specific
-adjustment you actually make.
+- Confirm the web page loads and the displayed version matches the chosen
+  release. Verify Telegram Queue/Artists, Organize folders, Collages and
+  Configuration; MMF navigation appears only if its Beta is enabled.
+- Confirm saved configuration and any existing subscriptions/history survive.
+  Fresh installations must contain no previous user's sessions or private data.
+- Downloads and organization start manually. Do not click Download detected,
+  Resume, Apply, upload or publish as a test unless I authorize that actual
+  content operation and scope. A download can process multiple subscriptions.
+- Availability checks are metadata-only and triggered by an open browser at
+  the configurable interval. They do not start downloads. Telegram and visible
+  MMF queues have their own checks. Do not add cron, Task Scheduler or a daemon
+  to perform recurring checks. Closing the browser does not stop a running job.
+- Release folders use the application's current artist/month naming and retain
+  named packs/bonuses. Images go in the release's flat `release_images` folder;
+  do not introduce a different layout during installation.
+- Keep localhost binding and Host/Origin checks. Do not expose the app to the
+  LAN/Internet to work around browser access problems.
+- Use temporary fixtures for any source-build tests. Report the tests actually
+  performed; do not claim platforms, accounts or shares were verified otherwise.
 
-If given the bundled Linux x64 runtime package, use its runtime/python/bin/python3 and start.sh. Do not install another Python, database server, web server, or Go compiler. Initialize user-specific Telegram/source settings; never distribute account sessions or databases. Windows requires WSL2 Ubuntu 24.04. Do not install a recurring scheduler: availability checks are triggered by an open browser only.
+## 4. Updates, recovery and diagnostics
+
+Windows updates are optional. The red Update available link beside the footer
+version opens Configuration; it does not install automatically. Check for
+updates and Install update are available there on managed Windows installations.
+Public GitHub releases require no GitHub login or shared access token.
+
+For an older version without the updater, download the official Update ZIP,
+verify its checksum, extract the entire ZIP into a new folder, then double-click
+`Update.cmd` using the same normal Windows account and type UPDATE. Finish or
+stop active jobs first. No administrator elevation, reset or reinstall is needed.
+Keep the update window open until **Update complete: v...** appears. WSL's
+**The operation completed successfully** is an intermediate message, not final
+completion. The updater blocks competing app launches during file replacement,
+backs up settings/sessions/history and restores the previous version if its
+startup check fails. External download destinations are not removed.
+
+If installation/update fails, read the actual error and inspect logs instead of
+repeating destructive setup. Windows logs are under
+`%LOCALAPPDATA%\TelegramSTLManager\logs`: startup folders contain `server.log`
+and `server-errors.log`; update folders contain `update.log`. The tray's View
+logs opens its startup log folder. After rollback, include both the failed
+startup and restored startup logs when diagnosing. Keep private logs local;
+share only relevant, reviewed excerpts, never backup archives or sessions.
+
+On Linux/Docker, follow the documented manual update route and preserve local
+state/volumes; do not claim the Windows in-app installer applies there. Restore
+user-supplied history backups only with the app stopped and existing state
+backed up. Do not transplant unfinished jobs with machine-specific paths and
+file identities onto another machine without the documented migration process.
+
+## 5. Hand over
+
+Give me the installed version, browser URL, startup/stop method, download
+location, verification results and any remaining local step. Explain how to
+select artists and save subscriptions, check availability, and manually start
+downloads. The finished app must work without an AI agent, Telegram Desktop or
+an open Windows PowerShell window.
+
+Make only changes necessary for installation. Keep account data, private source
+links, catalogs and credentials out of Git and distributable packages. Use the
+project's distribution allowlist and privacy check when packaging; never weaken
+those checks to include local configuration.

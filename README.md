@@ -2,6 +2,13 @@
 
 **A local web app for downloading, organizing and previewing your STL release collection.**
 
+**[Download the latest Windows installer](https://github.com/bora77/telegram-stl-manager/releases/latest/download/Telegram-STL-Manager-Windows.zip)**
+ · [Release notes and other downloads](https://github.com/bora77/telegram-stl-manager/releases/latest)
+
+New users: extract the entire ZIP, double-click **Install.cmd**, and accept the
+administrator prompt. The installer sets up WSL automatically; configure the app
+in your browser afterward.
+
 Choose creators from your configured Telegram catalog, assign their destination
 folders, and download their releases with one button. Telegram STL manager keeps the
 archives, extracted images and download history together, whether you store your
@@ -214,6 +221,14 @@ need attention before retrying.
 
 ## Install and configure
 
+For new Windows testers, use the
+[latest GitHub release](https://github.com/bora77/telegram-stl-manager/releases/latest)
+and download **Telegram-STL-Manager-Windows.zip**. Extract the entire ZIP, then
+double-click **Install.cmd**. It requests administrator approval automatically
+and prepares its own WSL environment; no manual WSL configuration is needed.
+Existing users should use the optional in-app updater or the separate
+**Telegram-STL-Manager-Update.zip**, preserving their configuration and history.
+
 For macOS and Linux Docker testing, use the separate
 **Telegram-STL-Manager-Docker.zip** package. It includes a launcher, persistent
 application storage and a host download-folder mapping. See the
@@ -321,8 +336,11 @@ are covered by local tests, and live speed testing remains to be done.
 
 The Windows ZIP includes an installer and launcher for a dedicated WSL environment.
 Double-click `Install.cmd`, accept Windows approval/restart if needed, then use the
-desktop shortcut. Configure Telegram, the TOC, MMF and a network destination in the
-browser. No manual WSL configuration is required. Installation, reboot continuation,
+desktop shortcut. In Configuration, connect Telegram, import your TOC and choose
+either a local folder or an optional network share. A mapped network drive is
+not a local disk; use Network share and its UNC path. MMF is optional Beta,
+hidden by default. Save configuration and click **Finish setup** to unlock the
+other pages. No manual WSL configuration is required. Installation, reboot continuation,
 reset, reinstallation and uninstall were tested in a Windows 11 VM, including
 preservation of download files. See `INSTALL.md` for validation scope and limitations.
 
@@ -378,11 +396,22 @@ root. Run the Python test suite with `python3 -m unittest discover -s tests -t .
 
 ### Application updates
 
-Windows installations can check and install GitHub Releases from Configuration.
+Managed Windows installations can check and install GitHub Releases from Configuration.
+Updates are optional. A red **Update available** link beside the footer version
+opens Configuration; it does not install automatically. Public releases need no
+GitHub login or access token.
 Updates preserve local settings and history, wait for active jobs and verify the
 package checksum before installation. The visible updater backs up the previous
 version and restores it if the startup check fails. Older installations can use
 the standalone `Telegram-STL-Manager-Update.zip` once to gain this feature.
+Extract it into a new folder and run **Update.cmd** with the same normal Windows
+account, after finishing or stopping active jobs. No administrator elevation,
+reset or reinstall is needed. Keep the window open until **Update complete**;
+WSL's **The operation completed successfully** is only an intermediate message.
+The updater blocks competing app launches while replacing files. Update logs
+are under `%LOCALAPPDATA%\TelegramSTLManager\logs\update-*\update.log`.
+Linux and Docker use the manual update procedures in their guides, preserving
+application state and Docker volumes.
 See [Updating an existing installation](INSTALL.md#updating-an-existing-installation).
 
 Maintainers: build the runtime with `python3 tools/package-runtime.py`, then run
@@ -391,3 +420,8 @@ Maintainers: build the runtime with `python3 tools/package-runtime.py`, then run
 `vX.Y.Z` matching `VERSION`; the updater verifies GitHub's SHA-256 asset digest.
 Publish the Windows installer alongside it for new users. Packages must pass the
 public-file privacy check and must not contain local sessions or configuration.
+
+Keep `README.md`, `INSTALL.md` and `AI-INSTALL-PROMPT.md` synchronized whenever
+installation, dependencies, setup, startup, updates or recovery change. Review
+the corresponding packaged instructions and Docker guide before building a
+release; editing source documentation does not update already published ZIPs.

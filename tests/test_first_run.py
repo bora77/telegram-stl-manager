@@ -37,6 +37,22 @@ class SetupCompletionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'disconnected'):manager.complete()
             self.assertFalse((root/'data/setup-complete').exists())
 
+    def test_unreadable_destination_is_reported_and_blocks_completion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);store=SubscriptionStore(configure_source(root))
+            store.atomic_write(root/'data/creators.json',{'creators':[{'name':'Example'}]})
+            (root/'data/setup-required').touch();(root/'data/setup-settings-reviewed').touch()
+            store.save_config({'revision':0,'download_directory':str(root)})
+            manager=FirstRun(store);manager.phase='connected'
+            original=Path.is_dir
+            def check(path):
+                if path==root:raise PermissionError('Share unavailable')
+                return original(path)
+            with patch.object(Path,'is_dir',check):
+                self.assertIn('Choose an available download folder with read and write access.',manager.missing_setup())
+                with self.assertRaisesRegex(ValueError,'download folder'):manager.complete()
+            self.assertFalse((root/'data/setup-complete').exists())
+
     def test_existing_configured_installation_is_not_relocked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);store=SubscriptionStore(configure_source(root))

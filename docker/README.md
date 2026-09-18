@@ -23,7 +23,10 @@ at least 4 GB of memory for Docker and space for the build plus staged releases.
    visible. Your browser opens at **http://localhost:6093** when the app is ready.
 5. Complete initial Configuration. The selected host folder appears inside the
    app as **`/downloads`**; keep that as the download base. Set accounts, source,
-   artist selections and other settings in the web interface.
+   and other settings in the web interface. Follow Telegram & artists →
+   Download location → Preferences → Review & finish. Click **Save and review**,
+   resolve any listed missing or unsaved settings, then **Finish first-time
+   configuration** to unlock the artist selection and other pages.
 
 Only the app interface needs a browser. Telegram Desktop, Tampermonkey, Python,
 Go and 7-Zip do not need installing separately on your Mac.

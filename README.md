@@ -339,8 +339,11 @@ Double-click `Install.cmd`, accept Windows approval/restart if needed, then use 
 desktop shortcut. In Configuration, connect Telegram, import your TOC and choose
 either a local folder or an optional network share. A mapped network drive is
 not a local disk; use Network share and its UNC path. MMF is optional Beta,
-hidden by default. Save configuration and click **Finish setup** to unlock the
-other pages. No manual WSL configuration is required. Installation, reboot continuation,
+hidden by default. First-time Configuration has four steps: **Telegram & artists
+→ Download location → Preferences → Review & finish**. Click **Save and review**
+in Preferences, then **Finish first-time configuration** on the final page.
+Missing or unsaved settings block finishing and include links to the relevant
+step. Other pages unlock only after validation passes. No manual WSL configuration is required. Installation, reboot continuation,
 reset, reinstallation and uninstall were tested in a Windows 11 VM, including
 preservation of download files. See `INSTALL.md` for validation scope and limitations.
 

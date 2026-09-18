@@ -1,5 +1,11 @@
 # Version history
 
+## 0.1.17
+
+- Guided first-time configuration through four steps, ending with Review & finish.
+- Blocked setup completion for missing or unsaved settings, with links to the relevant step.
+- Updated installation guides and improved unavailable-folder validation.
+
 ## 0.1.16
 
 - Added a footer link to version history and upcoming features, together on one page.

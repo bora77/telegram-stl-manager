@@ -1,4 +1,12 @@
-<section class="panel" id="setup-checklist" hidden><h2>Complete initial setup</h2><p>Review all settings below and save your configuration. The other tabs unlock when setup is complete.</p><ul id="setup-missing"></ul><button id="setup-finish" type="button" disabled>Finish setup</button><p id="setup-finish-status" role="status"></p></section>
+<style>
+#setup-controls[hidden]{display:none!important}.setup-step-hidden{display:none!important}.setup-navigation{display:flex;gap:8px;flex-wrap:wrap}.setup-navigation button{flex:1 1 150px;margin:0;background:#eee8f5;color:#5a397f}.setup-navigation button[aria-current="step"]{background:#7651a6;color:white}.setup-controls{display:flex;justify-content:space-between;gap:12px}.setup-controls button{margin-top:0}#setup-missing{color:#a12632;padding-left:22px}#setup-missing li{margin:12px 0}#setup-missing button{margin:0 0 0 8px;padding:5px 10px}#setup-finish-status{color:#a12632;overflow-wrap:anywhere}.setup-ok{color:#21633f}#setup-step-title:focus{outline:none}
+</style>
+<section class="panel" id="setup-checklist" hidden>
+<h2>First-time setup</h2><p>Complete these four steps to unlock the manager. You can go back at any time. Optional features may stay off.</p>
+<nav class="setup-navigation" aria-label="Setup steps">
+<button type="button" data-setup-go="0">1. Telegram &amp; artists</button><button type="button" data-setup-go="1">2. Download location</button><button type="button" data-setup-go="2">3. Preferences</button><button type="button" data-setup-go="3">4. Review &amp; finish</button>
+</nav><h3 id="setup-step-title" tabindex="-1"></h3>
+</section>
 <section class="panel" id="first-run"><h2>Telegram account and artist catalog</h2>
 <p>Connect your account, then paste the Table of Contents link for the group you want to use. Only creator links from that source are imported.</p>
 <button id="setup-login" type="button">Connect Telegram account</button><p id="setup-login-status" role="status"></p>

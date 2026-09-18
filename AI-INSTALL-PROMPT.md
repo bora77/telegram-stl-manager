@@ -116,9 +116,12 @@ allows only Configuration until setup is complete:
    letter. Use Network share and the UNC path for NAS storage. Enter credentials
    locally in Configuration. Do not assume a particular server, username or
    mount point. For Docker, follow its host-mount procedure instead.
-4. Review and save configuration, then click Finish setup. Other pages unlock
-   only after required settings pass validation. MMF is optional Beta, hidden
-   by default; connect that account if I choose to enable it.
+4. Follow the four setup steps: Telegram & artists → Download location →
+   Preferences → Review & finish. Click Save and review in Preferences, then
+   Finish first-time configuration on the final page. Resolve every missing
+   or unsaved setting listed there using its link back to the relevant step.
+   Other pages stay locked until validation passes. MMF is optional Beta,
+   hidden by default; connect that account if I choose to enable it.
 
 Keep application state, SQLite and staging in the package-managed Linux
 filesystem or Docker volume. Do not move them onto the network destination.

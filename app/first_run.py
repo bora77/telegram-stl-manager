@@ -40,7 +40,9 @@ class FirstRun:
         if not self.configured_catalog():missing.append('Import artists from your Table of Contents.')
         settings=self.store.config()
         destination=Path(settings['download_directory'])
-        if not destination.is_dir() or not os.access(destination,os.R_OK|os.W_OK|os.X_OK):missing.append('Choose an available download folder with read and write access.')
+        try:available=destination.is_dir() and os.access(destination,os.R_OK|os.W_OK|os.X_OK)
+        except OSError:available=False
+        if not available:missing.append('Choose an available download folder with read and write access.')
         if not (self.root/'data/setup-settings-reviewed').exists():missing.append('Review all configuration settings and press Save configuration.')
         if settings.get('mmf_beta_enabled') and not (self.root/'data/mmf/session.cookies').is_file():missing.append('Connect MyMiniFactory, or turn off its Beta feature and save.')
         return missing

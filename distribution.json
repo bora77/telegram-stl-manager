@@ -111,7 +111,8 @@
     "windows/Update.ps1",
     "windows/update.sh",
     "tests/test_updater.py",
-    "tests/test_windows_updater.py"
+    "tests/test_windows_updater.py",
+    "tests/setup_wizard.cjs"
   ],
   "trees": [
     "templates",

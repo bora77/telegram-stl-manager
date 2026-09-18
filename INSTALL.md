@@ -13,10 +13,14 @@ MyMiniFactory is an optional **Beta** feature, hidden by default. Enable
 show its tab and account settings. Hidden MMF features do not run automatic
 availability checks. Existing MMF sessions and history are retained.
 
-On a fresh installation, only **Configuration** is accessible. Connect Telegram,
-import the Table of Contents, choose a usable download folder, review all settings
-and click **Save configuration**, then **Finish setup**. Other tabs unlock only
-after these checks pass. If MMF Beta is enabled, connect that account too.
+On a fresh installation, only **Configuration** is accessible. Follow its four
+steps: **Telegram & artists → Download location → Preferences → Review & finish**.
+Connect Telegram, import your Table of Contents and choose a writable folder.
+Review Preferences and click **Save and review**, then **Finish first-time
+configuration**. The final page lists missing or unsaved settings with links
+back to the relevant step; finishing stays disabled until they are resolved.
+Other tabs remain locked until setup passes validation. MMF is optional; if
+you enable its Beta, connect that account too.
 
 All application setup is under **Configuration**: Telegram sign-in, the private
 Table of Contents link, MMF credentials, and the destination. Under **Download

@@ -32,11 +32,11 @@ def main():
             target=app/rel;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/rel,target)
         with tarfile.open(runtime) as archive:archive.extractall(app/'runtime',filter='data')
         python=app/'runtime/python/bin/python3'
-        subprocess.run([python,'-m','pip','install','--disable-pip-version-check','--only-binary=:all:','Pillow==11.3.0','pypdf==6.14.2'],check=True)
+        subprocess.run([python,'-I','-m','pip','install','--disable-pip-version-check','--only-binary=:all:','Pillow==11.3.0','pypdf==6.14.2'],check=True)
         shutil.copy2(binary,app/'.tools/tdl-stl/tdl');shutil.copy2(binary.parent/'build.json',app/'.tools/tdl-stl/build.json')
         shutil.copytree(ROOT/'.tools/7zip/runtime',app/'.tools/7zip/runtime',symlinks=True)
         (app/'runtime/manifest.json').write_text(json.dumps({'platform':'linux-x86_64','python_url':URL,'python_sha256':SHA256,'pillow':'11.3.0','pypdf':'6.14.2','telegram_cli_sha256':build['binary_sha256']},indent=2)+'\n')
-        subprocess.run([python,'-c','import sqlite3,ssl,ctypes,PIL,pypdf; print("Bundled Python, SQLite and Pillow verified")'],check=True)
+        subprocess.run([python,'-I','-c','import sqlite3,ssl,ctypes,PIL,pypdf; print("Bundled Python, SQLite and Pillow verified")'],check=True)
         for path in app.rglob('__pycache__'):shutil.rmtree(path)
         output=ROOT/'dist/telegram-stl-linux-x64.tar.gz';temp=output.with_suffix('.tmp')
         with tarfile.open(temp,'w:gz') as archive:archive.add(app,arcname='telegram-stl')

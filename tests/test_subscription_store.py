@@ -96,6 +96,21 @@ class StoreTests(unittest.TestCase):
                 if not problems:self.assertNotIn('review',status['message'])
                 self.assertEqual(before,{name:(self.root/'data'/name).read_bytes() for name in before})
 
+    def test_empty_folder_uses_catalog_artist_name(self):
+        saved=self.save(creator_folder='',creator='Untrusted supplied name')
+        self.assertEqual(saved['subscriptions'][0]['creator_folder'],'Example')
+        self.assertFalse((self.root/'downloads/Example').exists())
+        saved=self.store.save({'revision':1,'config_revision':0,'subscriptions':[{**self.entry,'creator_folder':'Custom folder'}]})
+        self.assertEqual(saved['subscriptions'][0]['creator_folder'],'Custom folder')
+
+    def test_artist_folder_defaults_handle_unsafe_names(self):
+        from app.release_rules import default_creator_folder
+        self.assertEqual(default_creator_folder('Artist: Studio/Models.'),'Artist_ Studio_Models')
+        self.assertEqual(default_creator_folder('CON'),'_CON')
+        self.assertEqual(default_creator_folder('..'),'Artist')
+        saved=self.save(creator_folder='   ')
+        self.assertEqual(saved['subscriptions'][0]['creator_folder'],'Example')
+
     def test_save_survives_reopen_and_rejects_stale_updates(self):
         saved = self.save()
         self.assertEqual(SubscriptionStore(configure_source(self.root)).read(),saved)

@@ -56,7 +56,7 @@ function render(reset=false){
     const evidenceUrl=r.toc_source_url||r.evidence;
     if(evidenceUrl)sourceDetails.push({label:r.toc_source_url?'Table of Contents':'Source screenshot',href:evidenceUrl,text:r.toc_source_url?'View TOC entry':'View source screenshot'});
     const infoCell=element('td');infoCell.className='artist-info-cell';infoCell.append(ArtistProfiles.infoButton(r.name,sourceDetails));
-    const folder=element('input');folder.type='text';folder.setAttribute('list','incoming-folders');folder.setAttribute('aria-label',r.name+' creator folder');folder.placeholder='Choose or type a folder';folder.value=draft?.creator_folder||SelectionRules.suggest(r.name,inventory.folders);folder.disabled=!draft;
+    const folder=element('input');folder.type='text';folder.setAttribute('list','incoming-folders');folder.setAttribute('aria-label',r.name+' creator folder');folder.placeholder='Default: '+SelectionRules.defaultFolder(r.name);folder.value=draft?draft.creator_folder:SelectionRules.suggest(r.name,inventory.folders);folder.disabled=!draft;
     const destination=element('small');
     function updateDestination(){destination.textContent=folder.value?folder.value+'/release folder/filename · '+(inventory.folders.includes(folder.value)?'existing creator folder':'new creator folder'):'';destination.hidden=!destination.textContent}
     folder.oninput=()=>{draft.creator_folder=folder.value;persist();updateDestination()};updateDestination();folderCell.append(folder,destination);

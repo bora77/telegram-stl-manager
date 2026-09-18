@@ -12,6 +12,7 @@ function applySaved(showSaved=false){
 document.getElementById('save-subscriptions').onclick=async()=>{
   if(!serverReady||saving||!hasSubscriptionChanges())return;
   const entries=Object.values(selected),allowed=new Set(all.map(r=>r.topic_url));
+  for(const entry of entries){if(!entry.creator_folder?.trim())entry.creator_folder=SelectionRules.defaultFolder(entry.creator)}
   const bad=entries.find(r=>SelectionRules.validate(r,allowed));
   if(bad){setSaveStatus('Not saved: '+bad.creator+': '+SelectionRules.validate(bad,allowed),true);return}
   const snapshot=JSON.stringify(selected);saving=true;renderSelections();

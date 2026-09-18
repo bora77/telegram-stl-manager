@@ -5,6 +5,11 @@ const SelectionRules = (() => {
   const validFolder = value => typeof value === 'string' && value.trim() === value &&
     value.length > 0 && value !== '.' && value !== '..' &&
     !/[\\/<>:"|?*\x00-\x1f]/.test(value) && !/[. ]$/.test(value) && !value.startsWith('- !');
+  function defaultFolder(name) {
+    let folder=String(name).replace(/[\\/<>:"|?*\x00-\x1f]/g,'_').trim().replace(/[. ]+$/g,'').trim()||'Artist';
+    if(folder.startsWith('- !')||/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(folder))folder='_'+folder;
+    return folder;
+  }
   function suggest(name, folders) {
     const matches = folders.filter(folder => normalize(folder) === normalize(name));
     return matches.length === 1 ? matches[0] : '';
@@ -55,6 +60,6 @@ const SelectionRules = (() => {
       ...(record.download_scope==='from_month'?{start_month:record.start_month}:{}),
       ...(record.layout === 'monthly' ? {month_basis:'release', month_format:'YYYY-MM', unknown_month:'needs_review'} : {})};
   }
-  return {root, validFolder, suggest, defaultStartMonth, migrate, validate, destination, exportRecord};
+  return {root, validFolder, defaultFolder, suggest, defaultStartMonth, migrate, validate, destination, exportRecord};
 })();
 if (typeof module !== 'undefined') module.exports = SelectionRules;

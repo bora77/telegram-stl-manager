@@ -83,9 +83,23 @@ class MMFClient:
         with self.open('/login_check',{'_username':username,'_password':password,'_csrf_token':form.token,'_target_path':BASE+'/','_submit':'Login','_remember_me':'on'}) as response:response.read(1024)
         groups=self.groups();self.save();return groups
     def groups(self):
-        values=self.metadata('/api/data-library/userGroups_metadata')
-        if not isinstance(values,list):raise MMFError('Unexpected MMF creator response.')
-        return values
+        creators={}
+        for endpoint,source in [('userGroups_metadata','USER_GROUP'),('tribes_metadata','TRIBE'),('frontiers_metadata','FRONTIER')]:
+            values=self.metadata('/api/data-library/'+endpoint)
+            if not isinstance(values,list):raise MMFError('Unexpected MMF creator response.')
+            for row in values:
+                if source=='TRIBE' and row.get('source','TRIBE')!='TRIBE':continue
+                creator=row.get('creator',{}) if source=='FRONTIER' else row
+                cid=int(creator['id'])
+                creators.setdefault(cid,{'id':cid,'name':creator['name']})
+        # Expired memberships can retain owned objects even when the active
+        # membership endpoint no longer lists their creator.
+        self.library_objects=self.metadata('/api/data-library/objectPreviews')
+        if not isinstance(self.library_objects,list):raise MMFError('Unexpected MMF library response.')
+        for obj in self.library_objects:
+            if obj.get('source') in ('USER_GROUP','TRIBE','FRONTIER') and obj.get('creatorId') and obj.get('creatorName'):
+                cid=int(obj['creatorId']);creators.setdefault(cid,{'id':cid,'name':obj['creatorName']})
+        return sorted(creators.values(),key=lambda row:row['name'].casefold())
     def downloadables(self,object_id):
         if type(object_id)!=int or object_id<=0:raise MMFError('Invalid MMF object.')
         value=self.metadata(f'/api/data-library/myObjects/object-{object_id}/downloadables')

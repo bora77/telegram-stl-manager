@@ -19,6 +19,8 @@ to remove it from the upcoming list on the next page build.
 
 ## Testing and follow-up
 
+- [ ] Add a thank-you credit for testers Quartz, Goldfinger and RC.
+
 - [x] Diagnose the Windows delivery failure: WSL Windows drives reject `renameat2(RENAME_NOREPLACE)` with errno 22. Add a safe no-overwrite hard-link fallback for delivery and organizer moves, verified on the Windows VM.
 - [x] Provide Quartz with a configuration-preserving update containing the latest fixes. He confirmed the v0.1.14 update and resumed downloads succeeded.
 - [ ] Reload the local web application safely and verify the error display without interrupting active transfers. Running workers need a subsequent run to use updated worker code.

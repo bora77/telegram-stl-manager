@@ -297,7 +297,7 @@ for checks and downloads. Google sign-in users may need to set an MMF password
 through MMF's password-reset page first. Passwords are used for login only;
 the private session stays in local application data. Reconnect if it expires.
 
-Select artists from **Shared with me**, assign each creator folder, choose a
+Select artists from **Shared with me, Tribes and Frontiers**, assign each creator folder, choose a
 starting month or **All (archiving)**, then save. Availability checks use the
 configured interval while any manager page is open. They include new files
 added to existing collections. Downloads start only when you click **Download
@@ -326,8 +326,11 @@ require downloading its unchanged source archives again; other completed release
 are skipped.
 Failed releases are reported and the run continues with the next release.
 
-This integration currently covers Shared with me archive downloads. Tribes,
-individual store purchases and standalone model/PDF downloads are not yet exposed.
+This integration covers archive downloads from Shared with me, Tribes and Frontiers.
+Creators are merged by MMF creator ID, and duplicate models across sources are checked once.
+Frontier pledges, add-ons and sign-up bonuses retain their collection names.
+Opening **MMF → Artists** refreshes creators directly from MMF while showing the saved list immediately. Unsaved selections are preserved; no availability check or download starts.
+Individual store purchases and standalone model/PDF downloads are not yet exposed.
 MMF's website endpoints can change; Cloudflare or account verification can still
 require reconnecting. Library access has been tested live; transfer and repackaging logic
 are covered by local tests, and live speed testing remains to be done.
@@ -346,6 +349,15 @@ Missing or unsaved settings block finishing and include links to the relevant
 step. Other pages unlock only after validation passes. No manual WSL configuration is required. Installation, reboot continuation,
 reset, reinstallation and uninstall were tested in a Windows 11 VM, including
 preservation of download files. See `INSTALL.md` for validation scope and limitations.
+
+The Table of Contents is the group’s artist-index message, containing links to
+individual artist topics. In Telegram, check pinned messages or a topic called
+“Table of Contents”, “TOC” or “Index”. Find the message listing artists, then
+right-click it (or press and hold on a phone) and copy its message link. Paste
+that into Configuration and click **Import artists**. Use the index message
+link, not a group invite or an individual artist topic. If you cannot find it
+or copy its link, ask the group administrator. Your connected account must
+already have access to the group.
 
 After installation finishes, close any remaining **Welcome to WSL** window and
 completed installer PowerShell windows. The desktop shortcut starts the server in
@@ -449,3 +461,8 @@ Windows resolver automatically if needed. If both fail, the connection form
 asks for the NAS LAN IPv4 address and keeps the share and subfolder unchanged.
 Automatically resolved names are looked up again on reconnect; they are not
 permanently replaced by a cached IP. A manually entered IP is saved in the path.
+
+On both Telegram and MMF artist pages, leaving a creator folder blank when
+saving uses the artist’s name below the configured download base. Characters
+that are invalid in folder names are made safe. Explicit folder choices are
+preserved; saving subscriptions does not start downloads or create folders.

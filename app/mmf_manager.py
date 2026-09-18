@@ -12,7 +12,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from app.mmf_client import MMFClient, MMFError, LoginRequired
-from app.release_rules import release_month, baseline_month
+from app.release_rules import release_month, baseline_month, default_creator_folder
 from app.release_images import extract_images, is_archive, safe_component, volume_key
 from app.file_delivery import deliver, release_lock, digest, DeliveryError
 from app.mmf_repack import repack, archive_name, VOLUME_BYTES, POLICY_VERSION, COMPRESSION_LEVEL
@@ -148,6 +148,15 @@ class MMFManager:
             groups=self.client().login(payload.get('username'),payload.get('password'))
             self.put('creators',[{'id':int(g['id']),'name':g['name']} for g in groups]);self.put('checked_at',0);self.put('auth_required',False)
         return self.state()
+    def refresh_creators(self):
+        if not self.session.exists():raise LoginRequired('Connect your MMF account first.')
+        # Independent of the transfer lock: discovery reads metadata only and
+        # must never replace subscriptions, availability or the running queue.
+        with (self.directory/'creators.lock').open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            creators=self.client().groups()
+            self.put('creators',creators)
+        return {'creators':creators}
     def save(self,payload):
         with self.idle():
             previous=self.get('settings',{'revision':0,'subscriptions':[]})
@@ -159,6 +168,7 @@ class MMFManager:
                 if not isinstance(sub,dict):raise MMFError('Invalid subscription.')
                 cid=str(sub.get('id'));folder=sub.get('folder');start=sub.get('start_month','')
                 if cid not in creators or cid in seen:raise MMFError('Select each MMF creator only once.')
+                if folder is None or isinstance(folder,str) and not folder.strip():folder=default_creator_folder(creators[cid]['name'])
                 if not isinstance(folder,str) or not folder or folder in ('.','..') or re.search(r'[\\/<>:"|?*\x00-\x1f]',folder) or folder.strip()!=folder or (base/folder).is_symlink():raise MMFError('Choose a creator folder directly inside the download folder.')
                 if not isinstance(start,str) or (start and not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',start)):raise MMFError('Choose a starting month or All (archiving).')
                 seen.add(cid);rows.append({'id':int(cid),'name':creators[cid]['name'],'folder':folder,'start_month':start})
@@ -173,7 +183,7 @@ class MMFManager:
             if not self.session.exists():raise LoginRequired('Connect your MMF account first.')
             if due and (self.get('auth_required',False) or time.time()<max(self.get('checked_at',0),self.get('attempted_at',0))+self.store.config()['mmf_availability_interval_hours']*3600):return {'started':False}
             settings=self.get('settings',{})
-            if not settings.get('subscriptions'):return {'started':False}
+            if not settings.get('subscriptions') and action!='check':return {'started':False}
             if action=='download':
                 if not self.get('checked_at',0):raise MMFError('Check availability before starting downloads.')
                 known=self.completed();groups=releases(self.get('items',[]),self.store.config()['download_directory']);queue=[i for group in groups.values() if any(i['key'] not in known for i in group) for i in group]
@@ -208,22 +218,47 @@ class MMFManager:
         state=self.get('job',{});state.update(values);self.put('job',state)
     def check(self):
         client=self.client();groups=client.groups();self.put('creators',[{'id':int(g['id']),'name':g['name']} for g in groups])
-        objects=client.metadata('/api/data-library/objectPreviews')
+        objects=getattr(client,'library_objects',None)
+        if objects is None:objects=client.metadata('/api/data-library/objectPreviews')
         if not isinstance(objects,list):raise MMFError('Unexpected MMF library response.')
-        subs={str(s['id']):s for s in self.get('settings')['subscriptions']};overrides=self.get('months',{});items={}
-        labels={}
-        for cid in subs:
-            remote_releases=client.metadata('/api/data-library/userGroup_releases_metadata/'+cid)
-            for release in remote_releases:labels[(cid,str(release['id']))]=release
-        selected=[o for o in objects if str(o.get('creatorId')) in subs and o.get('source')=='USER_GROUP' and o.get('type')=='object']
+        subs={str(s['id']):s for s in self.get('settings',{}).get('subscriptions',[])};overrides=self.get('months',{});items={}
+        labels={};metadata_keys=set()
+        selected=[o for o in objects if str(o.get('creatorId')) in subs and o.get('source') in ('USER_GROUP','TRIBE','FRONTIER') and o.get('type')=='object']
+        for obj in selected:
+            if self.stopped():raise MMFError('Check stopped. Previous availability results retained.')
+            source=obj['source'];cid=str(obj['creatorId']);owner=str(obj.get('campaignId')) if source=='FRONTIER' else cid
+            key=(source,owner)
+            if key in metadata_keys:continue
+            metadata_keys.add(key)
+            if not owner.isdecimal():raise MMFError('MMF returned an invalid release owner.')
+            endpoint={'USER_GROUP':'userGroup','TRIBE':'tribe','FRONTIER':'frontier'}[source]
+            remote_releases=client.metadata('/api/data-library/'+endpoint+'_releases_metadata/'+owner)
+            if source=='FRONTIER':
+                if not isinstance(remote_releases,dict):raise MMFError('Unexpected MMF Frontier releases response.')
+                remote_releases=[*remote_releases.get('pledges',[]),*remote_releases.get('addons',[]),*([remote_releases['signup']] if remote_releases.get('signup') else [])]
+            if not isinstance(remote_releases,list):raise MMFError('Unexpected MMF releases response.')
+            for release in remote_releases:labels[(source,owner,str(release['id']))]=release
+        # Stable preference when the library exposes one model through multiple
+        # entitlements. Keep historical shared-library grouping unchanged.
+        selected.sort(key=lambda o:({'USER_GROUP':0,'FRONTIER':1,'TRIBE':2}[o['source']],str(o.get('release',''))))
+        unique={}
+        for obj in selected:unique.setdefault(int(obj['originalId']),obj)
+        selected=list(unique.values())
         for number,obj in enumerate(selected,1):
             if self.stopped():raise MMFError('Check stopped. Previous availability results retained.')
-            sub=subs[str(obj['creatorId'])];release=labels.get((str(obj['creatorId']),str(obj.get('release'))),{});label=release.get('label','')
+            source=obj['source'];cid=str(obj['creatorId']);owner=str(obj.get('campaignId')) if source=='FRONTIER' else cid
+            sub=subs[cid];release=labels.get((source,owner,str(obj.get('release'))),{});label=release.get('label') or release.get('name') or ''
             self.progress(phase='checking',message=f"Checking {sub['name']} · {obj['name']}",done=number-1,total=len(selected))
             for archive in client.downloadables(int(obj['originalId']))['archives']:
                 size=int(archive['size']);filename=archive['name']
                 if size<=0 or not isinstance(filename,str):continue
                 item={'object_id':int(obj['originalId']),'archive_id':int(archive['id']),'size':size,'filename':filename,'updated_at':archive.get('updatedAt',''),'creator':sub['name'],'creator_id':sub['id'],'folder':sub['folder'],'object_name':obj['name'],'release':label,'release_created_at':release.get('createdAt'),'release_id':str(obj['release']) if obj.get('release') is not None else None,'month':month_for(filename,label),'start_month':sub['start_month']}
+                item['library_source']=source
+                if source!='USER_GROUP':
+                    item['release_id']=f'{source}:{owner}:{obj.get("release",obj["originalId"])}'
+                    # Frontier pledge/add-on names are collections, not months.
+                    # Undated Tribe objects fall back to original publication.
+                    item['release_created_at']=None if source=='FRONTIER' else release.get('createdAt') or obj.get('publishedAt') or obj.get('createdAt')
                 item['key']=version_key(item);item['month']=overrides.get(item['key'],item['month'])
                 items[item['key']]=item
         groups=releases(list(items.values()),self.store.config()['download_directory'])
@@ -231,7 +266,11 @@ class MMFManager:
         historical={i['release_key'] for i in downloaded(self)}
         included=[i for group in groups.values() if group[0]['release_key'] in historical or any(not i['start_month'] or not i['release_month'] or i['release_month']>=i['start_month'] for i in group) for i in group]
         self.put('items',included);self.put('checked_at',time.time());client.save()
-        self.progress(phase='complete',message=f'Check complete · {len({release_key(i) for i in included})} releases in scope.',done=len(selected),total=len(selected))
+        count=len({release_key(i) for i in included});excluded=len(groups)-count
+        message=f'Check complete · {count} releases in scope.'
+        if excluded:message+=f' {excluded} older releases excluded by the starting month. Select All (archiving) to include them.'
+        if not subs:message='Artist list refreshed from Shared with me, Tribes and Frontiers. Select artists to check their files.'
+        self.progress(phase='complete',message=message,done=len(selected),total=len(selected))
     def deliver_originals(self,group,paths,units,base,identity,nonce):
         first=group[0];release_folder=first['release_folder'];records=[];staged_images=[]
         def moving(n,total):

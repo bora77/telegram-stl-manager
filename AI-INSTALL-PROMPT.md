@@ -109,7 +109,14 @@ allows only Configuration until setup is complete:
 1. Connect my own Telegram account using the app's login workflow. I enter any
    code or password locally; never expose session files or authentication data.
 2. Configure my private Table of Contents/source and import its artist catalog
-   through the UI. No Telegram group or catalog is built in. Do not enumerate,
+   through the UI. Explain that the TOC is the artist-index message with links
+   to artist topics. Help me find it in pinned messages or a Table of Contents,
+   TOC or Index topic. I copy the message link by right-clicking (or pressing
+   and holding on a phone), paste it into Configuration, then click Import
+   artists. Use the index message, not a group invite or individual artist topic.
+   If it cannot be found or its link copied, ask the group administrator; my
+   connected account must already have access.
+   No Telegram group or catalog is built in. Do not enumerate,
    join, message or scrape other chats as an installation test.
 3. Choose Local folder or Network share. Windows accepts local Windows paths;
    a mapped network drive is **not** a local disk, regardless of its drive
@@ -135,6 +142,9 @@ update, troubleshooting or uninstall.
 - Confirm the web page loads and the displayed version matches the chosen
   release. Verify Telegram Queue/Artists, Organize folders, Collages and
   Configuration; MMF navigation appears only if its Beta is enabled.
+- MMF supports Shared with me, Tribes and Frontiers archive downloads. Opening
+  MMF Artists refreshes creators directly from MMF, showing saved artists immediately
+  and preserving unsaved selections. It does not start a file check or download. Frontier collections keep their names.
 - Confirm saved configuration and any existing subscriptions/history survive.
   Fresh installations must contain no previous user's sessions or private data.
 - Downloads and organization start manually. Do not click Download detected,
@@ -216,3 +226,8 @@ Windows resolver automatically if needed. If both fail, the connection form
 asks for the NAS LAN IPv4 address and keeps the share and subfolder unchanged.
 Automatically resolved names are looked up again on reconnect; they are not
 permanently replaced by a cached IP. A manually entered IP is saved in the path.
+
+On both Telegram and MMF artist pages, leaving a creator folder blank when
+saving uses the artist’s name below the configured download base. Characters
+that are invalid in folder names are made safe. Explicit folder choices are
+preserved; saving subscriptions does not start downloads or create folders.

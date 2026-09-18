@@ -14,6 +14,58 @@ class Response(io.BytesIO):
         super().__init__(body);self.status=status;self.headers=headers or {};self.url=url
 
 class MMFTests(unittest.TestCase):
+    def test_creator_refresh_does_not_change_jobs_or_selections(self):
+        self.manager.session.write_text('# Netscape HTTP Cookie File\n')
+        preserved={'settings':{'subscriptions':[{'id':1}]},'items':[self.item],'queue':[self.item],'job':{'phase':'downloading'},'checked_at':123}
+        for key,value in preserved.items():self.manager.put(key,value)
+        with patch.object(MMFClient,'groups',return_value=[{'id':2,'name':'New Creator'}]):
+            self.assertEqual(self.manager.refresh_creators()['creators'],[{'id':2,'name':'New Creator'}])
+        for key,value in preserved.items():self.assertEqual(self.manager.get(key),value)
+        with patch.object(MMFClient,'groups',side_effect=MMFError('Offline')):
+            with self.assertRaises(MMFError):self.manager.refresh_creators()
+        self.assertEqual(self.manager.get('creators'),[{'id':2,'name':'New Creator'}])
+
+    def test_all_library_sources_and_duplicate_entitlements(self):
+        self.manager.put('settings',{'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':'2026-08'}]})
+        def obj(oid,source,rid,**extra):
+            return {'originalId':oid,'creatorId':1,'creatorName':'Example Creator','source':source,'type':'object','release':rid,'name':'Model',**extra}
+        objects=[obj(1,'USER_GROUP','7'),obj(2,'TRIBE','7'),obj(3,'TRIBE','welcome'),obj(4,'FRONTIER','7',campaignId=50),obj(4,'TRIBE','campaign-alias'),obj(5,'FRONTIER','8',campaignId=50),obj(6,'FRONTIER','9',campaignId=50),obj(7,'PURCHASE','7')]
+        responses={'objectPreviews':objects,'userGroup_releases_metadata/1':[{'id':7,'label':'January 2025'}],
+            'tribe_releases_metadata/1':[{'id':'7','label':'August 2026'},{'id':'welcome','label':'Welcome Pack'}],
+            'frontier_releases_metadata/50':{'pledges':[{'id':7,'name':'Campaign Pledge','createdAt':'2020-01-01'}],'addons':[{'id':8,'name':'Campaign Extra'}],'signup':{'id':9,'name':'Sign-Up Bonus'}}}
+        calls=[]
+        class Client:
+            def groups(self):return [{'id':1,'name':'Example Creator'}]
+            def metadata(self,path):return responses[path.removeprefix('/api/data-library/')]
+            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':oid,'size':10,'name':'model.zip','updatedAt':'v1'}]}
+            def save(self):pass
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        items=self.manager.get('items');byid={i['object_id']:i for i in items}
+        self.assertEqual(set(byid),{2,3,4,5,6});self.assertEqual(calls.count(4),1);self.assertNotIn(7,calls)
+        self.assertEqual(byid[2]['release_month'],'2026-08')
+        self.assertEqual(byid[3]['release_folder'],'Example Creator Welcome Pack')
+        self.assertEqual(byid[4]['release_folder'],'Example Creator Campaign Pledge')
+        self.assertIsNone(byid[4]['release_month'])
+        self.assertIn('1 older releases excluded',self.manager.get('job')['message'])
+        original=byid[2]
+        with self.manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',(original['key'],json.dumps(original)))
+        responses['tribe_releases_metadata/1'][0]['label']='January 2025'
+        # A completed release retains its identity and its later additions even
+        # when the starting month moves forward.
+        responses['tribe_releases_metadata/1'][0]['label']='August 2026'
+        self.manager.put('settings',{'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':'2026-09'}]})
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        self.assertIn(original['key'],[i['key'] for i in self.manager.get('items')])
+
+    def test_creator_discovery_merges_sources_and_retained_tribe_objects(self):
+        client=MMFClient(self.root/'cookies')
+        values={'userGroups_metadata':[{'id':1,'name':'Shared'}],
+            'tribes_metadata':[{'id':1,'name':'Shared','source':'TRIBE'},{'id':2,'name':'Tribe','source':'TRIBE'},{'id':99,'name':'Other','source':'THE_ADVENTURE'}],
+            'frontiers_metadata':[{'id':50,'creator':{'id':3,'name':'Frontier'}},{'id':51,'creator':{'id':3,'name':'Frontier'}}],
+            'objectPreviews':[{'creatorId':4,'creatorName':'Retained','source':'TRIBE'},{'creatorId':5,'creatorName':'Store','source':'PURCHASE'}]}
+        with patch.object(client,'metadata',side_effect=lambda path:values[path.rsplit('/',1)[-1]]):groups=client.groups()
+        self.assertEqual({g['id'] for g in groups},{1,2,3,4});self.assertEqual(len(groups),4)
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
         self.store=SubscriptionStore(self.root);self.manager=MMFManager(self.store)
@@ -58,6 +110,13 @@ class MMFTests(unittest.TestCase):
     def test_version_changes(self):
         self.assertNotEqual(version_key(self.item),version_key({**self.item,'updated_at':'v2'}))
         self.assertNotEqual(version_key(self.item),version_key({**self.item,'size':4}))
+    def test_blank_folder_defaults_to_mmf_artist_name(self):
+        with patch.object(self.manager,'state',return_value={}):
+            self.manager.save({'revision':0,'subscriptions':[{'id':1,'name':'Wrong name','folder':'','start_month':''}]})
+            self.assertEqual(self.manager.get('settings')['subscriptions'][0]['folder'],'Example Creator')
+            self.manager.save({'revision':1,'subscriptions':[{'id':1,'folder':'Custom folder','start_month':''}]})
+            self.assertEqual(self.manager.get('settings')['subscriptions'][0]['folder'],'Custom folder')
+
     def test_unsafe_folders_rejected(self):
         for folder in ('../bad','a/b','a\\b','..',' x'):
             with self.assertRaises(MMFError):self.manager.save({'revision':0,'subscriptions':[{'id':1,'folder':folder,'start_month':''}]})

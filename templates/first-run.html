@@ -1,5 +1,6 @@
 <style>
 #setup-controls[hidden]{display:none!important}.setup-step-hidden{display:none!important}.setup-navigation{display:flex;gap:8px;flex-wrap:wrap}.setup-navigation button{flex:1 1 150px;margin:0;background:#eee8f5;color:#5a397f}.setup-navigation button[aria-current="step"]{background:#7651a6;color:white}.setup-controls{display:flex;justify-content:space-between;gap:12px}.setup-controls button{margin-top:0}#setup-missing{color:#a12632;padding-left:22px}#setup-missing li{margin:12px 0}#setup-missing button{margin:0 0 0 8px;padding:5px 10px}#setup-finish-status{color:#a12632;overflow-wrap:anywhere}.setup-ok{color:#21633f}#setup-step-title:focus{outline:none}
+.toc-guide{margin:24px 0 18px;padding:20px 22px;background:#f7f4fb;border:1px solid #e4dced;border-radius:12px}.toc-guide h3{margin:0 0 10px;font-size:17px}.toc-guide p{margin:8px 0}.toc-guide ol{padding-left:22px;margin:14px 0;line-height:1.65}.toc-guide li{padding-left:4px;margin:10px 0}.toc-guide .toc-tip{font-size:14px;color:#665571}.toc-guide strong{color:#443451}
 </style>
 <section class="panel" id="setup-checklist" hidden>
 <h2>First-time setup</h2><p>Complete these four steps to unlock the manager. You can go back at any time. Optional features may stay off.</p>
@@ -11,7 +12,17 @@
 <p>Connect your account, then paste the Table of Contents link for the group you want to use. Only creator links from that source are imported.</p>
 <button id="setup-login" type="button">Connect Telegram account</button><p id="setup-login-status" role="status"></p>
 <form id="setup-answer-form" hidden><label id="setup-answer-label" for="setup-answer">Sign-in response</label><input id="setup-answer" autocomplete="off" required><button type="submit">Continue</button></form>
-<form id="setup-source-form"><label for="setup-toc">Table of Contents message link</label><input id="setup-toc" type="url" placeholder="https://t.me/c/…/…" required><button id="setup-import" type="submit">Import artists</button><small id="setup-source-status"></small></form>
+<aside class="toc-guide" aria-labelledby="toc-guide-title">
+<h3 id="toc-guide-title">Where do I find the Table of Contents?</h3>
+<p>It is your Telegram group’s artist index: a message containing links to the individual artists’ topics.</p>
+<ol>
+<li><strong>Open your group in Telegram.</strong> Check its pinned messages or look for a topic called “Table of Contents”, “TOC” or “Index”.</li>
+<li><strong>Find the message listing the artists.</strong> Right-click it on a computer, or press and hold it on a phone, and choose the option to copy its message link.</li>
+<li><strong>Paste the link below and click Import artists.</strong> Use the link to the index message, not a group invite link or an individual artist’s topic.</li>
+</ol>
+<p class="toc-tip">Can’t find the index or the copy-link option? Ask the group administrator for the Table of Contents message link. Your connected Telegram account must already have access to the group.</p>
+</aside>
+<form id="setup-source-form"><label for="setup-toc">Table of Contents message link</label><input id="setup-toc" aria-describedby="toc-guide-title" type="url" placeholder="https://t.me/c/…/…" required><button id="setup-import" type="submit">Import artists</button><small id="setup-source-status"></small></form>
 <p id="setup-message" role="status" aria-live="polite"></p>
 </section>
 

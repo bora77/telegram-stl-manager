@@ -1,8 +1,10 @@
 <style>
 .artist-profile-link{font-size:12px;padding:3px 0;border:0;background:none;color:#754aaf}.artist-profile-badge{display:inline-flex;align-items:center;gap:10px;vertical-align:middle;margin-right:10px}.artist-logo-button{padding:0!important;width:44px;height:44px;border:1px solid #e3dfe9;border-radius:9px;background:#fff;flex-shrink:0;overflow:hidden;cursor:pointer}.artist-logo-button img{width:100%;height:100%;object-fit:contain;display:block}.artist-profile-badge.compact .artist-logo-button{width:28px;height:28px}.artist-platform-links{display:flex;flex-wrap:wrap;gap:5px 10px;font-size:12px}.artist-profile-dialog{max-width:520px;width:calc(100% - 32px);border:1px solid #ded6e8;border-radius:16px;padding:24px;color:#272332}.artist-profile-dialog::backdrop{background:#241a3666}.artist-profile-preview{display:block;width:160px;height:160px;object-fit:contain;margin:12px auto}.artist-profile-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}.artist-profile-dialog input{min-width:0}.artist-profile-dialog [role=status]{color:#a12632}.artist-heading{display:flex;align-items:center;gap:8px}.artist-heading .artist-profile-badge{margin:0}
 body{margin:0;background:#f6f5f9;color:#272332;font:15px system-ui,sans-serif}
-main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
-.app-header{display:flex;align-items:center;flex-wrap:wrap;gap:20px 32px;margin-bottom:28px;padding-bottom:16px;border-bottom:1px solid #ded6e8}
+html,body{height:100%;overflow:hidden}
+main.app-main{max-width:1440px;height:100vh;height:100dvh;margin:0 auto;padding:12px 24px 0;display:flex;flex-direction:column;box-sizing:border-box}
+.app-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior-y:contain;scrollbar-gutter:stable;scroll-padding-block:16px;padding:24px 12px 16px 0}.app-scroll:focus-visible{outline:2px solid #aa8fce;outline-offset:-2px}
+.app-header{flex:none;background:#f6f5f9;display:flex;align-items:center;flex-wrap:wrap;gap:20px 32px;margin-bottom:0;padding-bottom:16px;border-bottom:1px solid #ded6e8}
 .app-brand{display:inline-flex;align-items:center;flex-shrink:0;gap:12px;color:#272332;text-decoration:none}
 .app-brand img{display:block;width:44px;height:44px;flex-shrink:0}
 .app-brand strong{display:block;font-size:20px;line-height:1.3;letter-spacing:-.02em}
@@ -17,7 +19,7 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
 .app-navigation a.task-notice{position:relative;box-shadow:inset 0 0 0 2px #329c73}.app-navigation a.task-notice:after{content:'✓';position:absolute;right:3px;top:0;color:#227752;font-size:12px;background:#e2f5eb;border-radius:50%;width:16px;height:16px;line-height:16px;text-align:center}.app-navigation a.task-notice[data-task-warning=true]{box-shadow:inset 0 0 0 2px #c68b25}.app-navigation a.task-notice[data-task-warning=true]:after{content:'!';color:#875b11;background:#fff0d3}.app-navigation a.task-flash{animation:task-complete-pulse .9s ease-in-out 6}.task-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}@keyframes task-complete-pulse{50%{background:#d6f3e5;color:#245e45;box-shadow:0 0 0 4px #58b18b33}}@media(prefers-reduced-motion:reduce){.app-navigation a.task-flash{animation:none}}
 .app-copyright{margin:32px 0 16px;padding-top:16px;border-top:1px solid #e3dfe9;color:#807787;font-size:12px;text-align:center}
 .configuration-content{max-width:900px}
-@media(max-width:600px){main.app-main{margin:24px auto;padding:0 16px}.app-header{gap:16px}.app-navigation{display:grid;flex-basis:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.app-navigation a{text-align:center;padding:12px 8px;font-size:14px}}
+@media(max-width:600px){main.app-main{margin:0 auto;padding:12px 16px 0}.app-header{gap:16px}.app-navigation{display:grid;flex-basis:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.app-navigation a{text-align:center;padding:12px 8px;font-size:14px}}
 @media(prefers-reduced-motion:reduce){.app-navigation a{transition:none}}
 
 .app-navigation{gap:10px}.nav-group{display:flex;flex-direction:column;gap:5px;border:1px solid #ded6e8;border-radius:12px;padding:7px;background:#f0ecf6}.nav-group-label{display:flex;align-items:center;gap:6px;min-height:18px;padding:0 8px;font-size:12px;font-weight:700;color:#706478;line-height:18px}.nav-group-label .beta-badge{display:inline-flex;align-items:center;line-height:14px;padding:1px 6px;margin:0}.nav-group-links{display:flex;gap:4px}.nav-group-links a{padding:8px 12px}.app-navigation [hidden]{display:none!important}@media(max-width:600px){.nav-group-links a{flex:1;min-width:0;padding:8px 6px}.nav-group-label{justify-content:center;text-align:center}.nav-group{align-self:stretch}}
@@ -25,7 +27,15 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
 .table .artist-scope-row{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}.table .artist-scope-row select{flex:1 0 175px;width:auto;min-width:175px;height:44px}.table .artist-scope-row input[type=month]{flex:0 0 180px;width:180px;min-width:180px;height:44px;margin:0}#artists .artist-scope-row input[type=month]{margin:0}
 .artist-info-cell{width:64px;text-align:center;vertical-align:top!important}.artist-info-cell .artist-info-button{margin:4px 0 0}.table th.artist-info-heading{text-align:center;width:64px}.artist-info-button{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;min-height:36px;padding:0;border:1px solid #d8cbe7;border-radius:50%;background:#fff;color:#7651a6;font:600 18px/1 system-ui;cursor:pointer}.artist-info-button:hover{background:#eee8f5}.artist-source-details{margin:20px 0;padding-top:14px;border-top:1px solid #e3dfe9;overflow-wrap:anywhere}.artist-source-details h3{font-size:15px;margin:0 0 10px}.artist-source-details p{font-size:13px;margin:8px 0}
 #rows td:first-child,#artists td:first-child{vertical-align:middle}#rows .subscription-toggle{vertical-align:middle;justify-content:center;align-items:center}#artists .toggle{display:block;margin:0 auto}
-.app-navigation .configuration-icon{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:10px;flex:none}.configuration-icon svg{display:block}</style>
+.app-navigation .configuration-icon{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:10px;flex:none}.configuration-icon svg{display:block}
+@media(max-width:800px){
+ .app-header{gap:10px;padding-bottom:10px}
+ .app-brand img{width:36px;height:36px}.app-brand strong{font-size:18px}
+ .app-navigation{display:flex;flex:0 0 auto;width:100%;min-width:0;flex-wrap:nowrap;overflow-x:auto;gap:8px;padding:2px 2px 6px;scroll-padding-inline:8px;scrollbar-width:thin}
+ .app-navigation>a,.nav-group{flex:none}.app-navigation>a{padding:12px}
+ .nav-group-links a{padding:8px 10px}.app-scroll{padding-top:16px;padding-right:6px}
+}
+</style>
 <script>__ARTIST_PROFILES__</script>
 <header class="app-header">
   <a class="app-brand" href="/" aria-label="Telegram STL manager home"><img src="/favicon.svg" width="44" height="44" alt=""><span><strong>Telegram STL manager</strong><small>Even chaos deserves a folder.</small></span></a>
@@ -45,3 +55,5 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
   <span id="task-completion-announcement" class="task-announcement" role="status" aria-live="polite"></span>
 </header>
 <script>__TASK_NOTIFICATIONS__</script>
+
+<div class="app-scroll" tabindex="0" role="region" aria-label="Page content">

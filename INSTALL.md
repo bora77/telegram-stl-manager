@@ -22,6 +22,15 @@ back to the relevant step; finishing stays disabled until they are resolved.
 Other tabs remain locked until setup passes validation. MMF is optional; if
 you enable its Beta, connect that account too.
 
+The Table of Contents is the group’s artist-index message, containing links to
+individual artist topics. In Telegram, check pinned messages or a topic called
+“Table of Contents”, “TOC” or “Index”. Find the message listing artists, then
+right-click it (or press and hold on a phone) and copy its message link. Paste
+that into Configuration and click **Import artists**. Use the index message
+link, not a group invite or an individual artist topic. If you cannot find it
+or copy its link, ask the group administrator. Your connected account must
+already have access to the group.
+
 All application setup is under **Configuration**: Telegram sign-in, the private
 Table of Contents link, MMF credentials, and the destination. Under **Download
 location**, choose **Local folder** (the default) or **Network share**. Local
@@ -884,8 +893,10 @@ See [CATALOG.md](CATALOG.md) for the application workflow and implementation not
 
 Open **Configuration → MyMiniFactory account** in the manager and connect with your MMF username/email and
 MMF password. Google-only accounts may first need an MMF password from the site's
-Forgot password flow. Select creators in Shared with me, their destination folders
+Forgot password flow. Select creators from Shared with me, Tribes and Frontiers, their destination folders
 and starting months, then save and check availability. Start downloads manually.
+Opening **MMF → Artists** automatically refreshes the creator list without reconnecting,
+while showing saved artists immediately and preserving unsaved selections. Frontier pledges, add-ons and sign-up bonuses retain their names.
 No additional Python libraries, browser runtime, extension, daemon or scheduled
 service is required. Python's standard library provides HTTP/TLS, cookie sessions
 and SQLite; image extraction uses the package's existing 7-Zip installation.
@@ -974,3 +985,8 @@ Windows resolver automatically if needed. If both fail, the connection form
 asks for the NAS LAN IPv4 address and keeps the share and subfolder unchanged.
 Automatically resolved names are looked up again on reconnect; they are not
 permanently replaced by a cached IP. A manually entered IP is saved in the path.
+
+On both Telegram and MMF artist pages, leaving a creator folder blank when
+saving uses the artist’s name below the configured download base. Characters
+that are invalid in folder names are made safe. Explicit folder choices are
+preserved; saving subscriptions does not start downloads or create folders.

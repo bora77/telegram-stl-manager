@@ -1,5 +1,13 @@
 # Version history
 
+## 0.1.21
+
+- Added MMF Tribes and Frontiers alongside Shared with me, with duplicate model detection and preserved download history.
+- Refresh MMF creators automatically when opening Artists, preserving unsaved selections and showing saved artists if refresh fails.
+- Default empty creator folders to the artist name on both artist pages.
+- Keep navigation visible above an independently scrolling content area, including on mobile.
+- Explain how to find and import the Telegram Table of Contents during setup.
+
 ## 0.1.20
 
 - Automatically use Windows name resolution when WSL cannot resolve a NAS hostname.

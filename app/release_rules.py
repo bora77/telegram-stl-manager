@@ -49,3 +49,10 @@ def existing_release_directory(artist_folder, month, fallback=None):
     legacy=artist_folder/month
     if legacy.is_dir() and not legacy.is_symlink():return month
     return fallback or named.name
+
+
+def default_creator_folder(name):
+    """Use the artist name as a single folder component on Linux and Windows."""
+    folder=re.sub(r'[\\/<>:"|?*\x00-\x1f]', '_', str(name)).strip().rstrip('. ').strip() or 'Artist'
+    if folder.startswith('- !') or re.match(r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)',folder,re.I):folder='_'+folder
+    return folder

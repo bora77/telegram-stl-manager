@@ -8,7 +8,7 @@ import tempfile
 import threading
 from datetime import datetime, timezone
 from app.download_history import DownloadHistory
-from app.release_rules import baseline_month
+from app.release_rules import baseline_month, default_creator_folder
 from app.run_manager import RunManager, normalize_run_warnings, current_run_warnings, update_run_outcome
 from app.release_images import image_warnings
 from app.source_scope import load_source
@@ -151,6 +151,7 @@ class SubscriptionStore:
                 raise ValueError('The same topic was selected more than once.')
             seen.add(url)
             folder = entry.get('creator_folder')
+            if folder is None or isinstance(folder,str) and not folder.strip():folder=default_creator_folder(allowed[url]['name'])
             if not isinstance(folder,str):raise ValueError('Choose a creator folder below the configured download folder.')
             if not folder or folder.strip()!=folder or folder in ('.','..') or re.search(r'[\\/<>:"|?*\x00-\x1f]',folder) or folder.endswith(('.', ' ')) or folder.startswith('- !'):
                 raise ValueError('Invalid creator folder.')

@@ -1,6 +1,14 @@
 (()=>{
 const $=id=>document.getElementById(id);let data=null,draft=[],dirty=false,page=0,inFlight=false;
-let artistPage=0;
+let artistPage=0,creatorsRefreshing=false;
+async function refreshCreators(){
+ if(location.hash!=='#artists'||!data?.connected||creatorsRefreshing)return;
+ creatorsRefreshing=true;const status=$('creator-refresh-status');status.textContent='Refreshing artists from MMF…';status.className='';
+ try{const result=await request('creators',{});data.creators=result.creators;artists();status.textContent='Artists up to date.'}
+ catch(e){status.textContent='Could not refresh artists: '+e.message+' Saved artists are still shown.';status.className='error'}
+ finally{creatorsRefreshing=false}
+}
+window.addEventListener('hashchange',refreshCreators);
 const expandedReleases=new Set();let queueSignature='';
 function showMMFView(){
  const artists=location.hash==='#artists';
@@ -29,13 +37,13 @@ function artists(){const body=$('artists');body.replaceChildren();const search=$
  $('artists-previous').disabled=artistPage===0;$('artists-next').disabled=(artistPage+1)*50>=matches.length;
  changed();
  for(const creator of matches.slice(artistPage*50,artistPage*50+50)){let sub=draft.find(s=>s.id===creator.id),defaults=sub||data.settings.subscriptions.find(s=>s.id===creator.id);const row=document.createElement('tr'),toggle=document.createElement('input');toggle.type='checkbox';toggle.className='toggle';toggle.checked=!!sub;toggle.setAttribute('role','switch');toggle.setAttribute('aria-label','Subscribe to '+creator.name);toggle.disabled=data.active;
- const folder=document.createElement('input');folder.setAttribute('list','folders');folder.setAttribute('aria-label',creator.name+' folder');folder.value=defaults?.folder||data.folders.find(f=>f.replace(/^[-\s]+/,'').toLowerCase()===creator.name.toLowerCase())||creator.name;
+ const folder=document.createElement('input');folder.setAttribute('list','folders');folder.placeholder='Default: '+creator.name;folder.setAttribute('aria-label',creator.name+' folder');folder.value=defaults?defaults.folder:data.folders.find(f=>f.replace(/^[-\s]+/,'').toLowerCase()===creator.name.toLowerCase())||creator.name;
  const scope=document.createElement('select');scope.setAttribute('aria-label',creator.name+' scope');scope.append(new Option('From month/year','month'),new Option('All (archiving)','all'));scope.value=defaults&&defaults.start_month===''?'all':'month';const month=document.createElement('input');month.type='month';month.setAttribute('aria-label',creator.name+' starting month');const now=new Date();now.setDate(1);now.setMonth(now.getMonth()-1);month.value=defaults?.start_month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
  const enable=()=>{folder.disabled=scope.disabled=month.disabled=!toggle.checked||data.active;month.hidden=scope.value==='all'};enable();
  const membership=text('small','');membership.className='changed';const updateMembership=()=>{membership.textContent=toggle.checked!==saved.has(creator.id)?(saved.has(creator.id)?'Removal pending':'Not saved yet'):''};updateMembership();
  const update=()=>{if(toggle.checked){const old=draft.findIndex(s=>s.id===creator.id);const entry={id:creator.id,name:creator.name,folder:folder.value,start_month:scope.value==='all'?'':month.value};if(old<0)draft.push(entry);else draft[old]=entry}else draft=draft.filter(s=>s.id!==creator.id);enable();changed();updateMembership()};toggle.onchange=folder.oninput=scope.onchange=month.oninput=update;
  const identity=text('span',creator.name);identity.prepend(ArtistProfiles.badge(creator.name));
- for(const node of [toggle,identity,folder]){const td=document.createElement('td');td.append(node);if(node===toggle)td.append(membership);row.append(td)}const td=document.createElement('td');const scopeRow=document.createElement('div');scopeRow.className='artist-scope-row';scopeRow.append(scope,month);td.append(scopeRow);row.append(td);const infoCell=document.createElement('td');infoCell.className='artist-info-cell';infoCell.append(ArtistProfiles.infoButton(creator.name,[{label:'Source',text:'MyMiniFactory · Shared with me',href:'https://www.myminifactory.com/library#/shared-with-me'},{label:'MMF creator ID',text:String(creator.id)}]));row.append(infoCell);body.append(row);
+ for(const node of [toggle,identity,folder]){const td=document.createElement('td');td.append(node);if(node===toggle)td.append(membership);row.append(td)}const td=document.createElement('td');const scopeRow=document.createElement('div');scopeRow.className='artist-scope-row';scopeRow.append(scope,month);td.append(scopeRow);row.append(td);const infoCell=document.createElement('td');infoCell.className='artist-info-cell';infoCell.append(ArtistProfiles.infoButton(creator.name,[{label:'Source',text:'MyMiniFactory · Shared with me, Tribes and Frontiers',href:'https://www.myminifactory.com/library'},{label:'MMF creator ID',text:String(creator.id)}]));row.append(infoCell);body.append(row);
  }}
 function releaseGroups(){
  const groups=new Map();
@@ -168,8 +176,8 @@ function render(reset=false){$('connection').hidden=data.connected;$('sub-count'
 
  const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('job-message').classList.toggle('error',['error','interrupted'].includes(job.phase));$('progress').hidden=!data.active;if(job.expected>0)$('progress').value=Math.min(100,100*(job.bytes||0)/job.expected);else if(job.total>0)$('progress').value=Math.min(100,100*(job.done||0)/job.total);else $('progress').removeAttribute('value');$('metrics').textContent=[job.phase==='processing_pdfs'?'Processing PDF footer stamps':job.phase,job.image_total!=null?`${job.image_count||0} / ${job.image_total} images`:'',data.active&&job.expected?((job.progress_unit==='percent'||['unpacking','repacking','verifying_archive'].includes(job.phase))?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
 }
-async function refresh(reset=false){if(inFlight)return;inFlight=true;try{const oldActive=data?.active;data=await request('');render(reset||oldActive!==data.active&&!dirty)}catch(e){notice(e.message,true)}finally{inFlight=false}}
+async function refresh(reset=false){if(inFlight)return;inFlight=true;try{const oldActive=data?.active;const oldCreators=JSON.stringify(data?.creators);data=await request('');render(reset||oldActive!==data.active&&!dirty);if(oldCreators!==JSON.stringify(data.creators))artists()}catch(e){notice(e.message,true)}finally{inFlight=false}}
 async function act(action,payload={}){try{notice('Working…');await request(action,payload);notice(action==='save'?'Subscriptions saved.':'');if(action==='save'){dirty=false}await refresh(action==='save'||action==='login')}catch(e){notice(e.message,true)}}
 $('save').onclick=()=>act('save',{revision:data.settings.revision,subscriptions:draft});for(const action of ['check','download','resume','stop'])$(action).onclick=()=>act(action);
-$('search').oninput=()=>{artistPage=0;artists()};$('subscription-filter').onchange=()=>{artistPage=0;artists()};$('artists-previous').onclick=()=>{artistPage--;artists()};$('artists-next').onclick=()=>{artistPage++;artists()};$('filter').onchange=()=>{page=0;queue()};$('previous').onclick=()=>{page--;queue()};$('next').onclick=()=>{page++;queue()};refresh(true);let lastRefresh=0;setInterval(()=>{const now=Date.now();if(now-lastRefresh>=(data?.active?500:3000)){lastRefresh=now;refresh()}},500);
+$('search').oninput=()=>{artistPage=0;artists()};$('subscription-filter').onchange=()=>{artistPage=0;artists()};$('artists-previous').onclick=()=>{artistPage--;artists()};$('artists-next').onclick=()=>{artistPage++;artists()};$('filter').onchange=()=>{page=0;queue()};$('previous').onclick=()=>{page--;queue()};$('next').onclick=()=>{page++;queue()};refresh(true).then(refreshCreators);let lastRefresh=0;setInterval(()=>{const now=Date.now();if(now-lastRefresh>=(data?.active?500:3000)){lastRefresh=now;refresh()}},500);
 })();

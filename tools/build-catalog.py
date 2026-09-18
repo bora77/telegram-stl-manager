@@ -99,7 +99,7 @@ def app_layout(page):
 
 
 def write_page(name, content):
-    content=content.replace('</main>', f'<footer class="app-copyright">v{version} '+(root/'templates/update-footer.html').read_text()+' · <a href="/whats-new">What’s new &amp; upcoming</a> · Copyright © 2026 trumphater77</footer></main>')
+    content=content.replace('</main>', f'<footer class="app-copyright">v{version} '+(root/'templates/update-footer.html').read_text()+' · <a href="/whats-new">What’s new &amp; upcoming</a> · Copyright © 2026 trumphater77</footer></div></main>')
     # The running server always sees a complete page; no restart is needed.
     temporary = root / (name + '.tmp')
     temporary.write_text(content)

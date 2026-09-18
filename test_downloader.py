@@ -479,9 +479,9 @@ class WorkerTests(unittest.TestCase):
             with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',return_value=ui):
                 worker=download_worker.Worker('test');worker.execute()
             self.assertEqual(ui.calls,[2])
-            with zipfile.ZipFile(base/'Example/2026-09/Example 2026-09 B.zip') as archive:
+            with zipfile.ZipFile(base/'Example/Example 2026-09/Example 2026-09 B.zip') as archive:
                 self.assertEqual(archive.read('Model.stl'),b'model bytes')
-            images=list((base/'Example/2026-09/release_images').rglob('*.JPG'))
+            images=list((base/'Example/Example 2026-09/release_images').rglob('*.JPG'))
             self.assertEqual(len(images),1)
             self.assertEqual(images[0].read_bytes(),b'original image bytes')
             self.assertFalse((state/'Example 2026-09 B.zip').exists())

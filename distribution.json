@@ -92,7 +92,13 @@
     "windows/import-profile.py",
     "artist_profiles.py",
     "artist-profiles.js",
-    "test_artist_profiles.py"
+    "test_artist_profiles.py",
+    "mmf_release_prepare.py",
+    "test_mmf_release_prepare.py",
+    "mmf_images.py",
+    "test_mmf_images.py",
+    "mmf_release_upload.py",
+    "test_mmf_release_upload.py"
   ],
   "trees": [
     "templates",

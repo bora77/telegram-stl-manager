@@ -231,7 +231,7 @@ class CollageStore:
     def validate_selection(self, payload, minimum=0):
         release = self.release(payload.get('release_id'))
         ids = payload.get('images')
-        if not isinstance(ids, list) or not 5 <= len(ids) <= 9:raise CollageError('Choose between five and nine collage slots.')
+        if not isinstance(ids, list) or not 2 <= len(ids) <= 9:raise CollageError('Choose between two and nine collage slots.')
         filled = [i for i in ids if i is not None]
         if len(set(map(str,filled))) != len(filled) or (minimum and len(filled)!=len(ids)):raise CollageError('Fill every collage slot with a different image.')
         records = [self.image_record(i) for i in filled]
@@ -271,7 +271,7 @@ class CollageStore:
         return sources
 
     def preview(self, payload):
-        release, records, settings = self.validate_selection(payload, minimum=5)
+        release, records, settings = self.validate_selection(payload, minimum=2)
         if not PREVIEW_SLOT.acquire(timeout=20):raise CollageError('Another preview is being prepared. Try again shortly.')
         preview_id = uuid.uuid4().hex;output = self.cache/(preview_id+'-preview.jpg')
         try:

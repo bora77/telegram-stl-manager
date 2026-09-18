@@ -84,6 +84,20 @@ class StoreTests(unittest.TestCase):
         for changes in [dict(creator_folder='../escape'),dict(download_scope=''),dict(download_scope='future'),dict(topic_url='https://t.me/c/9/123'),dict(layout='flat')]:
             with self.subTest(changes=changes),self.assertRaises(ValueError): self.save(**changes)
         self.assertEqual(self.store.read()['revision'],0)
+    def test_release_pad_config_preserves_and_validates_destination(self):
+        self.assertEqual(self.store.config()['release_pad_destination'],'')
+        saved=self.store.save_config(dict(revision=0,download_directory=str(self.root),release_pad_destination=' https://t.me/example_release_pad/ '))
+        self.assertEqual(saved['release_pad_destination'],'@example_release_pad')
+        self.store.save_config(dict(revision=1,download_directory=str(self.root)))
+        self.assertEqual(self.store.config()['release_pad_destination'],'@example_release_pad')
+        for value in [None,123,'https://t.me/+invite','https://t.me/c/123/4','@example/123','--help','0','Release Pad']:
+            with self.subTest(value=value),self.assertRaises(ValueError):
+                self.store.save_config(dict(revision=2,download_directory=str(self.root),release_pad_destination=value))
+        self.store.save_config(dict(revision=2,download_directory=str(self.root),release_pad_destination='-1001234567890'))
+        self.assertEqual(self.store.config()['release_pad_destination'],'-1001234567890')
+        self.store.save_config(dict(revision=3,download_directory=str(self.root),release_pad_destination=''))
+        self.assertEqual(self.store.config()['release_pad_destination'],'')
+
     def test_mmf_beta_defaults_off_and_preserves_saved_choice(self):
         self.assertFalse(self.store.config()['mmf_beta_enabled'])
         self.store.save_config(dict(revision=0,download_directory=str(self.root),mmf_beta_enabled=True))

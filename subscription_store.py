@@ -28,6 +28,7 @@ class SubscriptionStore:
         data=json.loads(self.config_path.read_text()) if self.config_path.exists() else {'revision':0,'download_directory':str(self.root/'downloads')}
         data.setdefault('download_storage','network' if str(data.get('download_directory','')).startswith(('/mnt/kronos-stl/','/mnt/telegram-stl-share/')) else 'local')
         data.setdefault('mmf_beta_enabled',False)
+        data.setdefault('release_pad_destination','')
         data.setdefault('download_servers',{})
         data.setdefault('server_check_frequency','cached')
         data.setdefault('server_speed_threshold_mbps',0)
@@ -62,6 +63,13 @@ class SubscriptionStore:
             if payload.get('revision')!=current['revision']:raise FileExistsError('Settings changed in another tab. Reload before saving.')
             mmf_beta=payload.get('mmf_beta_enabled',current['mmf_beta_enabled'])
             if type(mmf_beta) is not bool:raise ValueError('Choose whether to show the MyMiniFactory beta.')
+            release_pad=payload.get('release_pad_destination',current['release_pad_destination'])
+            if not isinstance(release_pad,str):raise ValueError('Enter a Release Pad username or numeric chat ID.')
+            release_pad=release_pad.strip()
+            if release_pad.startswith('https://t.me/'):
+                release_pad='@'+release_pad[len('https://t.me/'):].rstrip('/')
+            if release_pad and not re.fullmatch(r'(?:@[A-Za-z][A-Za-z0-9_]{3,31}|-?[1-9][0-9]{0,18})',release_pad):
+                raise ValueError('Use @username, https://t.me/username, or a numeric chat ID for a private Release Pad. Invite and message links are not destinations.')
             storage=payload.get('download_storage',current['download_storage'])
             if storage not in ('local','network'):raise ValueError('Choose local storage or a network share.')
             from telegram_cli import validate_servers
@@ -79,12 +87,16 @@ class SubscriptionStore:
                 raise ValueError('Choose an availability check interval between 0.25 and 168 hours.')
             adaptive=payload.get('adaptive_downloads',current['adaptive_downloads'])
             if type(adaptive) is not bool:raise ValueError('Choose whether adaptive parallel downloads are enabled.')
-            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval}
+            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval}
             self.atomic_write(self.config_path,data)
             return data
 
     def config_view(self):
         data=self.config()
+        try:
+            destinations=json.loads((self.root/'data/release-pad-destinations.json').read_text()).get('destinations',[])
+            data['release_pad_title']=next((r['title'] for r in destinations if r['id']==data['release_pad_destination']),'')
+        except (OSError,ValueError,KeyError,TypeError):data['release_pad_title']=''
         data['local_download_directory']=str(self.root/'downloads')
         from telegram_cli import server_view
         data.update(telegram_servers=server_view(self.root),download_backend='cli')

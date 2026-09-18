@@ -117,7 +117,7 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError,OSError,DeliveryError) as error:self.reply_json({'error':str(error)},400)
             return
         if path == '/api/organizer':
-            self.reply_json(Organizer(self.store).status());return
+            self.reply_json(Organizer(self.store).display_status());return
         if path in ('/api/subscriptions','/api/queue','/api/config'):
             try:
                 self.reply_json(self.store.config_view() if path.endswith('config') else self.store.read() if path.endswith('subscriptions') else self.store.queue())
@@ -132,7 +132,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
         if SETUP.setup_required and self.path not in ('/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/servers/refresh','/api/servers/retest'):
             self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
-        if self.path not in ('/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/resume','/api/mmf/stop','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/release-pad/destinations','/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/upload','/api/mmf/released','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -141,12 +141,29 @@ class Handler(SimpleHTTPRequestHandler):
             if not 0 < length <= (7_000_000 if self.path=='/api/artist-profiles' else 1_000_000):raise ValueError('Invalid request size.')
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):raise ValueError('Expected an object.')
+            if self.path=='/api/release-pad/destinations':
+                client=TelegramCLI(root=self.root)
+                try:
+                    result=client.destinations()
+                    self.store.atomic_write(self.root/'data/release-pad-destinations.json',result)
+                    self.reply_json(result)
+                finally:client.close()
+                return
             if self.path=='/api/artist-profiles':
                 self.reply_json(PROFILES.save(payload));return
             if self.path.startswith('/api/setup/'):
                 action=self.path.rsplit('/',1)[1]
                 result=SETUP.complete(MMF) if action=='complete' else SETUP.start_login() if action=='login' else SETUP.answer(payload) if action=='answer' else SETUP.configure_source(payload) if action=='source' else SETUP.share(payload)
                 self.reply_json(result);return
+            if self.path=='/api/mmf/released':
+                from mmf_release_prepare import confirm_released
+                self.reply_json(confirm_released(MMF,payload));return
+            if self.path=='/api/mmf/upload':
+                from mmf_release_upload import start
+                self.reply_json(start(MMF,payload));return
+            if self.path=='/api/mmf/prepare':
+                from mmf_release_prepare import start
+                self.reply_json(start(MMF,payload));return
             if self.path.startswith('/api/mmf/'):
                 action=self.path.rsplit('/',1)[1]
                 result=(MMF.login(payload) if action=='login' else MMF.save(payload) if action=='save' else MMF.stop() if action=='stop' else MMF.start(action,due=payload.get('due') is True))

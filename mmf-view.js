@@ -16,20 +16,54 @@ function artists(){const body=$('artists');body.replaceChildren();const search=$
  }}
 function releaseGroups(){
  const groups=new Map();
- for(const item of data.items){const key=JSON.stringify([item.creator_id,item.release_id?['id',String(item.release_id)]:item.release?['label',item.release]:['object',item.object_id]]);let group=groups.get(key);if(!group){group={key,creator:item.creator,name:item.release||item.object_name,items:[]};groups.set(key,group)}group.items.push(item)}
+ for(const item of data.items){const key=item.release_key||JSON.stringify([item.creator_id,item.release_month?['month',item.release_month]:item.release_id?['id',String(item.release_id)]:item.release?['label',item.release]:['object',item.object_id]]);let group=groups.get(key);if(!group){group={key,creator:item.creator,name:item.release_display_name||item.release||item.object_name,items:[]};groups.set(key,group)}group.items.push(item)}
  return [...groups.values()].map(g=>({...g,size:g.items.reduce((sum,i)=>sum+i.size,0),recorded:g.items.filter(i=>i.completed).length,review:g.items.filter(i=>!i.completed&&!i.month).length,months:[...new Set(g.items.map(i=>i.release_month).filter(Boolean))].sort()})).sort((a,b)=>a.creator.localeCompare(b.creator)||(b.months.at(-1)||'').localeCompare(a.months.at(-1)||'')||a.name.localeCompare(b.name));
 }
 function sizeLabel(bytes){return bytes>=1e9?(bytes/1e9).toFixed(2)+' GB':(bytes/1e6).toFixed(1)+' MB'}
+const closedUploadPanels=new Set();
+function uploadPanel(pack){
+ const job=pack.upload;if(!job)return null;
+ const panel=document.createElement('details');panel.className='upload-panel';panel.open=!closedUploadPanels.has(job.id);
+ panel.ontoggle=()=>{if(!panel.isConnected)return;if(panel.open)closedUploadPanels.delete(job.id);else closedUploadPanels.add(job.id)};
+ const live=['queued','preparing','uploading','verifying'].includes(job.state);
+ const heading=document.createElement('summary'),icon=text('span',live?'':job.state==='complete'?'✓':'!');if(live)icon.className='upload-spinner';heading.append(icon,text('strong','Release upload · '+(job.state||'unknown')));panel.append(heading);
+ const body=document.createElement('div');body.className='upload-body';body.append(text('p',job.message||''));
+ if(live){const metrics=document.createElement('div');metrics.className='upload-metrics';const bar=document.createElement('progress');bar.max=job.total||1;if(job.total)bar.value=job.bytes||0;bar.setAttribute('aria-label','Total upload progress');metrics.append(bar,text('strong',(job.speed_mbps||0).toFixed(1)+' MB/s'));body.append(metrics,text('small',sizeLabel(job.bytes||0)+' / '+sizeLabel(job.total||0)+' uploaded'));}
+ for(const f of job.files||[]){const row=document.createElement('div');row.className='upload-file';row.append(text('span',f.name||''),text('small',sizeLabel(f.size||0)+' · '+f.state));if(['uploading','verifying'].includes(f.state)){const bar=document.createElement('progress');bar.max=f.size||1;bar.value=f.uploaded||0;bar.setAttribute('aria-label',(f.name||'File')+' upload progress');row.append(bar)}body.append(row)}
+ panel.append(body);return panel;
+}
 function queue(){
- const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?g.recorded===g.items.length:g.recorded<g.items.length));
+ const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?data.release_lifecycle?.[g.key]?.finished:!data.release_lifecycle?.[g.key]?.finished));
  page=Math.min(page,Math.max(0,Math.ceil(rows.length/50)-1));
- const signature=JSON.stringify([data.items,data.active,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
+ const signature=JSON.stringify([data.items,data.preparations,data.release_lifecycle,data.active,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
  for(const group of rows.slice(page*50,page*50+50)){
   const details=document.createElement('details');details.className='release-row';details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
   const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';const creatorLabel=text('small',group.creator);creatorLabel.prepend(ArtistProfiles.badge(group.creator,{compact:true}));heading.append(text('strong',group.name),creatorLabel);
   const info=document.createElement('span');info.className='release-info';info.append(text('span',`${group.items.length} ${group.items.length===1?'file':'files'} · ${sizeLabel(group.size)}`));
   const first=group.items[0];info.append(text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':'')));
-  const status=text('span',group.recorded===group.items.length?'Recorded':group.recorded?`${group.recorded}/${group.items.length} recorded`:'Available');status.className='release-status '+(group.recorded===group.items.length?'recorded':'');summary.append(heading,info,status);details.append(summary);
+  const lifecycle=data.release_lifecycle?.[group.key];const status=text('span',lifecycle?.finished?'Released':lifecycle?.published&&lifecycle.new_files?'Addendum available':group.recorded===group.items.length?'Awaiting publication':`${group.recorded}/${group.items.length} downloaded`);status.className='release-status '+(lifecycle?.finished?'recorded':'');summary.append(heading,info,status);details.append(summary);
+  if(first.release_month){
+   const prep=data.preparations?.[group.key],issued=new Set(prep?.keys||[]),fresh=group.items.filter(i=>i.completed&&!issued.has(i.key));
+   const actions=document.createElement('div');actions.className='actions';actions.style.padding='12px 18px';
+   const button=text('button',prep?.pending?'Retry '+prep.pending:prep&&prep.number>=0?`Prepare Addendum ${prep.number+1}`:'Prepare Telegram release');
+   button.disabled=data.active||group.recorded!==group.items.length||(!fresh.length&&!prep?.pending);
+   button.onclick=()=>act('prepare',{release_key:group.key});actions.append(button);
+   if(prep?.directory)actions.append(text('small','Prepared: '+prep.title+' · '+prep.directory));
+   else actions.append(text('small','Creates a 7-Zip set with volumes up to 4000M. Later additions get numbered addenda.'));
+   for(const pack of prep?.packages||[]){
+    const upload=text('button',pack.attempted?'Re-upload':'Upload release');
+    upload.disabled=prep.upload_active;upload.title=pack.title;
+    upload.onclick=()=>{expandedReleases.add(group.key);act('upload',{preparation_id:pack.id})};
+    actions.append(upload);
+    if(pack.published)actions.append(text('small','✓ Released · '+pack.title));
+    else if(pack.upload?.state==='complete'){
+     const finish=text('button','Confirm released');finish.className='secondary';finish.title='Record completion after the release bot confirms publication.';
+     finish.onclick=()=>{if(window.confirm('Has the release bot successfully finished publishing '+pack.title+'? Uploading to Release Pad or seeing the Complete button is not enough.'))act('released',{preparation_id:pack.id,attempt_id:pack.upload.id,confirmed:true})};actions.append(finish);
+    }
+   }
+   details.append(actions);
+   for(const pack of prep?.packages||[]){const progress=uploadPanel(pack);if(progress)details.append(progress);}
+  }
   const box=document.createElement('div');box.className='release-files table';const table=document.createElement('table'),head=document.createElement('thead'),header=document.createElement('tr');for(const label of ['File','Size','Status'])header.append(text('th',label));head.append(header);table.append(head);const body=document.createElement('tbody');
   for(const item of group.items){
    const row=document.createElement('tr'),name=document.createElement('td');name.append(text('span',item.filename));if(item.object_name&&item.object_name!==group.name)name.append(text('small',item.object_name));row.append(name,text('td',sizeLabel(item.size)));row.append(text('td',item.completed?'Downloaded':'Ready'));body.append(row)
@@ -43,7 +77,7 @@ function render(reset=false){$('connection').hidden=data.connected;$('sub-count'
  for(const id of ['check','download','resume'])$(id).disabled=data.active||!data.connected||dirty;
  $('resume').disabled ||= !data.resumable;
  $('download').disabled ||= !data.counts.available||!data.checked_at;$('stop').disabled=!data.active;$('save').disabled=!dirty||data.active;
- const next=data.next_check_at?new Date(data.next_check_at*1000).toLocaleString():'Due now';const releases=releaseGroups();const pending=releases.filter(g=>g.recorded<g.items.length).length;$('availability').textContent=`${pending} releases available · ${releases.length-pending} recorded · Next check: ${next}`;
+ const next=data.next_check_at?new Date(data.next_check_at*1000).toLocaleString():'Due now';const releases=releaseGroups();const pending=releases.filter(g=>!data.release_lifecycle?.[g.key]?.finished).length;$('availability').textContent=`${pending} open tasks · ${releases.length-pending} finished releases · Next check: ${next}`;
  const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('progress').hidden=!data.active;$('progress').value=job.expected?100*(job.bytes||0)/job.expected:job.total?100*(job.done||0)/job.total:0;$('metrics').textContent=[job.phase,data.active&&job.expected?(['unpacking','repacking','verifying_archive'].includes(job.phase)?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
 }
 async function refresh(reset=false){if(inFlight)return;inFlight=true;try{const oldActive=data?.active;data=await request('');render(reset||oldActive!==data.active&&!dirty)}catch(e){notice(e.message,true)}finally{inFlight=false}}

@@ -71,6 +71,7 @@ class MMFTests(unittest.TestCase):
     def test_check_old_collection_new_file_and_no_download(self):
         self.manager.put('settings',{'revision':0,'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':'2025-01'}]})
         class Client:
+            def open(self,path):return io.BytesIO(b"<html></html>")
             def groups(self):return [{'id':1,'name':'Example Creator'}]
             def metadata(self,path):
                 return [{'originalId':22,'creatorId':1,'source':'USER_GROUP','type':'object','release':44,'name':'Old loyalty collection'}] if 'objectPreviews' in path else [{'id':44,'label':'1 Year Rewards'}]
@@ -79,6 +80,19 @@ class MMFTests(unittest.TestCase):
         with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
         self.assertEqual(len(self.manager.get('items')),1);self.assertEqual(self.manager.get('items')[0]['month'],'2025-01')
         self.assertFalse(self.manager.completed());self.assertFalse((self.manager.directory/'staging').exists())
+    def test_downloaded_old_month_stays_in_scope_for_late_additions(self):
+        self.manager.put('settings',{'revision':0,'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':'2026-09'}]})
+        with self.manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',(self.item['key'],json.dumps(self.item)))
+        class Client:
+            def open(self,path):return io.BytesIO(b"<html></html>")
+            def groups(self):return [{'id':1,'name':'Example Creator'}]
+            def metadata(self,path):
+                return [{'originalId':22,'creatorId':1,'source':'USER_GROUP','type':'object','release':44,'name':'Old model'}] if 'objectPreviews' in path else [{'id':44,'label':'January 2025'}]
+            def downloadables(self,oid):return {'archives':[{'id':99,'name':'supported.zip','size':'9','updatedAt':'v2'}]}
+            def save(self):pass
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        self.assertEqual([i['archive_id'] for i in self.manager.get('items')],[99])
+
     def test_successful_delivery_then_failure_continues(self):
         import zipfile
         source=self.root/'source.zip'
@@ -87,6 +101,7 @@ class MMFTests(unittest.TestCase):
         bad={**first,'object_id':23,'archive_id':34,'release':'Another release'};bad['key']=version_key(bad)
         self.manager.put('queue',[bad,first]);self.manager.put('run_base',str(self.root))
         class Client:
+            def open(self,path):return io.BytesIO(b"<html></html>")
             def downloadables(self,oid):
                 if oid==23:raise MMFError('Bad release')
                 return {'archives':[{'id':33,'size':first['size'],'updatedAt':'v1'}]}
@@ -107,6 +122,7 @@ class MMFTests(unittest.TestCase):
         item={**self.item,'size':archive.stat().st_size};item['key']=version_key(item)
         self.manager.put('queue',[item]);self.manager.put('run_base',str(self.root))
         class Client:
+            def open(self,path):return io.BytesIO(b"<html></html>")
             calls=0
             def downloadables(self,oid):return {'archives':[{'id':33,'size':item['size'],'updatedAt':'v1'}]}
             def download(self,item,path,*args):self.calls+=1;path.write_bytes(archive.read_bytes())
@@ -118,7 +134,7 @@ class MMFTests(unittest.TestCase):
         self.assertIn(item['key'],self.manager.completed())
         images=list((self.root/'Example Creator'/'Example Creator 2025-01'/'release_images').iterdir())
         self.assertEqual(len(images),1);self.assertTrue(images[0].is_file())
-        self.assertEqual(len(list((self.root/'Example Creator'/'Example Creator 2025-01').glob('*.7z'))),1)
+        self.assertEqual(len(list((self.root/'Example Creator'/'Example Creator 2025-01'/'MMF sources').glob('*.7z'))),1)
         self.assertFalse(list((self.manager.directory/'staging').glob('**/*.zip')))
         with self.manager.db() as db:record=json.loads(db.execute('SELECT data FROM completed').fetchone()[0])
         self.assertEqual(record['image_count'],1);self.assertTrue(record['images_extracted']);self.assertEqual(len(record['sha256']),64)
@@ -137,6 +153,7 @@ class ReleasePackagingTests(MMFTests):
         self.manager.put('items',items);self.assertEqual(self.manager.state()['counts']['available'],2)
         self.manager.put('queue',items);self.manager.put('run_base',str(self.root))
         class Client:
+            def open(self,path):return io.BytesIO(b"<html></html>")
             calls=0
             def downloadables(self,oid):return {'archives':[{'id':oid,'size':sources[oid].stat().st_size,'updatedAt':'v1'}]}
             def download(self,item,path,*args):self.calls+=1;path.write_bytes(sources[item['object_id']].read_bytes())
@@ -146,11 +163,11 @@ class ReleasePackagingTests(MMFTests):
         self.assertEqual(self.manager.get('job')['errors'],[])
         self.assertEqual(client.calls,2);self.assertEqual(self.manager.completed(),{i['key'] for i in items})
         destination=self.root/'Example Creator'/'Example Creator Welcome Pack'
-        self.assertEqual([p.name for p in destination.glob('*.7z')],['Welcome Pack.7z'])
-        _,entries=listing(destination/'Welcome Pack.7z',self.root,lambda:False)
+        self.assertEqual([p.name for p in (destination/'MMF sources').glob('*.7z')],['Welcome Pack.7z'])
+        _,entries=listing(destination/'MMF sources'/'Welcome Pack.7z',self.root,lambda:False)
         self.assertEqual({e['name'] for e in entries},{'Model 101/original/model.stl','Model 102/original/model.stl'})
         output=self.root/'verify'
-        command(['x','-y','-o'+str(output),'--',str(destination/'Welcome Pack.7z')],self.root,lambda:False)
+        command(['x','-y','-o'+str(output),'--',str(destination/'MMF sources'/'Welcome Pack.7z')],self.root,lambda:False)
         self.assertEqual((output/'Model 101/original/model.stl').read_text(),'first model')
         self.assertEqual((output/'Model 102/original/model.stl').read_text(),'second model')
 
@@ -192,12 +209,14 @@ class ReleaseDateTests(unittest.TestCase):
         for date in (None,'bad','2023-02-30'):
             self.assertEqual(release_date_month('Named release',date),(None,None))
 
-    def test_same_month_keeps_separate_release_sets(self):
+    def test_same_month_combines_source_releases_without_using_update_date(self):
         from mmf_manager import releases
         items=[{'creator_id':1,'release_id':str(n),'release':name,'release_created_at':'2023-09-15T00:00:00Z','updated_at':'2026-09-10'} for n,name in enumerate(('First model','Second model'))]
         groups=releases(items)
-        self.assertEqual(len(groups),2)
+        self.assertEqual(len(groups),1)
         self.assertEqual([i['release_folder'] for i in items],['2023-09','2023-09'])
+        self.assertEqual(items[0]['release_key'],items[1]['release_key'])
+        self.assertTrue(all(i['release_display_name']=='2023-09' for i in items))
         self.assertTrue(all(i['release_month']=='2023-09' for i in items))
 
 if __name__=='__main__':unittest.main()

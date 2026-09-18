@@ -103,6 +103,9 @@ func GetInputPeer(ctx context.Context, manager *peers.Manager, from string) (pee
 		return p, nil
 	}
 
+	// Marked IDs preserve peer type, avoiding ambiguous numeric destinations.
+ if id <= -1000000000000 { return manager.ResolveChannelID(ctx, -id-1000000000000) }
+ if id < 0 { return manager.ResolveChatID(ctx, -id) }
 	var p peers.Peer
 	if p, err = manager.ResolveChannelID(ctx, id); err == nil {
 		return p, nil

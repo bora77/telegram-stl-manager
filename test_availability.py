@@ -73,3 +73,45 @@ class AvailabilityTests(unittest.TestCase):
             changed={**SUB,'start_month':'2026-07'}
             store.atomic_write(store.path,{'revision':2,'subscriptions':[changed],'saved_at':SUB['subscribed_at']})
             self.assertEqual(checker.status()['next_check_at'],0)
+
+    def test_detected_run_uses_exact_snapshot_without_scanning_other_subscriptions(self):
+        from download_plan import DownloadPlan
+        with tempfile.TemporaryDirectory() as temp:
+            store,checker=self.setup(Path(temp))
+            other={**SUB,'creator':'Other','topic_url':'https://t.me/c/123456789/300'}
+            subs=[SUB,other]
+            store.atomic_write(store.path,{'revision':1,'subscriptions':subs,'saved_at':SUB['subscribed_at']})
+            files=[{**item(n,f'Example 2026-0{n}.zip'),'month':f'2026-0{n}',
+                    'message_url':TOPIC+'/'+str(n)} for n in (8,9)]
+            store.atomic_write(checker.path,{'subscriptions':subs,'items':files,'checked_at':1000})
+            store.history.register(source_message_id=8,creator='Example',topic_url=TOPIC,filename=files[0]['filename'],bytes_total=100)
+            with store.history.connect() as db:db.execute("UPDATE downloads SET state='downloaded' WHERE source_message_id=8")
+            with patch('run_manager.subprocess.Popen'),patch('availability.TelegramCLI',side_effect=AssertionError('Must not scan')):
+                run=store.runs.start({'revision':1,'config_revision':store.config()['revision'],'mode':'detected'})
+            self.assertEqual(run['subscriptions'],[SUB]);self.assertEqual(run['creators_total'],1)
+            checkpoint=DownloadPlan(store,run).load(SUB)
+            self.assertEqual([e['item']['source_message_id'] for e in checkpoint['items']],[9])
+            self.assertEqual(run['availability_checked_at'],1000)
+            self.assertTrue(checker.status()['claimed']);self.assertEqual(checker.status()['files'],0)
+            self.assertEqual(checker.status()['next_check_at'],1000+INTERVAL)
+            # A newer check may notify about newly detected files again.
+            store.atomic_write(checker.path,{'subscriptions':subs,'items':files,'checked_at':2000})
+            self.assertFalse(checker.status()['claimed']);self.assertEqual(checker.status()['files'],1)
+            # Explicit all mode must not reuse even a valid detection snapshot.
+            store.atomic_write(store.runs.path,{**run,'state':'stopped'})
+            with patch('run_manager.subprocess.Popen'):
+                fresh=store.runs.start({'revision':1,'config_revision':store.config()['revision'],'mode':'all'})
+            self.assertEqual(fresh['subscriptions'],subs)
+            self.assertIsNone(DownloadPlan(store,fresh).load(SUB))
+
+    def test_detected_never_silently_falls_back_to_a_full_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store,checker=self.setup(Path(temp))
+            payload={'revision':1,'config_revision':store.config()['revision'],'mode':'detected'}
+            with patch('run_manager.subprocess.Popen') as launch:
+                with self.assertRaisesRegex(ValueError,'no longer match'):store.runs.start(payload)
+                store.atomic_write(checker.path,{'subscriptions':[SUB],'items':[],'checked_at':1000})
+                with self.assertRaisesRegex(ValueError,'No known'):store.runs.start(payload)
+                store.atomic_write(checker.path,{'subscriptions':[SUB],'items':[{'topic_url':TOPIC,'source_message_id':9,'month':'2026-09'}],'checked_at':1000})
+                with self.assertRaisesRegex(ValueError,'metadata is missing'):store.runs.start(payload)
+                launch.assert_not_called()

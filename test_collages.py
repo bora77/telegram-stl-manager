@@ -38,7 +38,7 @@ class LayoutTests(unittest.TestCase):
             self.assertLess(max(heights)/min(heights),3)
 
     def test_every_shape_layout_and_slot_count_has_bounded_separate_cells(self):
-        for count in range(5,10):
+        for count in range(2,10):
             sizes=[(300,500),(800,300),(200,200),(400,900),(750,450),(100,600),(1000,200),(300,800),(500,400)][:count]
             for shape,(w,h) in FORMATS.items():
                 for layout in LAYOUTS:

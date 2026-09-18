@@ -22,7 +22,7 @@ document.getElementById('save-subscriptions').onclick=async()=>{
   try{
     const data=await api('/api/subscriptions',{revision:serverRevision,config_revision:configRevision,subscriptions:entries.map(SelectionRules.exportRecord)});
     serverRevision=data.revision;savedSubscriptions=data.subscriptions;savedSummary();render();
-    setSaveStatus(JSON.stringify(selected)===snapshot?'Subscriptions saved. Press Download all subscriptions when ready.':'Subscriptions saved, but you have newer unsaved edits.');
+    setSaveStatus(JSON.stringify(selected)===snapshot?'Subscriptions saved. Press Check and download all when ready.':'Subscriptions saved, but you have newer unsaved edits.');
     refreshQueue();
   }catch(error){setSaveStatus('Not saved: '+error.message,true)}
   finally{saving=false;renderSelections()}
@@ -67,7 +67,7 @@ function revealQueue(){queueDetailsShown=true;document.getElementById('queue-det
 async function corruptFileAction(runId,fileId,ignore){
   if(runRequestPending)return;
   runRequestPending=true;
-  document.querySelectorAll('#corrupt-files button,#download-all,#resume-downloads').forEach(button=>button.disabled=true);
+  document.querySelectorAll('#corrupt-files button,#download-all,#download-detected,#resume-downloads').forEach(button=>button.disabled=true);
   let errorMessage='';
   try{
     await api(ignore?'/api/run/ignore':'/api/run/resume',ignore?{run_id:runId,file_ids:[fileId]}:{run_id:runId,redownload_ids:[fileId]});
@@ -76,7 +76,7 @@ async function corruptFileAction(runId,fileId,ignore){
 }
 async function refreshQueue(){
   try{
-    const queue=await api('/api/queue');
+    const [queue,availability]=await Promise.all([api('/api/queue'),api('/api/availability').catch(()=>({files:0}))]);
     if(queue.active||queue.can_resume)revealQueue();
     document.getElementById('queue-details').hidden=!queueDetailsShown;
     document.getElementById('stop-downloads').hidden=!queue.active;
@@ -85,6 +85,7 @@ async function refreshQueue(){
     renderRunActivity(queue);
     const checking=['starting','scanning'].includes(queue.worker_state),emptyFinished=['completed','needs_review'].includes(queue.worker_state)&&queue.total_files===0;
     const stopped=['failed','interrupted','stopped'].includes(queue.worker_state);
+    document.getElementById('download-detected').disabled=!queue.can_start||saving||runRequestPending||!availability.files;
     document.getElementById('download-all').disabled=!queue.can_start||saving||runRequestPending;document.getElementById('stop-downloads').disabled=!queue.active;
     resumableRunId=queue.can_resume?queue.run.id:null;
     const resume=document.getElementById('resume-downloads');resume.hidden=!queue.can_resume;resume.disabled=!queue.can_resume||saving||runRequestPending;
@@ -172,16 +173,19 @@ async function initialize(){
 }
 initialize();refreshQueue();setInterval(refreshQueue,3000);
 
-document.getElementById('download-all').onclick=async()=>{
+async function startDownload(mode){
   if(runRequestPending)return;
-  const button=document.getElementById('download-all');button.disabled=true;runRequestPending=true;
+  const button=document.getElementById(mode==='detected'?'download-detected':'download-all');button.disabled=true;runRequestPending=true;
+  document.getElementById('download-all').disabled=true;document.getElementById('download-detected').disabled=true;
   document.getElementById('resume-downloads').disabled=true;
   revealQueue();
   document.getElementById('run-phase').textContent='Starting run…';document.getElementById('run-detail').textContent='Sending your manual download request.';document.getElementById('run-activity').dataset.active='true';
-  try{await api('/api/run',{revision:serverRevision,config_revision:configRevision});await refreshQueue()}
+  try{await api('/api/run',{revision:serverRevision,config_revision:configRevision,mode});window.dispatchEvent(new Event('download-started'));await refreshQueue()}
   catch(error){document.getElementById('run-phase').textContent='Could not start';document.getElementById('run-detail').textContent=error.message;document.getElementById('run-activity').dataset.active='false';button.disabled=false}
   finally{runRequestPending=false}
 };
+document.getElementById('download-all').onclick=()=>startDownload('all');
+document.getElementById('download-detected').onclick=()=>startDownload('detected');
 document.getElementById('resume-downloads').onclick=async()=>{
   if(!resumableRunId||runRequestPending)return;
   const button=document.getElementById('resume-downloads');button.disabled=true;runRequestPending=true;

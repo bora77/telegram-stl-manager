@@ -22,6 +22,25 @@ from subscription_store import SubscriptionStore
 TOPIC='https://t.me/c/123456789/200'
 
 
+class ReleaseCollageGateTests(unittest.TestCase):
+    def test_missing_and_invalid_collage_block_before_telegram(self):
+        from telegram_cli import require_release_collage
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)/'- Example'/'Example 2026-09';folder.mkdir(parents=True)
+            archive=folder/'Example 2026-09.7z';archive.write_bytes(b'test')
+            collage=folder/'Example-2026-09.jpg'
+            with self.assertRaises(CLIError):require_release_collage(archive)
+            collage.write_bytes(b'not an image')
+            with self.assertRaises(CLIError):require_release_collage(archive)
+            Image.new('RGB',(100,100)).save(collage)
+            self.assertEqual(require_release_collage(archive),collage)
+            client=TelegramCLI.__new__(TelegramCLI)
+            collage.unlink()
+            with self.assertRaisesRegex(CLIError,'collage'):
+                client._run(['upload','--path',archive],folder,lambda:False)
+
+
 class ServiceProcessTests(unittest.TestCase):
     @unittest.skipUnless((Path(__file__).parent/'.tools/tdl-stl/tdl').is_file(), 'Build the CLI to test its local proxy')
     def test_built_cli_forwards_flags_without_opening_login_storage(self):

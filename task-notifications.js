@@ -154,15 +154,20 @@
    }
    if(label){
     label.hidden=!state.subscribed;
-    const result=state.files?`${state.files} files available · ${state.releases} releases · ${state.creators} artists`:(state.errors.length?'Availability check incomplete':'No downloads available');
+    const result=state.files?`${state.files} files detected · ${state.releases} releases · ${state.creators} artists`:(state.errors.length?'Availability check incomplete':'No downloads available');
     label.textContent=state.checking?'Checking for available downloads…':state.deferred?'Next check: due now · Waiting for the current task to finish.':
      `${result}${state.checked_at?' · Checked '+new Date(state.checked_at*1000).toLocaleString():''} · Next check: ${new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · Every ${state.interval_seconds/3600} hours while this tool is open.`;
+    if(state.claimed&&!state.checking){label.textContent=state.deferred?'Next check: due now · Waiting for the current task to finish.':'Next check: '+new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
     if(state.errors.length&&state.files)label.textContent+=' · Some artists could not be checked.';
+    if(state.files&&!state.checking&&!state.deferred){
+     const content=label.textContent,index=content.indexOf('detected');
+     if(index>=0){const word=document.createElement('span');word.className='detected-flash';word.textContent='detected';label.replaceChildren(document.createTextNode(content.slice(0,index)),word,document.createTextNode(content.slice(index+8)))}
+    }
    }
   }catch{if(label){label.hidden=false;label.textContent='Availability check unavailable; the browser will retry.'}}
   finally{busy=false}
  }
- function start(){window.addEventListener('availability-config-saved',pollAvailability);pollAvailability();setInterval(pollAvailability,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollAvailability()})}
+ function start(){window.addEventListener('availability-config-saved',pollAvailability);window.addEventListener('download-started',pollAvailability);pollAvailability();setInterval(pollAvailability,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollAvailability()})}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();
 

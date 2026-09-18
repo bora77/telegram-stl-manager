@@ -112,3 +112,12 @@
 !/assets/artist-profiles/
 !/assets/artist-profiles/*.json
 !/assets/artist-profiles/*.png
+
+!/mmf_release_prepare.py
+!/test_mmf_release_prepare.py
+
+!/mmf_images.py
+!/test_mmf_images.py
+
+!/mmf_release_upload.py
+!/test_mmf_release_upload.py

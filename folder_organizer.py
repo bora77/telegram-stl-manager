@@ -212,6 +212,28 @@ class Organizer:
             if job['state'] in RUNNING:plan.update(state='applying',message=job['message'])
         return plan
 
+    def dismiss_finished(self):
+        """Hide old results without deleting plans, receipts, or resumable work."""
+        plan=self.status();job=plan.get('application') or {}
+        if plan['state'] in ACTIVE or job.get('state') in ('starting','running'):
+            return
+        self.store.atomic_write(self.root/'data/organizer-dismissed.json',
+                                {'plan_id':plan.get('id'),'job_id':job.get('id')})
+
+    def display_status(self):
+        plan=self.status();job=plan.get('application') or {}
+        if plan['state'] in ACTIVE or job.get('state') in ('starting','running'):
+            return plan
+        try:dismissed=json.loads((self.root/'data/organizer-dismissed.json').read_text())
+        except (OSError,ValueError):return plan
+        if job.get('id') and job['id']==dismissed.get('job_id'):
+            plan.pop('application',None)
+        if plan.get('id') and plan['id']==dismissed.get('plan_id'):
+            plan={'state':'idle','dry_run':True,'files':[],
+                  'message':'Choose an artist and folder to preview.',
+                  **({'application':plan['application']} if plan.get('application') else {})}
+        return plan
+
     def start(self, payload):
         if payload.get('dry_run') is not True:
             raise ValueError('Only dry runs are enabled. No file or history changes can be applied.')

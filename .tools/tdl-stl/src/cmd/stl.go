@@ -29,6 +29,17 @@ func NewSTL() *cobra.Command {
 	}}
 	servers.Flags().StringVar(&output, "output", "", "Endpoint JSON output")
 	servers.MarkFlagRequired("output")
+	var destinationsOutput string
+	destinations := &cobra.Command{Use: "destinations", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if handled, err := proxySTL(cmd, sourcePath); handled {
+			return err
+		}
+		return tRun(cmd.Context(), func(ctx context.Context, c *telegram.Client, kv storage.Storage) error {
+			return stl.Destinations(ctx, c, destinationsOutput)
+		})
+	}}
+	destinations.Flags().StringVar(&destinationsOutput, "output", "", "Destination metadata output")
+	destinations.MarkFlagRequired("output")
 	var filesOutput string
 	var filesTopic int
 	var filesAfter int
@@ -109,6 +120,6 @@ func NewSTL() *cobra.Command {
 	for _, name := range []string{"topic", "message", "dc", "document-id", "size", "filename", "output", "events", "cache"} {
 		download.MarkFlagRequired(name)
 	}
-	cmd.AddCommand(servers, files, download, newSTLService(&sourcePath))
+	cmd.AddCommand(destinations, servers, files, download, newSTLService(&sourcePath))
 	return cmd
 }

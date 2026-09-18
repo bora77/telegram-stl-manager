@@ -15,7 +15,7 @@ from mmf_client import MMFClient, MMFError, LoginRequired
 from release_rules import release_month, baseline_month
 from release_images import extract_images, is_archive, safe_component, volume_key
 from file_delivery import deliver, release_lock, digest, DeliveryError
-from mmf_repack import repack, archive_name, VOLUME_BYTES, POLICY_VERSION
+from mmf_repack import repack, archive_name, VOLUME_BYTES, POLICY_VERSION, COMPRESSION_LEVEL
 from release_images import ExtractionError
 
 
@@ -32,6 +32,10 @@ def version_key(item):
 
 
 def release_key(item):
+    name=item.get('release') or item.get('object_name') or 'Unnamed release'
+    month,_=release_date_month(name,item.get('release_created_at'))
+    if month:
+        return hashlib.sha256(json.dumps([item['creator_id'],['month',month]]).encode()).hexdigest()
     source=['id',str(item['release_id'])] if item.get('release_id') else ['label',item['release']] if item.get('release') else ['object',item['object_id']]
     return hashlib.sha256(json.dumps([item['creator_id'],source]).encode()).hexdigest()
 
@@ -59,7 +63,9 @@ def releases(items, base=None):
         folder=safe_component(release_directory_name(artist,month,safe_component(name)))
         for item in group:
             item['release_key']=key;item['release_folder']=folder
-            item['release_month']=month;item['release_month_basis']=basis
+            item['release_month']=month
+            _,item['release_month_basis']=release_date_month(item.get('release') or item.get('object_name') or 'Unnamed release',item.get('release_created_at'))
+            item['release_display_name']=folder if month else name
     # Distinct source releases with identical/sanitized names must not merge on disk.
     folders={}
     for key,group in groups.items():
@@ -106,10 +112,16 @@ class MMFManager:
             job={**job,'phase':'interrupted','message':'Task interrupted. Resume the saved queue.'}
         checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()['availability_interval_hours']*3600
         known=self.completed();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])
+        from mmf_release_prepare import downloaded
+        subscribed={str(s['id']) for s in settings.get('subscriptions',[])}
+        current_ids={(i['creator_id'],i['object_id'],i['archive_id']) for i in items}
+        items.extend(i for i in downloaded(self) if str(i['creator_id']) in subscribed and (i['creator_id'],i['object_id'],i['archive_id']) not in current_ids)
         counts={'available':0,'review':0,'completed':0}
         for item in items:counts['completed' if item['key'] in known else 'available']+=1
         resumable=any(i['key'] not in known for i in self.get('queue',[]))
-        return {'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
+        from mmf_release_prepare import preparation_status, release_lifecycle
+        prepared=preparation_status(self)
+        return {'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
     def login(self,payload):
         with self.idle():
             groups=self.client().login(payload.get('username'),payload.get('password'))
@@ -179,7 +191,9 @@ class MMFManager:
                 item['key']=version_key(item);item['month']=overrides.get(item['key'],item['month'])
                 items[item['key']]=item
         groups=releases(list(items.values()),self.store.config()['download_directory'])
-        included=[i for group in groups.values() if any(not i['start_month'] or not i['release_month'] or i['release_month']>=i['start_month'] for i in group) for i in group]
+        from mmf_release_prepare import downloaded
+        historical={i['release_key'] for i in downloaded(self)}
+        included=[i for group in groups.values() if group[0]['release_key'] in historical or any(not i['start_month'] or not i['release_month'] or i['release_month']>=i['start_month'] for i in group) for i in group]
         self.put('items',included);self.put('checked_at',time.time());client.save()
         self.progress(phase='complete',message=f'Check complete · {len({release_key(i) for i in included})} releases in scope.',done=len(selected),total=len(selected))
     def download(self):
@@ -217,7 +231,7 @@ class MMFManager:
                     folder=safe_component(head['object_name'])+'/'+archive_name(head['filename'])[:-3]
                     if folder.casefold() in used_folders:folder+='__'+str(head['archive_id'])
                     used_folders.add(folder.casefold());sources.append({'path':paths[head['key']],'folder':folder,'item':head})
-                packed=repack(source,work/'packed',identity,packing,self.stopped,sources=sources,release_name=first.get('release') or first['object_name'])
+                packed=repack(source,work/'packed',identity,packing,self.stopped,sources=sources,release_name=first.get('release_display_name') or first.get('release') or first['object_name'])
                 receipt=work/'images.json';warnings=[]
                 if receipt.exists():
                     saved=json.loads(receipt.read_text());images=[work/p for p in saved['images']];warnings=saved['warnings']
@@ -227,15 +241,20 @@ class MMFManager:
                     images=[]
                     for index,spec in enumerate(sources):images.extend(extract_images(spec['path'],work/'images'/str(index),extraction,self.stopped,warnings=warnings))
                     self.store.atomic_write(receipt,{'images':[str(p.relative_to(work)) for p in images],'warnings':warnings})
+                if not images:
+                    from mmf_images import fetch_images
+                    images=fetch_images(client,group,work/'mmf-images',self.stopped,packing)
+                    if not images:warnings.append('No images found in the archives or MMF product galleries.')
+                    self.store.atomic_write(receipt,{'images':[str(p.relative_to(work)) for p in images],'warnings':warnings})
                 with release_lock(self.root,base,first['folder'],release_folder,self.stopped):
                     if self.stopped():break
-                    folder=Path(base)/first['folder']/release_folder
+                    folder=Path(base)/first['folder']/release_folder/'MMF sources'
                     # Preserve existing user archives and previous versions. Use a separate
                     # version directory when the original artist filename would collide.
                     archive_stem=re.sub(r'\.\d{3,}$','',packed[0].name)
                     existing=[p for p in folder.iterdir() if p.name==archive_stem or re.fullmatch(re.escape(archive_stem)+r'\.\d{3,}',p.name)] if folder.is_dir() else []
                     by_name={p.name:p for p in packed};conflict=any(p.is_symlink() or p.name not in by_name or not p.is_file() or p.stat().st_size!=by_name[p.name].stat().st_size or digest(p)!=digest(by_name[p.name]) for p in existing)
-                    subdirectories=('MMF versions',identity[:16]) if conflict else ()
+                    subdirectories=('MMF sources','MMF versions',identity[:16]) if conflict else ('MMF sources',)
                     self.progress(phase='moving',message=first['filename'],bytes=0,expected=0,speed_mbps=0)
                     move_clock=[time.monotonic(),0]
                     def moving(n,total):
@@ -250,7 +269,7 @@ class MMFManager:
                     for archive in packed:
                         dest,size,checksum=deliver(archive,base,first['folder'],release_folder,archive.name,moving,subdirectories=subdirectories,release_directory=release_folder)
                         outputs.append({'path':str(dest),'size':size,'sha256':checksum})
-                    manifest={'id':identity,'policy_version':POLICY_VERSION,'volume_bytes':VOLUME_BYTES,'outputs':outputs,'images':image_records,'source_keys':[i['key'] for i in group],'release_key':release_key(first),'release_name':first.get('release') or first['object_name'],'release_folder':release_folder,'collage':None}
+                    manifest={'id':identity,'compression_level':COMPRESSION_LEVEL,'policy_version':POLICY_VERSION,'volume_bytes':VOLUME_BYTES,'outputs':outputs,'images':image_records,'source_keys':[i['key'] for i in group],'release_key':release_key(first),'release_name':first.get('release_display_name') or first.get('release') or first['object_name'],'release_folder':release_folder,'collage':None,'source_prefixes':{i['key']:spec['folder'] for spec in sources for i in units[(spec['item']['object_id'],volume_key(spec['item']['filename'])[0])]}}
                     with self.db() as db:
                         for item in group:
                             record={**item,'destination':outputs[0]['path'],'sha256':outputs[0]['sha256'],'repack':manifest,'images_extracted':True,'image_count':len(images) if item is first else 0,'warnings':warnings,'completed_at':time.time()}

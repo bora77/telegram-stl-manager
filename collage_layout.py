@@ -39,7 +39,7 @@ def _rows(ratios, indices, area, gap):
 
 
 def geometry(sizes, layout='featured', shape='landscape', title=True):
-    if not 5 <= len(sizes) <= 9 or any(w<=0 or h<=0 for w,h in sizes):raise ValueError('A collage needs 5–9 valid image slots.')
+    if not 2 <= len(sizes) <= 9 or any(w<=0 or h<=0 for w,h in sizes):raise ValueError('A collage needs 2–9 valid image slots.')
     width, height = FORMATS[shape]
     margin = min(width, height)/30
     gap = margin/3

@@ -173,3 +173,25 @@ class OrganizerTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+class OrganizerDisplayTests(unittest.TestCase):
+    def test_check_hides_old_results_but_preserves_active_and_new_jobs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=SubscriptionStore(configure_source(Path(temp)));organizer=Organizer(store)
+            old={'id':'preview-old','state':'completed','files':[{'filename':'old.zip'}],
+                 'application':{'id':'job-old','state':'completed'}}
+            with patch.object(organizer,'status',side_effect=lambda:json.loads(json.dumps(old))):
+                organizer.dismiss_finished()
+                self.assertEqual(organizer.display_status()['state'],'idle')
+                self.assertEqual(organizer.display_status()['files'],[])
+                self.assertEqual(organizer.status()['id'],'preview-old') # Durable result retained.
+                old['application']['state']='running'
+                self.assertEqual(organizer.display_status()['application']['id'],'job-old')
+                old['id']='preview-new';old['application']['id']='job-new'
+                organizer.dismiss_finished() # Must not dismiss an active job later.
+                old['application']['state']='completed'
+                self.assertEqual(organizer.display_status()['id'],'preview-new')
+                self.assertEqual(organizer.display_status()['application']['id'],'job-new')
+                old['state']='scanning';old.pop('application');organizer.dismiss_finished()
+                old['state']='completed'
+                self.assertEqual(organizer.display_status()['id'],'preview-new')

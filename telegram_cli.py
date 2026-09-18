@@ -23,6 +23,24 @@ class CLIError(RuntimeError):
     pass
 
 
+def require_release_collage(archive):
+    """Every archive upload through the app requires its release's valid collage."""
+    from collages import collage_filename
+    from PIL import Image
+    archive=Path(archive)
+    collage=archive.parent/collage_filename({'folder':archive.parent.parent.name,'month':archive.parent.name})
+    if not collage.is_file() or collage.is_symlink():
+        raise CLIError('Create and save a collage for this release before uploading: '+collage.name)
+    try:
+        if not 0<collage.stat().st_size<=32*1024*1024:raise ValueError('Invalid collage size.')
+        with Image.open(collage) as im:
+            if im.format!='JPEG' or im.width*im.height>40_000_000:raise ValueError('Invalid collage image.')
+            im.verify()
+    except (OSError,ValueError,Image.DecompressionBombError) as error:
+        raise CLIError('The release collage is damaged or invalid. Save it again before uploading.') from error
+    return collage
+
+
 def safe_filename(name):
     return (isinstance(name, str) and name not in ('', '.', '..')
             and not re.search(r'[/\\\x00-\x1f]', name) and len(name.encode()) <= 255)
@@ -198,6 +216,22 @@ class TelegramCLI:
         return [str(self.binary), '--storage', 'type=bolt,path=' + str(self.state / 'data'),
                 '-n', 'telegram-stl-trial', '--reconnect-timeout', '30s', '--disable-progress-ps', *map(str, args)]
 
+    def destinations(self):
+        with tempfile.TemporaryDirectory(prefix='release-pad-',dir=self.state) as tmp:
+            directory=Path(tmp);output=directory/'destinations.json'
+            self._run(['stl','destinations','--output',output],directory,lambda:False,timeout=120)
+            data=json.loads(output.read_text())
+            rows=data.get('destinations')
+            if not isinstance(rows,list):raise CLIError('Invalid Telegram destination list.')
+            seen=set();result=[]
+            for row in rows:
+                if not isinstance(row,dict) or not re.fullmatch(r'-[1-9][0-9]{0,18}',str(row.get('id',''))) or row.get('kind') not in ('group','channel') or not isinstance(row.get('title'),str):
+                    raise CLIError('Invalid Telegram destination metadata.')
+                if row['id'] in seen:continue
+                seen.add(row['id'])
+                result.append({k:row.get(k,'') for k in ('id','title','kind','username')})
+            return {'destinations':result}
+
     def close(self):
         self._terminate()
         if not self.lock.closed:
@@ -213,6 +247,12 @@ class TelegramCLI:
                 self.child.wait(timeout=5)
 
     def _run(self, args, directory, stopped, tick=lambda: None, timeout=300, waiting=lambda: None):
+        if args and args[0] in ('upload','up') and '--photo' not in args:
+            paths=[Path(args[i+1]) for i,a in enumerate(args[:-1]) if a in ('--path','-p')]
+            if not paths:raise CLIError('Choose an explicit release archive to upload.')
+            for path in paths:
+                if path.is_dir():raise CLIError('Choose release archives individually so their collage can be checked.')
+                require_release_collage(path)
         if self.use_service and args and args[0]=='stl':
             from telegram_service import TelegramService,ServiceError
             try:return TelegramService(self.root,self.state,self.command).run(args,stopped,tick,timeout,waiting)

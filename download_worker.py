@@ -406,7 +406,7 @@ class Worker:
             self.cleanup_completed()
             self.telegram=TelegramCLI(root=ROOT,config=self.run.get('config',self.store.config()))
             if self.run.get('resume_requested'):self.plan.seed_legacy()
-            self.run.update(plan_version=1,creator_results=[],creators_done=0,creators_checked=0,warnings=[],scan_warnings=[])
+            self.run.update(plan_version=1,creator_results=[],creators_done=0,creators_checked=0,warnings=self.run.get('scan_warnings',[]) if self.run.get('availability_checked_at') else [],scan_warnings=self.run.get('scan_warnings',[]) if self.run.get('availability_checked_at') else [])
             self.prepare_plan()
             if getattr(self.telegram,'use_service',False):self.execute_adaptive()
             else:self.execute_sequential()
@@ -424,7 +424,9 @@ class Worker:
         for sub in self.run['subscriptions']:
             if self.stopped():raise WorkerError('Stopped by request.')
             saved=self.plan.load(sub)
-            if saved is None:self.scan(sub)
+            if saved is None:
+                if self.run.get('availability_checked_at'):raise WorkerError('Saved availability queue is missing. Check availability again before downloading.')
+                self.scan(sub)
             else:
                 for entry in self.select_uploads(sub,saved['items']):
                     if self.stopped():raise WorkerError('Stopped by request.')

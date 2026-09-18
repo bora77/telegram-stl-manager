@@ -333,3 +333,17 @@ and refreshes the version shown beside the app copyright. Enable the repository
 hooks with `git config core.hooksPath .githooks` when cloning for development.
 
 Copyright © 2026 trumphater77
+
+### Preparing MMF months for Telegram
+
+Expand a downloaded month in the MMF Beta tab and click **Prepare Telegram release**. The app creates a verified 7-Zip set with volumes up to 4000M, an image folder and the saved collage when available, directly in the monthly folder. Intermediate MMF archives are retained in its `MMF sources` subfolder.
+
+Preparation records which source file versions were included. Later additions or updated downloads use **Prepare Addendum 1**, then Addendum 2, and so on; unchanged files are excluded. A failed preparation retries the same number. Preparing successfully reserves that release number even before you upload it. Previously downloaded months remain eligible for update checks regardless of the subscription start month. This action prepares files only; it does not upload to Telegram.
+
+When archives contain no images, MMF Beta fetches the owning products’ gallery images into `release_images`. Release preparation reuses an existing verified 7-Zip set when its contents exactly match the requested files and its volumes meet the 4000M limit; selective addenda are repackaged. Repackaging uses level 7 compression with two threads. Only verified archives made with the current level-7 policy can be reused without recompression.
+
+Prepared MMF releases offer manual Upload and Re-upload actions. Every attempt sends a valid release collage as a Telegram photo first, then the existing archive volumes, and verifies the resulting messages. Re-upload remains available after success, failure, deletion, or interruption; it creates a separate receipt without downloading MMF sources again or creating an addendum. Choose the destination in Configuration. An uncertain attempt may have delivered some messages, so check the Release Pad before retrying.
+
+MMF **Open tasks** tracks publication separately from downloading or uploading. After the release bot successfully publishes a package, use **Confirm released** to move it to **Finished releases**. Automatic bot-completion detection is not connected yet. New or changed source files reopen their month for an addendum; previously published file versions remain recorded.
+
+On the download page, **Download detected** uses the last availability check's exact file queue without scanning subscriptions again. **Check and download all** performs a fresh check of every saved subscription. Starting a detected run replaces its notification with the next scheduled check; subsequent checks can notify about new files. Each new checking cycle hides inactive organizer results from view while preserving their records and any running organizer job.

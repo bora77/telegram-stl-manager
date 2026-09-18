@@ -73,6 +73,13 @@ class RunManager:
             batch=uuid.uuid4().hex
             run={'id':batch,'state':'starting','started_at':datetime.now(timezone.utc).isoformat(),'message':'Starting manual run.','warnings':[],
                 'subscriptions':settings['subscriptions'],'download_directory':config['download_directory'],'config':config,'backend':'cli','creators_done':0,'creators_total':len(settings['subscriptions']),'plan_version':1}
+            from availability import Availability
+            if payload.get('mode','all') not in ('all','detected'):raise ValueError('Invalid download mode.')
+            if payload.get('mode')=='detected' and not Availability(self.store).seed_download_run(run):
+                raise ValueError('Availability results no longer match your subscriptions. Use Check and download all.')
+            if not run.get('availability_checked_at'):
+                from folder_organizer import Organizer
+                Organizer(self.store).dismiss_finished()
             (self.root/'data/stop-request').unlink(missing_ok=True)
             self.store.atomic_write(self.path,run)
             with (self.root/'data/worker.log').open('ab') as log:

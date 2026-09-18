@@ -9,7 +9,8 @@ from release_images import (command, listing, safe_component, member_path,
     split_input_aliases, extract_mapped_member, ExtractionError, RESERVE)
 
 VOLUME_BYTES=4000*1024*1024  # 7-Zip's 4000M (MiB) volume size.
-POLICY_VERSION=2
+COMPRESSION_LEVEL=7
+POLICY_VERSION=3
 
 
 def archive_name(filename):
@@ -45,6 +46,11 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
             with split_input_aliases(Path(spec['path']).resolve(strict=True),temporary) as (read_source,_):
                 progress('unpacking',0)
                 _,entries=listing(read_source,temporary,stopped)
+                if spec.get('include_prefixes') is not None:
+                    allowed=spec['include_prefixes']
+                    if any(not any(e['name'].startswith(prefix.rstrip('/')+'/') for e in entries) for prefix in allowed):
+                        raise ExtractionError('A selected source is missing from the downloaded repack; preparation stopped.')
+                    entries=[e for e in entries if any(e['name'].startswith(prefix.rstrip('/')+'/') for prefix in allowed)]
                 total=sum(e['size'] for e in entries);release_total+=total
                 if len(all_entries)+len(entries)>100000 or release_total>500*1024**3:raise ExtractionError('Release exceeds the local repackaging limit.')
                 if len(entries)>100000 or total>500*1024**3:raise ExtractionError('Release exceeds the local repackaging limit; source retained.')
@@ -69,7 +75,7 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
                 if actual!=expected or any(p.is_symlink() for p in target_members.rglob('*')):raise ExtractionError('Unexpected content in unpacked release.')
             all_entries.update({(prefix+'/'+e.get('disk_name',e['name'])).lstrip('/'):e['size'] for e in entries})
         progress('repacking',0)
-        command(['a','-t7z','-mx=5','-mmt=2','-ms=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
+        command(['a','-t7z','-mx='+str(COMPRESSION_LEVEL),'-mmt=2','-ms=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
         parts=sorted(output.iterdir())
         if not parts or any(p.stat().st_size>volume_bytes for p in parts):raise ExtractionError('Repacked volume size exceeds the configured limit.')
         if len(parts)==1 and parts[0].name==name+'.001':parts[0].rename(output/name);parts=[output/name]
@@ -80,6 +86,6 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
         outputs=[];records=[]
         for path in parts:
             checksum=digest(path);target=work/path.name;path.replace(target);outputs.append(target);records.append({'name':target.name,'size':target.stat().st_size,'sha256':checksum})
-        state={'name':name,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
+        state={'name':name,'compression_level':COMPRESSION_LEVEL,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
         staged=work/'repack.json.tmp';staged.write_text(json.dumps(state));staged.replace(receipt)
         return outputs

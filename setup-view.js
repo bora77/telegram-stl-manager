@@ -51,6 +51,14 @@ async function refresh(){try{state=await call('');reachable=true;window.dispatch
 $('setup-login').onclick=async()=>{busy=true;try{await call('login',{});message('Follow the sign-in prompts below.')}catch(e){message(e.message,true)}finally{busy=false;refresh()}};
 $('setup-answer-form').onsubmit=async e=>{e.preventDefault();const value=$('setup-answer').value;$('setup-answer').value='';try{await call('answer',{value,challenge:state.challenge})}catch(e){message(e.message,true)}refresh()};
 $('setup-source-form').onsubmit=async e=>{e.preventDefault();$('setup-import').disabled=true;message('Reading the Table of Contents…');try{const d=await call('source',{url:$('setup-toc').value});message(`Imported ${d.creators} creators. You can now select artists.`)}catch(e){message(e.message,true)}finally{$('setup-import').disabled=false;refresh()}};
-document.addEventListener('DOMContentLoaded',()=>{$('setup-share-form').onsubmit=async e=>{e.preventDefault();const password=$('setup-share-password').value;$('setup-share-password').value='';$('setup-share-connect').disabled=true;message('Connecting to the network share…');try{const d=await call('share',{path:$('setup-share-path').value,username:$('setup-share-user').value,password,domain:$('setup-share-domain').value});message('Connected. Download location saved. Reloading settings…');location.reload()}catch(e){message(e.message,true)}finally{$('setup-share-connect').disabled=false}};});
+document.addEventListener('DOMContentLoaded',()=>{$('setup-share-form').onsubmit=async e=>{
+ e.preventDefault();const button=$('setup-share-connect'),password=$('setup-share-password'),status=$('setup-share-message');
+ const report=(text,error=false)=>{status.textContent=text;status.style.color=error?'#a12632':''};
+ button.disabled=true;report('Connecting to the network share…');
+ try{await call('share',{path:$('setup-share-path').value,username:$('setup-share-user').value,password:password.value,domain:$('setup-share-domain').value});password.value='';report('Connected. Download location saved. Reloading settings…');location.reload()}
+ catch(e){report(e.message,true);status.scrollIntoView({block:'nearest',behavior:'smooth'})}
+ finally{button.disabled=false}
+};});
+
 refresh();setInterval(refresh,2000);
 })();

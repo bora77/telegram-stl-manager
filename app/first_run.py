@@ -24,6 +24,15 @@ def parse_toc(data,scope):
     if not rows:raise ValueError('No creator topic links were found in that TOC. Check the message link.')
     return {'source':{'name':'Configured Table of Contents','url':scope.home_url},'creators':sorted(rows.values(),key=lambda x:x['name'].casefold())}
 
+def parse_share_path(value):
+    """Accept pasted UNC folders, including Explorer's trailing separator."""
+    if not isinstance(value,str):raise ValueError('Enter a Windows network path.')
+    unc=value.strip().rstrip('\\')
+    parts=unc[2:].split('\\')
+    if not unc.startswith('\\\\') or len(parts)<2 or any(p in ('','.','..') or '/' in p or any(ord(c)<32 for c in p) for p in parts):
+        raise ValueError('Enter a Windows network path such as \\\\server\\share\\Incoming.')
+    return parts
+
 class FirstRun:
     def __init__(self,store):
         self.store=store;self.root=store.root;self.lock=threading.RLock();self.child=None;self.master=None;self.phase='connected' if (self.root/'data/telegram-connected').exists() else 'idle';self.challenge=0;self.answer_pending=False;self.guard=None
@@ -142,8 +151,7 @@ class FirstRun:
         return self.state()
     def share(self,payload):
         if not Path('/etc/telegram-stl-managed').exists():raise ValueError('Network-share setup is available in the Windows installation package.')
-        unc=payload.get('path','').strip();parts=unc.lstrip('\\').split('\\')
-        if not unc.startswith('\\\\') or len(parts)<2 or any(p in ('','.','..') or '/' in p for p in parts):raise ValueError('Enter a Windows network path such as \\\\server\\share\\Incoming.')
+        parts=parse_share_path(payload.get('path',''))
         with self.idle():
             request={'action':'connect','server':parts[0],'share':parts[1],**{k:payload.get(k,'') for k in ('username','password','domain')}}
             result=subprocess.run(['sudo','-n','/usr/bin/python3','/usr/local/lib/telegram-stl/share-helper.py'],input=json.dumps(request),text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=60)

@@ -1,5 +1,11 @@
 # Version history
 
+## 0.1.18
+
+- Accept network-share paths with a trailing backslash copied from Windows Explorer.
+- Show NAS connection errors beside the connection form.
+- Keep the entered password available for retry after a failed connection.
+
 ## 0.1.17
 
 - Guided first-time configuration through four steps, ending with Review & finish.

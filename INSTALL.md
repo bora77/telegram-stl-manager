@@ -953,3 +953,8 @@ the previous runtime for rollback. Preserve the Telegram session directory under
 `~/.local/share/telegram-stl-tdl`. For Docker, stop the old container and replace
 its image/container while retaining the same persistent volumes and destination
 mounts; never remove data volumes when updating.
+
+Network-share paths may include a trailing backslash, as copied from Windows
+Explorer. Connection errors appear directly below **Connect and use this folder**.
+If connection fails, correct the details and retry; the entered password stays
+in the form for that retry and is cleared after a successful connection.

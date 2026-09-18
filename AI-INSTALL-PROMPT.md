@@ -195,3 +195,8 @@ Make only changes necessary for installation. Keep account data, private source
 links, catalogs and credentials out of Git and distributable packages. Use the
 project's distribution allowlist and privacy check when packaging; never weaken
 those checks to include local configuration.
+
+Network-share paths may include a trailing backslash, as copied from Windows
+Explorer. Connection errors appear directly below **Connect and use this folder**.
+If connection fails, correct the details and retry; the entered password stays
+in the form for that retry and is cleared after a successful connection.

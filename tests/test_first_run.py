@@ -1,7 +1,7 @@
 import importlib.util,json,os,tempfile,time,unittest
 from pathlib import Path
 from unittest.mock import patch
-from app.first_run import FirstRun, parse_toc
+from app.first_run import FirstRun, parse_toc, parse_share_path
 from app.source_scope import SourceScope
 from app.subscription_store import SubscriptionStore
 from tests.test_support import configure_source
@@ -58,6 +58,16 @@ class SetupCompletionTests(unittest.TestCase):
             root=Path(tmp);store=SubscriptionStore(configure_source(root))
             store.atomic_write(root/'data/creators.json',{'creators':[{'name':'Example'}]})
             self.assertFalse(FirstRun(store).setup_required)
+
+class SharePathTests(unittest.TestCase):
+    def test_pasted_unc_with_trailing_separator_and_special_folder(self):
+        for value in ('\\\\nas\\models\\STL\\###UPLOAD', '\\\\nas\\models\\STL\\###UPLOAD\\', '  \\\\nas\\models\\STL\\###UPLOAD\\  '):
+            self.assertEqual(parse_share_path(value),['nas','models','STL','###UPLOAD'])
+        self.assertEqual(parse_share_path('\\\\192.168.1.10\\Models with spaces\\'),['192.168.1.10','Models with spaces'])
+
+    def test_invalid_or_traversing_paths_are_still_rejected(self):
+        for value in ('nas/models','Z:\\models','\\\\nas','\\\\nas\\models\\..\\other','\\\\nas\\models\\\\folder','\\\\nas\\models\\bad/part',None):
+            with self.subTest(value=value),self.assertRaises(ValueError):parse_share_path(value)
 
 class FirstRunTests(unittest.TestCase):
     def test_toc_utf16_and_source_boundary(self):

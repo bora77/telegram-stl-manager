@@ -428,3 +428,8 @@ Keep `README.md`, `INSTALL.md` and `AI-INSTALL-PROMPT.md` synchronized whenever
 installation, dependencies, setup, startup, updates or recovery change. Review
 the corresponding packaged instructions and Docker guide before building a
 release; editing source documentation does not update already published ZIPs.
+
+Network-share paths may include a trailing backslash, as copied from Windows
+Explorer. Connection errors appear directly below **Connect and use this folder**.
+If connection fails, correct the details and retry; the entered password stays
+in the form for that retry and is cleared after a successful connection.

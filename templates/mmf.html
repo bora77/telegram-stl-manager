@@ -13,6 +13,8 @@
 #mmf-download-controls .queue-nav{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;min-height:0;border:1px solid #d8cbe7;border-radius:9px;background:#fff;color:#654091;text-decoration:none;font:600 14px system-ui}
 #mmf-download-controls .queue-nav:hover{background:#eee8f5}
 .artist-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.artist-filters input,.artist-filters select{height:44px;font-size:14px}.subscription-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-top:20px}.artist-controls #save{font-size:14px;height:44px}.artist-controls #save:disabled{background:#f3f1f6;color:#908896;border-color:#e3dfe9;opacity:1}.artist-pagination{justify-content:flex-end;margin:18px 0}#artist-count{font-size:13px}#artists td:nth-child(2){min-width:250px}#artists td:nth-child(3){min-width:270px}#artists td:nth-child(4){min-width:250px}#artists input[type=month]{margin-top:8px}#artists .changed{color:#936217}@media(max-width:850px){.artist-filters{grid-template-columns:1fr}.artist-controls{padding:20px}}</style>
+<script>(()=>{const update=()=>document.documentElement.dataset.artistView=String(location.hash==='#artists');update();window.addEventListener('hashchange',update)})();</script>
+<style>html[data-artist-view=true] #queue-view,html[data-artist-view=true] #availability,html[data-artist-view=true] #mmf-download-controls,html[data-artist-view=true] #mmf-releases{display:none!important}</style>
 <main class="app-main">__APP_LAYOUT__
 <p id="notice" role="status" aria-live="polite"></p>
 <p id="connection" hidden>Connect your MMF account in <a href="/config#mmf-account">Configuration</a>.</p>

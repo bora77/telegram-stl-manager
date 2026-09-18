@@ -897,6 +897,9 @@ Forgot password flow. Select creators from Shared with me, Tribes and Frontiers,
 and starting months, then save and check availability. Start downloads manually.
 Opening **MMF → Artists** automatically refreshes the creator list without reconnecting,
 while showing saved artists immediately and preserving unsaved selections. Frontier pledges, add-ons and sign-up bonuses retain their names.
+For Tribe deliveries without release metadata, the library delivery date supplies the month,
+not the model creation date. Explicit release months take priority. A real Tribe
+membership takes precedence over a duplicate Frontier entry for unrecorded files.
 No additional Python libraries, browser runtime, extension, daemon or scheduled
 service is required. Python's standard library provides HTTP/TLS, cookie sessions
 and SQLite; image extraction uses the package's existing 7-Zip installation.

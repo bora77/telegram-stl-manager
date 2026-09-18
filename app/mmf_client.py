@@ -91,7 +91,8 @@ class MMFClient:
                 if source=='TRIBE' and row.get('source','TRIBE')!='TRIBE':continue
                 creator=row.get('creator',{}) if source=='FRONTIER' else row
                 cid=int(creator['id'])
-                creators.setdefault(cid,{'id':cid,'name':creator['name']})
+                entry=creators.setdefault(cid,{'id':cid,'name':creator['name'],'sources':[]})
+                if source not in entry['sources']:entry['sources'].append(source)
         # Expired memberships can retain owned objects even when the active
         # membership endpoint no longer lists their creator.
         self.library_objects=self.metadata('/api/data-library/objectPreviews')

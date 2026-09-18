@@ -145,6 +145,9 @@ update, troubleshooting or uninstall.
 - MMF supports Shared with me, Tribes and Frontiers archive downloads. Opening
   MMF Artists refreshes creators directly from MMF, showing saved artists immediately
   and preserving unsaved selections. It does not start a file check or download. Frontier collections keep their names.
+For Tribe deliveries without release metadata, the library delivery date supplies the month,
+not the model creation date. Explicit release months take priority. A real Tribe
+membership takes precedence over a duplicate Frontier entry for unrecorded files.
 - Confirm saved configuration and any existing subscriptions/history survive.
   Fresh installations must contain no previous user's sessions or private data.
 - Downloads and organization start manually. Do not click Download detected,

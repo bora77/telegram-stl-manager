@@ -14,6 +14,51 @@ class Response(io.BytesIO):
         super().__init__(body);self.status=status;self.headers=headers or {};self.url=url
 
 class MMFTests(unittest.TestCase):
+    def test_tribe_campaign_alias_uses_delivery_month_not_model_creation(self):
+        self.manager.put('settings',{'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':'2026-08'}]})
+        base={'originalId':22,'creatorId':1,'type':'object','name':'Bell Model','createdAt':'2026-06-29T11:45:22+00:00','publishedAt':None,'libraryAddedAt':'2026-09-11T14:42:22+00:00'}
+        objects=[{**base,'source':'TRIBE','release':'type:campaign-tier;orderId:42;tierId:9'},
+                 {**base,'source':'FRONTIER','release':'9','campaignId':50}]
+        responses={'objectPreviews':objects,'tribe_releases_metadata/1':[],
+                   'frontier_releases_metadata/50':{'pledges':[{'id':9,'name':'Monthly Tier','createdAt':'2026-06-01'}]}}
+        calls=[]
+        class Client:
+            def groups(self):return [{'id':1,'name':'Example Creator','sources':['USER_GROUP','TRIBE','FRONTIER']}]
+            def metadata(self,path):return responses[path.removeprefix('/api/data-library/')]
+            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':33,'size':3,'name':'model.zip','updatedAt':'v1'}]}
+            def save(self):pass
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        result=self.manager.get('items');self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['library_source'],'TRIBE');self.assertEqual(result[0]['release_month'],'2026-09')
+        self.assertEqual(result[0]['release_month_basis'],'delivery_at');self.assertEqual(calls,[22])
+        # Explicit release months remain authoritative over delivery dates.
+        responses['tribe_releases_metadata/1']=[{'id':objects[0]['release'],'label':'August 2026'}]
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        self.assertEqual(self.manager.get('items')[0]['release_month'],'2026-08')
+
+    def test_old_shared_entitlement_cannot_hide_current_tribe_release(self):
+        self.manager.put('settings',{'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':'2026-08'}]})
+        base={'originalId':22,'creatorId':1,'type':'object','name':'Model'}
+        objects=[{**base,'source':'USER_GROUP','release':'old'},{**base,'source':'TRIBE','release':'new'}]
+        responses={'objectPreviews':objects,'userGroup_releases_metadata/1':[{'id':'old','label':'January 2025'}],
+            'tribe_releases_metadata/1':[{'id':'new','label':'September 2026'}]}
+        calls=[]
+        class Client:
+            def groups(self):return [{'id':1,'name':'Example Creator'}]
+            def metadata(self,path):return responses[path.removeprefix('/api/data-library/')]
+            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':33,'size':3,'name':'model.zip','updatedAt':'v1'}]}
+            def save(self):pass
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        items=self.manager.get('items');self.assertEqual(len(items),1)
+        self.assertEqual(items[0]['library_source'],'TRIBE');self.assertEqual(items[0]['release_month'],'2026-09')
+        self.assertEqual(calls,[22])
+        with self.manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',(items[0]['key'],json.dumps(items[0])))
+        self.manager.put('settings',{'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':''}]})
+        calls.clear()
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        result=self.manager.get('items');self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['release_key'],items[0]['release_key']);self.assertEqual(calls,[22])
+
     def test_creator_refresh_does_not_change_jobs_or_selections(self):
         self.manager.session.write_text('# Netscape HTTP Cookie File\n')
         preserved={'settings':{'subscriptions':[{'id':1}]},'items':[self.item],'queue':[self.item],'job':{'phase':'downloading'},'checked_at':123}

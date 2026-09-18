@@ -65,6 +65,7 @@ def releases(items, base=None):
             item['release_key']=key;item['release_folder']=folder
             item['release_month']=month
             _,item['release_month_basis']=release_date_month(item.get('release') or item.get('object_name') or 'Unnamed release',item.get('release_created_at'))
+            if item['release_month_basis']=='created_at' and item.get('release_date_basis')=='delivery_at':item['release_month_basis']='delivery_at'
             item['release_display_name']=folder if month else name
     # Distinct source releases with identical/sanitized names must not merge on disk.
     folders={}
@@ -218,10 +219,11 @@ class MMFManager:
         state=self.get('job',{});state.update(values);self.put('job',state)
     def check(self):
         client=self.client();groups=client.groups();self.put('creators',[{'id':int(g['id']),'name':g['name']} for g in groups])
+        tribe_creators={str(g['id']) for g in groups if 'TRIBE' in g.get('sources',[])}
         objects=getattr(client,'library_objects',None)
         if objects is None:objects=client.metadata('/api/data-library/objectPreviews')
         if not isinstance(objects,list):raise MMFError('Unexpected MMF library response.')
-        subs={str(s['id']):s for s in self.get('settings',{}).get('subscriptions',[])};overrides=self.get('months',{});items={}
+        subs={str(s['id']):s for s in self.get('settings',{}).get('subscriptions',[])};overrides=self.get('months',{});items=[]
         labels={};metadata_keys=set()
         selected=[o for o in objects if str(o.get('creatorId')) in subs and o.get('source') in ('USER_GROUP','TRIBE','FRONTIER') and o.get('type')=='object']
         for obj in selected:
@@ -238,35 +240,50 @@ class MMFManager:
                 remote_releases=[*remote_releases.get('pledges',[]),*remote_releases.get('addons',[]),*([remote_releases['signup']] if remote_releases.get('signup') else [])]
             if not isinstance(remote_releases,list):raise MMFError('Unexpected MMF releases response.')
             for release in remote_releases:labels[(source,owner,str(release['id']))]=release
-        # Stable preference when the library exposes one model through multiple
-        # entitlements. Keep historical shared-library grouping unchanged.
+        # Keep every entitlement until scope filtering: an old shared entry
+        # must not hide the same model in a current Tribe release.
         selected.sort(key=lambda o:({'USER_GROUP':0,'FRONTIER':1,'TRIBE':2}[o['source']],str(o.get('release',''))))
-        unique={}
-        for obj in selected:unique.setdefault(int(obj['originalId']),obj)
-        selected=list(unique.values())
+        downloadables={}
         for number,obj in enumerate(selected,1):
             if self.stopped():raise MMFError('Check stopped. Previous availability results retained.')
             source=obj['source'];cid=str(obj['creatorId']);owner=str(obj.get('campaignId')) if source=='FRONTIER' else cid
             sub=subs[cid];release=labels.get((source,owner,str(obj.get('release'))),{});label=release.get('label') or release.get('name') or ''
             self.progress(phase='checking',message=f"Checking {sub['name']} · {obj['name']}",done=number-1,total=len(selected))
-            for archive in client.downloadables(int(obj['originalId']))['archives']:
+            oid=int(obj['originalId'])
+            if oid not in downloadables:downloadables[oid]=client.downloadables(oid)['archives']
+            for archive in downloadables[oid]:
                 size=int(archive['size']);filename=archive['name']
                 if size<=0 or not isinstance(filename,str):continue
                 item={'object_id':int(obj['originalId']),'archive_id':int(archive['id']),'size':size,'filename':filename,'updated_at':archive.get('updatedAt',''),'creator':sub['name'],'creator_id':sub['id'],'folder':sub['folder'],'object_name':obj['name'],'release':label,'release_created_at':release.get('createdAt'),'release_id':str(obj['release']) if obj.get('release') is not None else None,'month':month_for(filename,label),'start_month':sub['start_month']}
                 item['library_source']=source
                 if source!='USER_GROUP':
                     item['release_id']=f'{source}:{owner}:{obj.get("release",obj["originalId"])}'
-                    # Frontier pledge/add-on names are collections, not months.
-                    # Undated Tribe objects fall back to original publication.
-                    item['release_created_at']=None if source=='FRONTIER' else release.get('createdAt') or obj.get('publishedAt') or obj.get('createdAt')
+                    # Tribe delivery may be backed by a campaign-tier entitlement
+                    # with no release metadata. Model creation can predate that
+                    # subscription delivery by months; do not use it as its date.
+                    item['release_created_at']=None if source=='FRONTIER' else release.get('createdAt') or obj.get('libraryAddedAt') or obj.get('publishedAt') or obj.get('createdAt')
+                    if source=='TRIBE' and not release.get('createdAt') and obj.get('libraryAddedAt'):item['release_date_basis']='delivery_at'
                 item['key']=version_key(item);item['month']=overrides.get(item['key'],item['month'])
-                items[item['key']]=item
-        groups=releases(list(items.values()),self.store.config()['download_directory'])
+                items.append(item)
+        groups=releases(items,self.store.config()['download_directory'])
         from app.mmf_release_prepare import downloaded
-        historical={i['release_key'] for i in downloaded(self)}
+        records=downloaded(self);historical={i['release_key'] for i in records}
         included=[i for group in groups.values() if group[0]['release_key'] in historical or any(not i['start_month'] or not i['release_month'] or i['release_month']>=i['start_month'] for i in group) for i in group]
+        excluded=len(groups)-len({i['release_key'] for i in included})
+        # Prefer a previously recorded destination, including for revised
+        # archive versions, then a deterministic source. Fetch each file once.
+        recorded_releases={(i['object_id'],i['archive_id']):i['release_key'] for i in records}
+        def source_priority(item):
+            # Actual Tribe memberships outrank campaign aliases. Some Frontier
+            # purchases also emit synthetic TRIBE previews without membership.
+            if item['library_source']=='TRIBE' and str(item['creator_id']) in tribe_creators:return -1
+            return {'USER_GROUP':0,'FRONTIER':1,'TRIBE':2}[item['library_source']]
+        included.sort(key=lambda i:(recorded_releases.get((i['object_id'],i['archive_id']))!=i['release_key'],source_priority(i),i['release_key']))
+        unique={}
+        for item in included:unique.setdefault(item['key'],item)
+        included=list(unique.values())
         self.put('items',included);self.put('checked_at',time.time());client.save()
-        count=len({release_key(i) for i in included});excluded=len(groups)-count
+        count=len({release_key(i) for i in included})
         message=f'Check complete · {count} releases in scope.'
         if excluded:message+=f' {excluded} older releases excluded by the starting month. Select All (archiving) to include them.'
         if not subs:message='Artist list refreshed from Shared with me, Tribes and Frontiers. Select artists to check their files.'

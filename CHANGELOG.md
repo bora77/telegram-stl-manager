@@ -1,5 +1,12 @@
 # Version history
 
+## 0.1.22
+
+- Fix Tribe releases hidden by older duplicate Shared-with-me entries.
+- Prefer actual Tribe membership over duplicate Frontier entries for unrecorded files.
+- Use the MMF delivery month when Tribe release metadata is missing, preserving explicit release months and recorded destinations.
+- Show when a release month comes from its MMF delivery date.
+
 ## 0.1.21
 
 - Added MMF Tribes and Frontiers alongside Shared with me, with duplicate model detection and preserved download history.

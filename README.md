@@ -329,6 +329,9 @@ Failed releases are reported and the run continues with the next release.
 This integration covers archive downloads from Shared with me, Tribes and Frontiers.
 Creators are merged by MMF creator ID, and duplicate models across sources are checked once.
 Frontier pledges, add-ons and sign-up bonuses retain their collection names.
+For Tribe deliveries without release metadata, the library delivery date supplies the month,
+not the model creation date. Explicit release months take priority. A real Tribe
+membership takes precedence over a duplicate Frontier entry for unrecorded files.
 Opening **MMF → Artists** refreshes creators directly from MMF while showing the saved list immediately. Unsaved selections are preserved; no availability check or download starts.
 Individual store purchases and standalone model/PDF downloads are not yet exposed.
 MMF's website endpoints can change; Cloudflare or account verification can still

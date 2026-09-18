@@ -1,5 +1,11 @@
 # Version history
 
+## 0.1.20
+
+- Automatically use Windows name resolution when WSL cannot resolve a NAS hostname.
+- Ask for the NAS LAN IPv4 address when automatic resolution fails, preserving the share and subfolder.
+- Resolve saved NAS names again on reconnect instead of pinning an automatically discovered address.
+
 ## 0.1.19
 
 - Added specific NAS connection diagnostics without exposing raw credentials.

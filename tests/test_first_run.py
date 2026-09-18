@@ -123,6 +123,39 @@ class FirstRunTests(unittest.TestCase):
             self.assertNotIn('private-secret',(root/'data/setup-share.json').read_text())
             self.assertEqual(store.config()['download_directory'],str(mount/'Incoming'))
 
+    def test_nas_resolver_uses_windows_only_when_linux_lookup_fails(self):
+        from types import SimpleNamespace
+        spec=importlib.util.spec_from_file_location('helper',Path(__file__).resolve().parent.parent/'windows/share-helper.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+        with patch.object(m.subprocess,'run') as run:
+            self.assertEqual(m.resolve_server('192.168.1.20'),'192.168.1.20');run.assert_not_called()
+        with patch.object(m.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='192.168.1.21 STREAM nas')) as run:
+            self.assertEqual(m.resolve_server('nas'),'192.168.1.21');self.assertEqual(run.call_count,1)
+        with patch.object(m.subprocess,'run',side_effect=[SimpleNamespace(returncode=2,stdout=''),SimpleNamespace(returncode=0,stdout='192.168.1.22\r\n')]) as run:
+            self.assertEqual(m.resolve_server('nas'),'192.168.1.22')
+            self.assertTrue(run.call_args.args[0][0].endswith('powershell.exe'))
+        with patch.object(m.subprocess,'run',side_effect=FileNotFoundError):
+            with self.assertRaises(m.ResolutionRequired):m.resolve_server('nas')
+        with patch.object(m.subprocess,'run',side_effect=m.subprocess.TimeoutExpired('lookup',12)):
+            with self.assertRaises(m.ResolutionRequired):m.resolve_server('nas')
+        with patch.object(m.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='192.168.1.22,other-option=yes')):
+            with self.assertRaises(m.ResolutionRequired):m.resolve_server('nas')
+        with patch.object(m.subprocess,'run') as run:
+            for name in ("nas';Start-Process bad",'$(bad)','nas,ip=other'):
+                with self.assertRaises(ValueError):m.resolve_server(name)
+            run.assert_not_called()
+
+    def test_nas_mount_uses_resolved_ip_but_saves_original_hostname(self):
+        from types import SimpleNamespace
+        spec=importlib.util.spec_from_file_location('helper',Path(__file__).resolve().parent.parent/'windows/share-helper.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with patch.object(m,'DIRECTORY',root/'private'),patch.object(m,'MOUNT',root/'mount'),patch.object(m,'resolve_server',return_value='192.168.1.22'),patch.object(m.pwd,'getpwnam',return_value=SimpleNamespace(pw_uid=1000,pw_gid=1000)),patch.object(m.subprocess,'run',side_effect=[SimpleNamespace(returncode=1),SimpleNamespace(returncode=0)]) as run:
+                m.connect({'server':'nas','share':'models','username':'user','password':'secret'})
+                mount=run.call_args.args[0]
+                self.assertIn('//nas/models',mount);self.assertIn(',ip=192.168.1.22,',mount[-1])
+                self.assertEqual(json.loads((root/'private/share.json').read_text())['server'],'nas')
+                self.assertEqual([p.name for p in (root/'private').iterdir()],['share.json'])
+
     def test_share_errors_are_actionable_without_echoing_private_output(self):
         spec=importlib.util.spec_from_file_location('helper',Path(__file__).resolve().parent.parent/'windows/share-helper.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
         cases=[(b'could not resolve address for secret-host: Unknown error','hostname'),

@@ -22,7 +22,7 @@ STORE = SubscriptionStore(ROOT)
 PROFILES = ArtistProfiles(ROOT)
 from app.mmf_manager import MMFManager
 MMF = MMFManager(STORE)
-from app.first_run import FirstRun
+from app.first_run import FirstRun, ShareResolutionRequired
 SETUP = FirstRun(STORE)
 from app.availability import Availability
 AVAILABILITY = Availability(STORE)
@@ -246,6 +246,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply_json({'error':'The connection timed out. Check network access and try again.'},504)
         except FileExistsError as error:
             self.reply_json({'error':str(error)},409)
+        except ShareResolutionRequired as error:
+            self.reply_json({'error':str(error),'code':'nas_resolution_required'},400)
         except (ValueError,TypeError,CLIError,DeliveryError) as error:
             self.reply_json({'error':str(error)},400)
         except OSError:

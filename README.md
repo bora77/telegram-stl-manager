@@ -443,3 +443,9 @@ rollback restores the previous helper, while saved share credentials remain inta
 After a successful NAS connection, Configuration reloads and shows the saved
 network path and username with a saved-share indicator. The password field
 is intentionally blank; it is not returned to the browser.
+
+On Windows, NAS connection first resolves the name inside WSL, then tries the
+Windows resolver automatically if needed. If both fail, the connection form
+asks for the NAS LAN IPv4 address and keeps the share and subfolder unchanged.
+Automatically resolved names are looked up again on reconnect; they are not
+permanently replaced by a cached IP. A manually entered IP is saved in the path.

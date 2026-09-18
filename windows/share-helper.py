@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Root-owned, narrowly scoped SMB connector for the dedicated WSL installation."""
-import json,os,pwd,re,subprocess,sys,tempfile
+import ipaddress,json,os,pwd,re,subprocess,sys,tempfile
 from pathlib import Path
 DIRECTORY=Path('/etc/telegram-stl');MOUNT=Path('/mnt/telegram-stl-share')
 if (DIRECTORY/'mount-path').exists():
@@ -16,6 +16,28 @@ def validate(data):
         if not isinstance(value,str) or len(value)>4096 or any(c in value for c in '\r\n\x00'):raise ValueError('Invalid network credentials.')
     if not data.get('username'):raise ValueError('Enter the share username.')
     return {'server':server,'share':share,**{k:data.get(k,'') for k in ('username','password','domain')}}
+class ResolutionRequired(ValueError):
+    pass
+
+def resolve_server(server):
+    # Validate before passing the hostname into a fixed PowerShell expression.
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{0,252}',server):raise ValueError('Enter a server hostname or IPv4 address.')
+    try:return str(ipaddress.IPv4Address(server))
+    except ValueError:pass
+    commands=[(['getent','ahostsv4',server],5),
+              (['/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe','-NoLogo','-NoProfile','-NonInteractive','-Command',
+                "$ErrorActionPreference='Stop'; [System.Net.Dns]::GetHostAddresses('"+server+"') | Where-Object {$_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork} | ForEach-Object {$_.IPAddressToString}"],12)]
+    for command,timeout in commands:
+        try:result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,timeout=timeout)
+        except (OSError,subprocess.TimeoutExpired):continue
+        if result.returncode:continue
+        for line in result.stdout.splitlines():
+            parts=line.strip().split()
+            if not parts:continue
+            try:return str(ipaddress.IPv4Address(parts[0]))
+            except ValueError:continue
+    raise ResolutionRequired('The NAS name could not be resolved automatically. Enter its LAN IPv4 address below, then connect again.')
+
 def mount_failure(stderr):
     """Return only classified diagnostics, never raw mount output or credentials."""
     text=stderr.decode('utf-8','replace') if isinstance(stderr,bytes) else str(stderr or '')
@@ -39,7 +61,7 @@ def mount_failure(stderr):
     return 'SMB mount failed without a recognized error code. Check the NAS address, shared-folder name, SMB service and NAS connection logs.'
 
 def connect(data):
-    data=validate(data);account=pwd.getpwnam('stl')
+    data=validate(data);address=resolve_server(data['server']);account=pwd.getpwnam('stl')
     DIRECTORY.mkdir(mode=0o700,exist_ok=True);MOUNT.mkdir(mode=0o700,exist_ok=True)
     if subprocess.run(['mountpoint','-q',str(MOUNT)]).returncode==0:
         # Never force-unmount a share while files are open.
@@ -49,7 +71,7 @@ def connect(data):
         with os.fdopen(fd,'w') as f:
             for k in ('username','password','domain'):
                 if data[k]:f.write(k+'='+data[k]+'\n')
-        options=f'credentials={name},uid={account.pw_uid},gid={account.pw_gid},file_mode=0600,dir_mode=0700,nosuid,nodev,noexec'
+        options=f'credentials={name},ip={address},uid={account.pw_uid},gid={account.pw_gid},file_mode=0600,dir_mode=0700,nosuid,nodev,noexec'
         try:result=subprocess.run(['mount','-t','cifs','//'+data['server']+'/'+data['share'],str(MOUNT),'-o',options],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=45)
         except subprocess.TimeoutExpired:raise ValueError('The SMB connection timed out. Check the NAS LAN IP address, VPN, firewall and SMB port 445.') from None
         if result.returncode:raise ValueError(mount_failure(result.stderr))
@@ -73,4 +95,4 @@ def main():
 if __name__=='__main__':
     try:print(json.dumps(main()))
     except Exception as e:
-        print(json.dumps({'error':str(e) if isinstance(e,ValueError) else 'Network share connection failed.'}));sys.exit(1)
+        print(json.dumps({'error':str(e) if isinstance(e,ValueError) else 'Network share connection failed.',**({'code':'nas_resolution_required'} if isinstance(e,ResolutionRequired) else {})}));sys.exit(1)

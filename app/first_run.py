@@ -33,6 +33,9 @@ def parse_share_path(value):
         raise ValueError('Enter a Windows network path such as \\\\server\\share\\Incoming.')
     return parts
 
+class ShareResolutionRequired(ValueError):
+    pass
+
 class FirstRun:
     def __init__(self,store):
         self.store=store;self.root=store.root;self.lock=threading.RLock();self.child=None;self.master=None;self.phase='connected' if (self.root/'data/telegram-connected').exists() else 'idle';self.challenge=0;self.answer_pending=False;self.guard=None
@@ -154,9 +157,11 @@ class FirstRun:
         parts=parse_share_path(payload.get('path',''))
         with self.idle():
             request={'action':'connect','server':parts[0],'share':parts[1],**{k:payload.get(k,'') for k in ('username','password','domain')}}
-            result=subprocess.run(['sudo','-n','/usr/bin/python3','/usr/local/lib/telegram-stl/share-helper.py'],input=json.dumps(request),text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=60)
+            result=subprocess.run(['sudo','-n','/usr/bin/python3','/usr/local/lib/telegram-stl/share-helper.py'],input=json.dumps(request),text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=70)
             reply=json.loads(result.stdout or '{}')
-            if result.returncode:raise ValueError(reply.get('error','Share connection failed.'))
+            if result.returncode:
+                error=ShareResolutionRequired if reply.get('code')=='nas_resolution_required' else ValueError
+                raise error(reply.get('error','Share connection failed.'))
             destination=Path(reply['mount']).joinpath(*parts[2:])
             settings=self.store.config();settings['download_directory']=str(destination);settings['download_storage']='network'
             self.store.save_config(settings)

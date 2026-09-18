@@ -1,6 +1,6 @@
 (()=>{
 const $=id=>document.getElementById(id);let state=null,busy=false;
-async function call(action,payload){const r=await fetch('/api/setup'+(action?'/'+action:''),{cache:'no-store',...(payload?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const d=await r.json();if(!r.ok)throw Error(d.error||'Setup failed');return d}
+async function call(action,payload){const r=await fetch('/api/setup'+(action?'/'+action:''),{cache:'no-store',...(payload?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const d=await r.json();if(!r.ok)throw Object.assign(Error(d.error||'Setup failed'),{code:d.code});return d}
 function message(value,error=false){const target=state?.setup_required&&step===1?$('setup-share-message'):$('setup-message');target.textContent=value;target.style.color=error?'#a12632':''}
 const titles=['Telegram & artists','Download location','Preferences','Review & finish'];
 let step=Math.max(0,['#setup-account','#setup-storage','#setup-preferences','#setup-finish'].indexOf(location.hash)),baseline=null,reachable=false,finishing=false;
@@ -54,11 +54,17 @@ $('setup-source-form').onsubmit=async e=>{e.preventDefault();$('setup-import').d
 document.addEventListener('DOMContentLoaded',()=>{$('setup-share-form').onsubmit=async e=>{
  e.preventDefault();const button=$('setup-share-connect'),password=$('setup-share-password'),status=$('setup-share-message');
  const report=(text,error=false)=>{status.textContent=text;status.style.color=error?'#a12632':''};
- button.disabled=true;report('Connecting to the network share…');
- try{await call('share',{path:$('setup-share-path').value,username:$('setup-share-user').value,password:password.value,domain:$('setup-share-domain').value});password.value='';report('Connected. Download location saved. Reloading settings…');location.reload()}
- catch(e){report(e.message,true);status.scrollIntoView({block:'nearest',behavior:'smooth'})}
+ let path=$('setup-share-path').value;
+ if(!$('setup-share-ip-panel').hidden){
+  const ip=$('setup-share-ip').value.trim(),parts=ip.split('.');
+  if(parts.length!==4||parts.some(part=>!/^\d{1,3}$/.test(part)||Number(part)>255||(part.length>1&&part.startsWith('0')))){report('Enter a valid NAS LAN IPv4 address, such as 192.168.1.20.',true);$('setup-share-ip').focus();return}
+  path=path.replace(/^(\\\\)[^\\]+/,(_,prefix)=>prefix+ip);
+ }
+ button.disabled=true;report('Finding the NAS and connecting to the network share…');
+ try{await call('share',{path,username:$('setup-share-user').value,password:password.value,domain:$('setup-share-domain').value});password.value='';report('Connected. Download location saved. Reloading settings…');location.reload()}
+ catch(e){report(e.message,true);if(e.code==='nas_resolution_required'){$('setup-share-ip-panel').hidden=false;$('setup-share-ip').focus()}status.scrollIntoView({block:'nearest',behavior:'smooth'})}
  finally{button.disabled=false}
-};});
+};$('setup-share-path').addEventListener('input',()=>{$('setup-share-ip-panel').hidden=true;$('setup-share-ip').value=''});});
 
 refresh();setInterval(refresh,2000);
 })();

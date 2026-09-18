@@ -51,6 +51,7 @@ __FIRST_RUN__
 <div id="setup-share" hidden>
 <p>Enter the full network path, for example <code>\\server\share\Incoming</code>, instead of a mapped drive letter such as <code>Z:\Incoming</code>.</p>
 <form id="setup-share-form"><label for="setup-share-path">Windows network path</label><input id="setup-share-path" placeholder="\\server\share\Incoming" required>
+<div id="setup-share-ip-panel" hidden><label for="setup-share-ip">NAS LAN IPv4 address</label><input id="setup-share-ip" inputmode="decimal" placeholder="For example, 192.168.1.20" aria-describedby="setup-share-ip-help"><small id="setup-share-ip-help">Automatic name lookup failed. Find this address in your NAS or router settings. We will replace only the server name in your network path.</small></div>
 <label for="setup-share-user">Share username</label><input id="setup-share-user" autocomplete="username" required>
 <label for="setup-share-password">Share password</label><input id="setup-share-password" type="password" autocomplete="current-password" required>
 <label for="setup-share-domain">Domain (optional)</label><input id="setup-share-domain">

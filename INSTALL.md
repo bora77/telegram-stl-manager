@@ -917,7 +917,10 @@ verifies its published SHA-256 digest. A visible Windows updater then backs up
 the old installation, installs into the existing WSL environment and checks that
 the new version starts. If startup fails, it restores the previous application
 and saved state. No Git installation, administrator approval or Ubuntu reinstall
-is needed. Keep the updater window open until it finishes.
+is needed. Keep the updater window open until it reports **Update complete**.
+The updater blocks another app launch while replacing files. A WSL message
+saying **The operation completed successfully** is an intermediate step, not
+confirmation that the update is finished.
 
 For versions without the updater, download `Telegram-STL-Manager-Update.zip`
 from this repository's GitHub Releases, extract it into a new folder and run

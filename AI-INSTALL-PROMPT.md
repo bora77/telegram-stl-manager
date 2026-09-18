@@ -200,3 +200,13 @@ Network-share paths may include a trailing backslash, as copied from Windows
 Explorer. Connection errors appear directly below **Connect and use this folder**.
 If connection fails, correct the details and retry; the entered password stays
 in the form for that retry and is cleared after a successful connection.
+
+NAS connection diagnostics distinguish hostname resolution, access denial,
+unreachable hosts, timeouts and SMB compatibility errors without displaying
+raw credential-bearing output. For a hostname-resolution error, retry with
+the NAS LAN IP address. Windows updates refresh the installed NAS helper;
+rollback restores the previous helper, while saved share credentials remain intact.
+
+After a successful NAS connection, Configuration reloads and shows the saved
+network path and username with a saved-share indicator. The password field
+is intentionally blank; it is not returned to the browser.

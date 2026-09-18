@@ -1,5 +1,11 @@
 # Version history
 
+## 0.1.19
+
+- Added specific NAS connection diagnostics without exposing raw credentials.
+- Remember the network path and username after connection and show a saved-share indicator.
+- Refresh the installed NAS helper during Windows updates and restore it on rollback.
+
 ## 0.1.18
 
 - Accept network-share paths with a trailing backslash copied from Windows Explorer.

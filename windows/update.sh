@@ -9,6 +9,10 @@ session=pathlib.Path('/home/stl/.local/share/telegram-stl-tdl')
 action=sys.argv[1]
 def save(state):
  p=journal.with_suffix('.tmp');p.write_text(json.dumps(state));p.chmod(0o600);p.replace(journal)
+def install_share_helper():
+ # Refresh the root-owned copy used by sudo; leave stored NAS credentials intact.
+ source=app/'windows/share-helper.py'
+ if source.is_file():subprocess.run(['install','-o','root','-g','root','-m','755',str(source),'/usr/local/lib/telegram-stl/share-helper.py'],check=True)
 def rollback(state):
  backup=pathlib.Path(state['backup']);old=backup/'application'
  if old.exists():
@@ -26,6 +30,7 @@ def rollback(state):
   if session.exists():shutil.rmtree(session)
   with tarfile.open(backup/'telegram-session.tar.gz') as archive:archive.extractall(session.parent,filter='data')
   subprocess.run(['chown','-hR','stl:stl',str(session)],check=True)
+ install_share_helper()
  (app/'data/update-installing').unlink(missing_ok=True)
  state['phase']='rolled_back';save(state)
  print('Previous version and saved state restored. Downloads outside the application were not changed.',flush=True)
@@ -73,6 +78,7 @@ try:
  # Preserve optional downloads inside the managed installation as well.
  if (backup/'application/downloads').exists():shutil.move(str(backup/'application/downloads'),str(staged/'downloads'))
  staged.rename(app)
+ install_share_helper()
  state['phase']='testing';save(state)
  print('Installed version '+(app/'VERSION').read_text().strip()+'. Checking startup next.',flush=True)
 except BaseException:

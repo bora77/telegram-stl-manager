@@ -160,4 +160,5 @@ class FirstRun:
             destination=Path(reply['mount']).joinpath(*parts[2:])
             settings=self.store.config();settings['download_directory']=str(destination);settings['download_storage']='network'
             self.store.save_config(settings)
+            self.store.atomic_write(self.root/'data/setup-share.json',{'path':'\\\\'+'\\'.join(parts),'username':payload.get('username',''),'domain':payload.get('domain','')})
             return {'destination':str(destination)}

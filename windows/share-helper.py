@@ -16,6 +16,28 @@ def validate(data):
         if not isinstance(value,str) or len(value)>4096 or any(c in value for c in '\r\n\x00'):raise ValueError('Invalid network credentials.')
     if not data.get('username'):raise ValueError('Enter the share username.')
     return {'server':server,'share':share,**{k:data.get(k,'') for k in ('username','password','domain')}}
+def mount_failure(stderr):
+    """Return only classified diagnostics, never raw mount output or credentials."""
+    text=stderr.decode('utf-8','replace') if isinstance(stderr,bytes) else str(stderr or '')
+    lowered=text.lower()
+    if any(term in lowered for term in ('could not resolve','unable to resolve','name or service not known','temporary failure in name resolution')):
+        return 'NAS hostname could not be resolved from the app. Replace the server name in the network path with the NAS LAN IP address and retry.'
+    match=re.search(r'mount error\s*\((\d{1,4})\)',text,re.I)
+    code=int(match.group(1)) if match else None
+    messages={
+        13:'SMB access denied. Check the NAS username, password, domain (if used), and permission to access this shared folder.',
+        2:'SMB share or mount path was not found. Check the shared-folder name immediately after the NAS address.',
+        101:'The NAS network is unreachable from the app. Check the LAN connection, VPN and firewall.',
+        113:'The NAS could not be reached from the app. Check its LAN IP address, VPN and firewall.',
+        110:'The SMB connection timed out. Check the NAS address and that SMB port 445 is reachable from the app.',
+        111:'The NAS refused the SMB connection. Check that SMB file sharing is enabled and port 445 is allowed.',
+        95:'The SMB operation is not supported. Check SMB2/SMB3 compatibility on the NAS; do not enable SMB1.',
+        112:'The NAS host is down or unavailable. Check its address and network connection.',
+    }
+    if code in messages:return messages[code]+f' (mount error {code})'
+    if code is not None:return f'SMB mount failed (mount error {code}). Check the NAS SMB service and its connection logs.'
+    return 'SMB mount failed without a recognized error code. Check the NAS address, shared-folder name, SMB service and NAS connection logs.'
+
 def connect(data):
     data=validate(data);account=pwd.getpwnam('stl')
     DIRECTORY.mkdir(mode=0o700,exist_ok=True);MOUNT.mkdir(mode=0o700,exist_ok=True)
@@ -28,8 +50,9 @@ def connect(data):
             for k in ('username','password','domain'):
                 if data[k]:f.write(k+'='+data[k]+'\n')
         options=f'credentials={name},uid={account.pw_uid},gid={account.pw_gid},file_mode=0600,dir_mode=0700,nosuid,nodev,noexec'
-        result=subprocess.run(['mount','-t','cifs','//'+data['server']+'/'+data['share'],str(MOUNT),'-o',options],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=45)
-        if result.returncode:raise ValueError('Could not connect to the share. Check the server, share name, credentials and Windows network access.')
+        try:result=subprocess.run(['mount','-t','cifs','//'+data['server']+'/'+data['share'],str(MOUNT),'-o',options],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=45)
+        except subprocess.TimeoutExpired:raise ValueError('The SMB connection timed out. Check the NAS LAN IP address, VPN, firewall and SMB port 445.') from None
+        if result.returncode:raise ValueError(mount_failure(result.stderr))
         target=DIRECTORY/'share.json';fd,tmp=tempfile.mkstemp(dir=DIRECTORY)
         with os.fdopen(fd,'w') as out:json.dump(data,out)
         os.replace(tmp,target)

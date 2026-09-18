@@ -104,6 +104,40 @@ class FirstRunTests(unittest.TestCase):
                 while manager.phase!='connected' and time.monotonic()<deadline:time.sleep(.02)
                 self.assertEqual(manager.phase,'connected')
                 self.assertTrue((root/'data/telegram-connected').exists())
+    def test_successful_share_connection_remembers_display_fields_without_password(self):
+        from types import SimpleNamespace
+        from contextlib import nullcontext
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);store=SubscriptionStore(configure_source(root))
+            store.atomic_write(root/'data/creators.json',{'creators':[]})
+            manager=FirstRun(store)
+            payload={'path':'\\\\nas\\models\\Incoming\\','username':'user','password':'private-secret','domain':'WORKGROUP'}
+            mount=root/'mount';(mount/'Incoming').mkdir(parents=True)
+            reply=SimpleNamespace(returncode=0,stdout=json.dumps({'mount':str(mount)}))
+            original=Path.exists
+            def exists(path):return True if str(path)=='/etc/telegram-stl-managed' else original(path)
+            with patch.object(Path,'exists',exists),patch.object(manager,'idle',return_value=nullcontext()),patch('app.first_run.subprocess.run',return_value=reply):
+                manager.share(payload)
+            remembered=json.loads((root/'data/setup-share.json').read_text())
+            self.assertEqual(remembered,{'path':'\\\\nas\\models\\Incoming','username':'user','domain':'WORKGROUP'})
+            self.assertNotIn('private-secret',(root/'data/setup-share.json').read_text())
+            self.assertEqual(store.config()['download_directory'],str(mount/'Incoming'))
+
+    def test_share_errors_are_actionable_without_echoing_private_output(self):
+        spec=importlib.util.spec_from_file_location('helper',Path(__file__).resolve().parent.parent/'windows/share-helper.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+        cases=[(b'could not resolve address for secret-host: Unknown error','hostname'),
+               (b'mount error(13): Permission denied password=private-secret','access denied'),
+               (b'mount error(2): No such file or directory','not found'),
+               (b'mount error(110): Connection timed out','timed out'),
+               (b'mount error(113): No route to host','could not be reached'),
+               (b'mount error(95): Operation not supported','SMB2/SMB3'),
+               (b'mount error(123): private-secret','mount error 123'),
+               (b'private-secret and secret-host','without a recognized error')]
+        for raw,expected in cases:
+            with self.subTest(raw=raw):
+                result=m.mount_failure(raw)
+                self.assertIn(expected,result);self.assertNotIn('private-secret',result);self.assertNotIn('secret-host',result)
+
     def test_share_helper_rejects_option_and_credential_injection(self):
         spec=importlib.util.spec_from_file_location('helper',Path(__file__).resolve().parent.parent/'windows/share-helper.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
         good={'server':'nas.example','share':'STL Files','username':'user','password':'secret'}

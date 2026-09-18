@@ -60,6 +60,8 @@ class SubscriptionStore:
             raise ValueError('Enter an absolute folder path on this machine.')
         directory=Path(value).resolve()
         if not directory.is_dir() or not os.access(directory,os.R_OK|os.W_OK|os.X_OK):
+            if isinstance(payload.get('download_directory'),str) and Path('/etc/telegram-stl-managed').exists() and re.match(r'^[A-Za-z]:[\\/]',payload['download_directory']):
+                raise ValueError('This Windows folder is not accessible to the manager. If it is a mapped NAS or shared drive, choose Network share and enter its full network path instead of the drive letter. Otherwise, choose an existing local folder with read and write access.')
             raise ValueError('Choose an existing folder that your account can read and write.')
         with self.lock:
             current=self.config()

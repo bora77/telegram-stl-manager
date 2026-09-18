@@ -28,14 +28,19 @@ start. No Linux username, terminal commands, fstab editing or manual dependency
 installation is required. Local downloads work without a network share.
 
 Setup displays WSL commands, Ubuntu download progress and speed, and dependency
-installation output. Application startup opens a visible console and saves its
-output to a log. Passwords and session contents are not printed.
+installation output. Application startup uses a tray icon and saves server
+output to logs. Passwords and session contents are not printed.
 
 After installation finishes, close any remaining **Welcome to WSL** window and
-completed installer PowerShell windows. Keep the PowerShell window running
-**Telegram STL Manager** open or minimized: closing it can stop the server and
-interrupt transfers. Use the app in your normal Windows browser at
-`http://127.0.0.1:6093`.
+completed installer PowerShell windows. The desktop shortcut starts the server in
+the background with a Windows notification-area (tray) icon; no PowerShell window
+needs to stay open. Double-click the icon to open the app, or right-click for
+**Open Telegram STL Manager**, **View logs**, and **Stop and exit**. Windows may
+place the icon under the notification-area arrow. Closing the browser leaves the
+server and active transfers running; automatic availability checks still require
+an open app page. Use the desktop shortcut again after restarting Windows.
+Logs are saved under `%LOCALAPPDATA%\TelegramSTLManager\logs`. The app opens in
+your normal Windows browser at `http://127.0.0.1:6093`.
 
 The runtime is bundled; Ubuntu is downloaded from Canonical with a pinned SHA-256.
 The installer and launcher are currently unsigned and are a Windows test build:

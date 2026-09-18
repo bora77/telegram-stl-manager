@@ -93,7 +93,7 @@ try {
     foreach ($Name in @('Telegram STL Manager','Stop Telegram STL Manager')) {
         $Shortcut = $Shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Desktop')) ($Name + '.lnk')))
         $Shortcut.TargetPath = 'powershell.exe'
-        $Shortcut.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $Support 'Start.ps1') + '"' + $(if ($Name.StartsWith('Stop')) {' -Stop'} else {''})
+        $Shortcut.Arguments = '-NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + (Join-Path $Support 'Start.ps1') + '"' + $(if ($Name.StartsWith('Stop')) {' -Stop'} else {''})
         $Shortcut.WorkingDirectory = $Installer
         $Shortcut.Save()
     }
@@ -110,8 +110,8 @@ try {
         New-ItemProperty $UninstallKey -Name $Property.Key -Value $Property.Value -PropertyType String -Force | Out-Null
     }
     Remove-ItemProperty $RunOnce -Name 'TelegramSTLSetup' -ErrorAction SilentlyContinue
-    Write-Host 'Starting the application. Its console will remain visible.'
-    & (Join-Path $Support 'Start.ps1')
+    Write-Host 'Starting the application in the Windows notification area. Right-click its tray icon for logs or Stop and exit.'
+    Start-Process powershell.exe -ArgumentList ('-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $Support 'Start.ps1') + '"') -WindowStyle Hidden
 } catch {
     Add-Type -AssemblyName System.Windows.Forms
     $Failure = ($_ | Out-String) -replace "`0", ''

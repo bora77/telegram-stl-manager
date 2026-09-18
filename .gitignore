@@ -7,6 +7,7 @@
 !/.githooks/pre-commit
 !/distribution.json
 !/README.md
+!/TODO.md
 !/INSTALL.md
 !/AI-INSTALL-PROMPT.md
 !/CATALOG.md

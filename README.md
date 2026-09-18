@@ -327,10 +327,15 @@ reset, reinstallation and uninstall were tested in a Windows 11 VM, including
 preservation of download files. See `INSTALL.md` for validation scope and limitations.
 
 After installation finishes, close any remaining **Welcome to WSL** window and
-completed installer PowerShell windows. Keep the PowerShell window running
-**Telegram STL Manager** open or minimized: closing it can stop the server and
-interrupt transfers. Use the app in your normal Windows browser at
-`http://127.0.0.1:6093`.
+completed installer PowerShell windows. The desktop shortcut starts the server in
+the background with a Windows notification-area (tray) icon; no PowerShell window
+needs to stay open. Double-click the icon to open the app, or right-click for
+**Open Telegram STL Manager**, **View logs**, and **Stop and exit**. Windows may
+place the icon under the notification-area arrow. Closing the browser leaves the
+server and active transfers running; automatic availability checks still require
+an open app page. Use the desktop shortcut again after restarting Windows.
+Logs are saved under `%LOCALAPPDATA%\TelegramSTLManager\logs`. The app opens in
+your normal Windows browser at `http://127.0.0.1:6093`.
 
 The Git pre-commit hook increments the patch version in `VERSION` for each commit
 and refreshes the version shown beside the app copyright. Enable the repository

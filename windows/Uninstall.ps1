@@ -26,6 +26,11 @@ try {
     $Message = "This stops Telegram STL Manager and permanently deletes its local settings, account sessions, download history and unfinished temporary downloads.`n`nConfigured external download destinations are NEVER deleted. Finished downloads inside the application environment will be preserved in your Windows Documents folder first. Other WSL environments and the Windows WSL feature remain installed.`n`n$Detail`n`nContinue?"
     $Answer = [System.Windows.Forms.MessageBox]::Show($Message,$Action,'YesNo','Warning','Button2')
     if ($Answer -ne 'Yes') { exit 0 }
+    try {
+        $TrayExit = [Threading.EventWaitHandle]::OpenExisting('Local\TelegramSTLManagerTrayExit')
+        $TrayExit.Set() | Out-Null
+        $TrayExit.Dispose()
+    } catch [Threading.WaitHandleCannotBeOpenedException] {}
     if ($Records.Count -eq 1) {
         & wsl.exe --terminate TelegramSTL 2>$null | Out-Null
         # Check for an initialized application before removing its private disk.

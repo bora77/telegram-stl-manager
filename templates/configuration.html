@@ -59,7 +59,7 @@ __FIRST_RUN__
 <section class="panel"><h2>Release packaging</h2>
 <label for="release-compression">7-Zip compression level</label><select id="release-compression" disabled><option value="0">0 · Store without compression</option><option value="1">1 · Fastest</option><option value="3">3 · Fast</option><option value="5">5 · Normal</option><option value="7" selected>7 · Maximum</option><option value="9">9 · Ultra</option></select>
 <label for="release-volume">Maximum release part size (MiB)</label><input id="release-volume" type="number" min="1" max="65536" step="1" value="4000" required disabled>
-<small>4000 MiB equals 7-Zip’s 4000M setting. Larger releases are split into parts. Applies to new MMF archives and release preparations; existing archives remain unchanged.</small></section>
+<small>4000 MiB equals 7-Zip’s 4000M setting. Larger releases are split into parts. Applies when you choose Make release. Downloaded MMF archives keep their original format.</small></section>
 <section class="panel"><h2>Download availability</h2>
 <label for="availability-interval">Telegram check interval (hours)</label><input id="availability-interval" type="number" min="0.25" max="168" step="0.25" value="4" disabled aria-describedby="availability-help">
 <label for="mmf-availability-interval">MMF check interval (hours)</label><input id="mmf-availability-interval" type="number" min="0.25" max="168" step="0.25" value="4" disabled aria-describedby="availability-help">

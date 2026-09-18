@@ -151,10 +151,44 @@ class MMFTests(unittest.TestCase):
         self.assertIn(item['key'],self.manager.completed())
         images=list((self.root/'Example Creator'/'Example Creator 2025-01'/'release_images').iterdir())
         self.assertEqual(len(images),1);self.assertTrue(images[0].is_file())
-        self.assertEqual(len(list((self.root/'Example Creator'/'Example Creator 2025-01'/'MMF sources').glob('*.7z'))),1)
+        self.assertEqual(len(list((self.root/'Example Creator'/'Example Creator 2025-01'/'MMF sources').rglob('*.zip'))),1)
         self.assertFalse(list((self.manager.directory/'staging').glob('**/*.zip')))
         with self.manager.db() as db:record=json.loads(db.execute('SELECT data FROM completed').fetchone()[0])
         self.assertEqual(record['image_count'],1);self.assertTrue(record['images_extracted']);self.assertEqual(len(record['sha256']),64)
+        self.manager.put('settings',{'revision':1,'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':''}]})
+        self.manager.session.touch();self.manager.put('items',[item])
+        self.store.atomic_write(self.store.config_path,{**self.store.config(),'download_directory':str(self.root)})
+        output=Path(record['destination']);self.assertEqual(output.name,item['filename'])
+        collage=output.parent.parent/'Example Creator-2025-01.jpg';collage.write_bytes(b'keep collage')
+        output.unlink()
+        state=self.manager.state();self.assertEqual(state['items'][0]['missing_files'],[output.name])
+        with patch('mmf_manager.subprocess.Popen'):
+            with self.assertRaises(MMFError):self.manager.start('redownload',release='0'*64)
+            self.manager.start('redownload',release=record['release_key'])
+        run=self.manager.get('redownload');self.assertEqual(run['keys'],[item['key']])
+        self.assertIn(item['key'],self.manager.completed())
+        self.assertTrue(self.manager.state()['resumable'])
+        self.assertEqual(len(self.manager.get('redownload_history:'+run['id'])),1)
+        with patch.object(self.manager,'client',return_value=client),patch('mmf_manager.repack',side_effect=AssertionError('Re-download must not pack')):self.manager.download();self.manager.download()
+        self.assertEqual(client.calls,2)
+        self.assertEqual(self.manager.get('job')['errors'],[])
+        self.assertEqual(self.manager.pending_redownload_keys(),set())
+        self.assertEqual(self.manager.state()['items'][0]['missing_files'],[])
+        self.assertFalse(output.exists())
+        with self.manager.db() as db:original=json.loads(db.execute('SELECT data FROM completed').fetchone()[0])
+        self.assertEqual(original['repack']['kind'],'original_archives');self.assertEqual(Path(original['destination']).name,item['filename']);self.assertEqual(Path(original['destination']).read_bytes(),archive.read_bytes())
+        self.assertTrue(images[0].is_file());self.assertEqual(collage.read_bytes(),b'keep collage')
+        from mmf_release_prepare import execute
+        release_dir=self.root/'Example Creator'/'Example Creator 2025-01'
+        Image.new('RGB',(100,100),'blue').save(release_dir/'Example Creator-2025-01.jpg')
+        plan={'id':'test-package','release_key':original['release_key'],'number':0,'title':'Example Creator 2025-01','keys':[item['key']],'items':[original],'base':str(self.root),'folder':'Example Creator','release_folder':'Example Creator 2025-01'}
+        with patch('mmf_release_prepare.fetch_images',side_effect=AssertionError('Gallery downloads must be manual')):
+            execute(self.manager,plan)
+        self.assertEqual(plan['state'],'complete')
+        self.assertEqual(Path(plan['outputs'][0]['path']).name,'Example Creator 2025-01.7z')
+        self.assertTrue(Path(original['destination']).exists())
+
+
 
 
 class ReleasePackagingTests(MMFTests):
@@ -176,17 +210,15 @@ class ReleasePackagingTests(MMFTests):
             def download(self,item,path,*args):self.calls+=1;path.write_bytes(sources[item['object_id']].read_bytes())
             def save(self):pass
         client=Client()
-        with patch.object(self.manager,'client',return_value=client):self.manager.download();self.manager.download()
+        with patch.object(self.manager,'client',return_value=client),patch('mmf_images.fetch_images',side_effect=AssertionError('No automatic gallery fetch')),patch('mmf_manager.repack',side_effect=AssertionError('No packing while downloading')):self.manager.download();self.manager.download()
         self.assertEqual(self.manager.get('job')['errors'],[])
         self.assertEqual(client.calls,2);self.assertEqual(self.manager.completed(),{i['key'] for i in items})
         destination=self.root/'Example Creator'/'Example Creator Welcome Pack'
-        self.assertEqual([p.name for p in (destination/'MMF sources').glob('*.7z')],['Welcome Pack.7z'])
-        _,entries=listing(destination/'MMF sources'/'Welcome Pack.7z',self.root,lambda:False)
-        self.assertEqual({e['name'] for e in entries},{'Model 101/original/model.stl','Model 102/original/model.stl'})
-        output=self.root/'verify'
-        command(['x','-y','-o'+str(output),'--',str(destination/'MMF sources'/'Welcome Pack.7z')],self.root,lambda:False)
-        self.assertEqual((output/'Model 101/original/model.stl').read_text(),'first model')
-        self.assertEqual((output/'Model 102/original/model.stl').read_text(),'second model')
+        originals=list((destination/'MMF sources').rglob('*.zip'))
+        self.assertEqual(len(originals),2)
+        self.assertEqual({p.read_bytes() for p in originals},{p.read_bytes() for p in sources.values()})
+        self.assertFalse(list(destination.rglob('*.7z')))
+        self.assertTrue(all(i['images_checked'] for i in self.manager.state()['items']))
 
     def test_named_delivery_rejects_traversal_and_keeps_month_validation(self):
         from file_delivery import deliver,DeliveryError

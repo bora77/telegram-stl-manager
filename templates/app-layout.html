@@ -25,7 +25,7 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
 .table .artist-scope-row{display:flex;align-items:center;gap:8px;flex-wrap:nowrap}.table .artist-scope-row select{flex:1 0 175px;width:auto;min-width:175px;height:44px}.table .artist-scope-row input[type=month]{flex:0 0 180px;width:180px;min-width:180px;height:44px;margin:0}#artists .artist-scope-row input[type=month]{margin:0}
 .artist-info-cell{width:64px;text-align:center;vertical-align:top!important}.artist-info-cell .artist-info-button{margin:4px 0 0}.table th.artist-info-heading{text-align:center;width:64px}.artist-info-button{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;min-height:36px;padding:0;border:1px solid #d8cbe7;border-radius:50%;background:#fff;color:#7651a6;font:600 18px/1 system-ui;cursor:pointer}.artist-info-button:hover{background:#eee8f5}.artist-source-details{margin:20px 0;padding-top:14px;border-top:1px solid #e3dfe9;overflow-wrap:anywhere}.artist-source-details h3{font-size:15px;margin:0 0 10px}.artist-source-details p{font-size:13px;margin:8px 0}
 #rows td:first-child,#artists td:first-child{vertical-align:middle}#rows .subscription-toggle{vertical-align:middle;justify-content:center;align-items:center}#artists .toggle{display:block;margin:0 auto}
-</style>
+.app-navigation .configuration-icon{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:10px;flex:none}.configuration-icon svg{display:block}</style>
 <script>__ARTIST_PROFILES__</script>
 <header class="app-header">
   <a class="app-brand" href="/" aria-label="Telegram STL manager home"><img src="/favicon.svg" width="44" height="44" alt=""><span><strong>Telegram STL manager</strong><small>Even chaos deserves a folder.</small></span></a>
@@ -40,7 +40,7 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
     </div>
     <a id="organize-tab" href="/organize" __CURRENT_ORGANIZE__>Organize folders</a>
     <a id="collages-tab" href="/collages" __CURRENT_COLLAGES__>Collages</a>
-    <a id="config-tab" href="/config" __CURRENT_CONFIG__>Configuration</a>
+    <a id="config-tab" class="configuration-icon" href="/config" aria-label="Configuration" title="Configuration" __CURRENT_CONFIG__><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><polygon points="19.39,8.94 21.76,9.82 21.76,14.18 19.39,15.06 19.39,15.06 20.44,17.36 17.36,20.44 15.06,19.39 15.06,19.39 14.18,21.76 9.82,21.76 8.94,19.39 8.94,19.39 6.64,20.44 3.56,17.36 4.61,15.06 4.61,15.06 2.24,14.18 2.24,9.82 4.61,8.94 4.61,8.94 3.56,6.64 6.64,3.56 8.94,4.61 8.94,4.61 9.82,2.24 14.18,2.24 15.06,4.61 15.06,4.61 17.36,3.56 20.44,6.64 19.39,8.94"/><circle cx="12" cy="12" r="3.5"/></svg></a>
   </nav>
   <span id="task-completion-announcement" class="task-announcement" role="status" aria-live="polite"></span>
 </header>

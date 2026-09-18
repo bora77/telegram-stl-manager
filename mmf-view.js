@@ -59,23 +59,49 @@ function workflowStep(button,number,state,label){
  const step=document.createElement('div');step.className='workflow-step';step.dataset.state=state;
  const heading=document.createElement('div');heading.className='workflow-heading';
  const marker=text('span',state==='done'?'✓':state==='blocked'?'—':String(number));marker.className='workflow-marker';marker.setAttribute('aria-hidden','true');
- heading.append(marker,text('strong',state==='done'?'Done':state==='running'?'In progress':state==='blocked'?'Blocked':'Ready'));
- step.append(heading,button,text('small',label));return step;
+ heading.append(marker,text('strong',state==='done'?'Done':state==='running'?'In progress':state==='blocked'?'Blocked':number===1?button.textContent:'Ready'));
+ step.title=label;step.append(heading,button);return step;
+}
+function releaseStatus(group){
+ const lifecycle=data.release_lifecycle?.[group.key],prep=data.preparations?.[group.key],collage=data.collages?.[group.key];
+ if(group.items.some(i=>i.storage_unavailable))return 'Storage unavailable';
+ if(!data.active&&group.items.some(i=>i.missing_files?.length))return 'Files missing · Re-download release';
+ if(lifecycle?.finished)return 'Released';
+ const percent=(done,total)=>total>0?' · '+Math.min(100,Math.floor(100*(done||0)/total))+'%':'';
+ const packages=prep?.packages||[],uploading=packages.find(p=>['queued','preparing','uploading','verifying'].includes(p.upload?.state));
+ if(uploading)return (uploading.upload.state==='verifying'?'Verifying upload':'Uploading')+percent(uploading.upload.bytes,uploading.upload.total);
+ if(data.active&&data.job?.release_key===group.key){
+  const job=data.job,phase={starting:'Starting',downloading:'Downloading',unpacking:'Unpacking archives',processing_pdfs:'Cleaning PDFs',repacking:'Compressing archive',verifying_archive:'Verifying archive',verifying_inputs:'Verifying files',extracting:'Extracting images',moving:'Moving files'}[job.phase]||(job.action==='prepare_images'?'Preparing images':job.action==='package'?'Making release':'Processing release');
+  return phase+percent(job.bytes,job.expected)+(job.image_total!=null?` · ${job.image_count||0}/${job.image_total} images`:'');
+ }
+ if(group.recorded<group.items.length)return `${group.recorded}/${group.items.length} downloaded`;
+ const issued=new Set(prep?.keys||[]),fresh=group.items.some(i=>i.completed&&!issued.has(i.key));
+ const made=prep?.number>=0&&!fresh&&!prep.pending;
+ if(made){
+  const pending=packages.filter(p=>!p.published);
+  if(pending.length&&pending.every(p=>p.upload?.state==='complete'))return 'Awaiting publication';
+  if(pending.some(p=>['failed','error','stopped','interrupted'].includes(p.upload?.state)))return 'Upload incomplete · Retry upload';
+  return 'Archive ready · Upload release';
+ }
+ if(!collage?.ready)return group.items.every(i=>i.images_checked)?'No images · Download from MMF':'Extract images';
+ if(!collage?.valid)return 'Images ready · Create collage';
+ return prep?.pending?'Archive incomplete · Retry packaging':lifecycle?.published?'Collage ready · Make addendum':'Collage ready · Make release';
 }
 function queue(){
  const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?data.release_lifecycle?.[g.key]?.finished:!data.release_lifecycle?.[g.key]?.finished));
  page=Math.min(page,Math.max(0,Math.ceil(rows.length/50)-1));
- const signature=JSON.stringify([data.items,data.preparations,data.collages,data.release_lifecycle,data.active,data.job?.action,data.job?.release_key,data.job?.phase,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
+ const signature=JSON.stringify([data.items,data.preparations,data.collages,data.release_lifecycle,data.active,data.job?.action,data.job?.release_key,data.job?.phase,data.job?.bytes,data.job?.expected,data.job?.image_count,data.job?.image_total,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
  for(const group of rows.slice(page*50,page*50+50)){
-  const details=document.createElement('details');details.className='release-row';details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
+  const details=document.createElement('details');details.className='release-row'+(group.items.some(i=>i.missing_files?.length)?' missing-files':'');details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
   const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';const creatorLabel=text('small',group.creator);creatorLabel.prepend(ArtistProfiles.badge(group.creator,{compact:true}));heading.append(text('strong',group.name),creatorLabel);
   const info=document.createElement('span');info.className='release-info';info.append(text('span',`${group.items.length} ${group.items.length===1?'file':'files'} · ${sizeLabel(group.size)}`));
   const first=group.items[0];info.append(text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':'')));
-  const lifecycle=data.release_lifecycle?.[group.key];const status=text('span',lifecycle?.finished?'Released':lifecycle?.published&&lifecycle.new_files?'Addendum available':group.recorded===group.items.length?'Awaiting publication':`${group.recorded}/${group.items.length} downloaded`);status.className='release-status '+(lifecycle?.finished?'recorded':'');summary.append(heading,info,status);details.append(summary);
+  const lifecycle=data.release_lifecycle?.[group.key];const status=text('span',releaseStatus(group));status.className='release-status '+(group.items.some(i=>i.missing_files?.length)?'missing':lifecycle?.finished?'recorded':'');summary.append(heading,info,status);details.append(summary);
   if(first.release_month||data.collages?.[group.key]){
    const prep=data.preparations?.[group.key],issued=new Set(prep?.keys||[]),fresh=group.items.filter(i=>i.completed&&!issued.has(i.key));
    const actions=document.createElement('div');actions.className='actions';actions.style.padding='12px 18px';
-   const prepare=text('button','Prepare');prepare.disabled=data.active||!group.recorded;prepare.title='Extract release images without creating an archive.';prepare.onclick=()=>act('prepare',{release_key:group.key});
+   const offerGallery=group.recorded===group.items.length&&group.items.every(i=>i.images_checked)&&!data.collages?.[group.key]?.ready;
+   const prepare=text('button',offerGallery?'Download images from MMF':'Extract images');prepare.disabled=data.active||!group.recorded;prepare.title=offerGallery?'Download gallery images from MMF for this release.':'Extract release images without creating an archive.';prepare.onclick=()=>act(offerGallery?'images':'prepare',{release_key:group.key});
    const button=text('button',prep?.pending?'Retry '+prep.pending:prep&&prep.number>=0?`Make Addendum ${prep.number+1}`:'Make release');
    button.disabled=!data.collages?.[group.key]?.valid||data.active||group.recorded!==group.items.length||(!fresh.length&&!prep?.pending);
    button.onclick=()=>act('package',{release_key:group.key});
@@ -96,7 +122,7 @@ function queue(){
    }
    steps.forEach((step,index)=>{if(index){const arrow=text('span','→');arrow.className='workflow-arrow';arrow.setAttribute('aria-hidden','true');workflow.append(arrow)}workflow.append(step)});actions.append(workflow);
    if(prep?.directory)actions.append(text('small','Prepared: '+prep.title+' · '+prep.directory));
-   else if(first.release_month)actions.append(text('small','Creates a 7-Zip set with volumes up to 4000M. Later additions get numbered addenda.'));
+   else if(first.release_month)actions.append(text('small','Creates a 7-Zip set using your configured compression and part size. Later additions get numbered addenda.'));
    for(const pack of prep?.packages||[]){
     const upload=text('button',pack.attempted?'Re-upload':'Upload release');
     upload.disabled=prep.upload_active;upload.title=pack.title;
@@ -113,9 +139,13 @@ function queue(){
   }
   const box=document.createElement('div');box.className='release-files table';const table=document.createElement('table'),head=document.createElement('thead'),header=document.createElement('tr');for(const label of ['File','Size','Status'])header.append(text('th',label));head.append(header);table.append(head);const body=document.createElement('tbody');
   for(const item of group.items){
-   const row=document.createElement('tr'),name=document.createElement('td');name.append(text('span',item.filename));if(item.object_name&&item.object_name!==group.name)name.append(text('small',item.object_name));row.append(name,text('td',sizeLabel(item.size)));row.append(text('td',item.completed?'Downloaded':'Ready'));body.append(row)
+   const row=document.createElement('tr'),name=document.createElement('td');if(item.missing_files?.length)row.className='missing-file';name.append(text('span',item.filename));if(item.object_name&&item.object_name!==group.name)name.append(text('small',item.object_name));row.append(name,text('td',sizeLabel(item.size)));row.append(text('td',item.missing_files?.length?'Archive missing':item.completed?'Downloaded':'Ready'));body.append(row)
   }
-  table.append(body);box.append(table);details.append(box);$('queue').append(details)
+  table.append(body);box.append(table);details.append(box);
+  const retryActions=document.createElement('div');retryActions.className='actions';retryActions.style.padding='12px 18px';
+  const retry=text('button','Re-download release');retry.className='secondary';retry.disabled=data.active||!data.connected;retry.title='Download fresh copies of this release. Existing history, images and collage are retained.';
+  retry.onclick=()=>{expandedReleases.add(group.key);act('redownload',{release_key:group.key})};retryActions.append(retry);details.append(retryActions);
+$('queue').append(details)
  }
  $('page').textContent=rows.length?`${page+1} / ${Math.ceil(rows.length/50)} · ${rows.length} releases`:'No releases to show';$('previous').disabled=page===0;$('next').disabled=(page+1)*50>=rows.length;
 }
@@ -136,10 +166,10 @@ function render(reset=false){$('connection').hidden=data.connected;$('sub-count'
   if(index>=0){const word=text('span','detected');word.className='detected-flash';label.replaceChildren(document.createTextNode(statusText.slice(0,index)),word,document.createTextNode(statusText.slice(index+8)))}else label.textContent=statusText;
  }
 
- const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('progress').hidden=!data.active;$('progress').value=job.expected?100*(job.bytes||0)/job.expected:job.total?100*(job.done||0)/job.total:0;$('metrics').textContent=[job.phase==='processing_pdfs'?'Processing PDF footer stamps':job.phase,data.active&&job.expected?(['unpacking','repacking','verifying_archive'].includes(job.phase)?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
+ const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('progress').hidden=!data.active;if(job.expected>0)$('progress').value=Math.min(100,100*(job.bytes||0)/job.expected);else if(job.total>0)$('progress').value=Math.min(100,100*(job.done||0)/job.total);else $('progress').removeAttribute('value');$('metrics').textContent=[job.phase==='processing_pdfs'?'Processing PDF footer stamps':job.phase,job.image_total!=null?`${job.image_count||0} / ${job.image_total} images`:'',data.active&&job.expected?((job.progress_unit==='percent'||['unpacking','repacking','verifying_archive'].includes(job.phase))?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
 }
 async function refresh(reset=false){if(inFlight)return;inFlight=true;try{const oldActive=data?.active;data=await request('');render(reset||oldActive!==data.active&&!dirty)}catch(e){notice(e.message,true)}finally{inFlight=false}}
 async function act(action,payload={}){try{notice('Working…');await request(action,payload);notice(action==='save'?'Subscriptions saved.':'');if(action==='save'){dirty=false}await refresh(action==='save'||action==='login')}catch(e){notice(e.message,true)}}
 $('save').onclick=()=>act('save',{revision:data.settings.revision,subscriptions:draft});for(const action of ['check','download','resume','stop'])$(action).onclick=()=>act(action);
-$('search').oninput=()=>{artistPage=0;artists()};$('subscription-filter').onchange=()=>{artistPage=0;artists()};$('artists-previous').onclick=()=>{artistPage--;artists()};$('artists-next').onclick=()=>{artistPage++;artists()};$('filter').onchange=()=>{page=0;queue()};$('previous').onclick=()=>{page--;queue()};$('next').onclick=()=>{page++;queue()};refresh(true);setInterval(()=>refresh(),3000);
+$('search').oninput=()=>{artistPage=0;artists()};$('subscription-filter').onchange=()=>{artistPage=0;artists()};$('artists-previous').onclick=()=>{artistPage--;artists()};$('artists-next').onclick=()=>{artistPage++;artists()};$('filter').onchange=()=>{page=0;queue()};$('previous').onclick=()=>{page--;queue()};$('next').onclick=()=>{page++;queue()};refresh(true);let lastRefresh=0;setInterval(()=>{const now=Date.now();if(now-lastRefresh>=(data?.active?500:3000)){lastRefresh=now;refresh()}},500);
 })();

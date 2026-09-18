@@ -134,7 +134,7 @@ def release_lifecycle(items, prepared):
     return result
 
 
-def start_images(manager, payload):
+def start_images(manager, payload,from_mmf=False):
     key=payload.get('release_key')
     group=[i for i in downloaded(manager) if i['release_key']==key]
     if not group:raise ValueError('Download this release first.')
@@ -145,13 +145,13 @@ def start_images(manager, payload):
         manager.put('stop',False)
         manager.put('job',{'phase':'starting','action':'prepare_images','release_key':key,'message':'Preparing release images','errors':[]})
         log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
-        try:Popen([sys.executable,str(manager.root/'mmf_release_prepare.py'),str(manager.root),'images:'+key,str(lock.fileno())],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
+        try:Popen([sys.executable,str(manager.root/'mmf_release_prepare.py'),str(manager.root),('gallery:' if from_mmf else 'images:')+key,str(lock.fileno())],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
         finally:os.close(log)
     finally:lock.close()
     return {'started':True}
 
 
-def prepare_images(manager, key):
+def prepare_images(manager, key,from_mmf=False):
     from release_images import extract_images
     group=[i for i in downloaded(manager) if i['release_key']==key]
     if not group:raise ValueError('Downloaded release is missing.')
@@ -165,9 +165,12 @@ def prepare_images(manager, key):
         except (OSError,ValueError):pass
         else:
             manager.progress(phase='complete',message='Images ready. Create and save a collage next.',speed_mbps=0);return
-    def progress(*args):
+    def progress(stage='verifying_images',count=0,total=None,received=0,expected=None):
         if manager.stopped():raise ValueError('Image preparation stopped.')
-        manager.progress(phase='extracting',message='Preparing images · '+first['release_folder'],speed_mbps=0)
+        labels={'verifying_images':'Verifying existing images','listing':'Reading archive contents','checking_parts':'Checking archive parts','extracting':'Extracting images','recovering':'Recovering images','fetching_images':'Fetching MMF images','moving_images':'Saving release images','complete':'Images extracted'}
+        manager.progress(phase='extracting',progress_stage=stage,progress_unit='percent' if stage=='checking_parts' else 'bytes',
+                         message=labels.get(stage,'Preparing images')+' · '+first['release_folder'],
+                         image_count=count,image_total=total,done=count,total=total or 0,bytes=received or 0,expected=expected or 0,speed_mbps=0)
     with release_lock(manager.root,base,first['folder'],first['release_folder'],manager.stopped):
         for item in group:
             manifest=item.get('repack') or {};mid=manifest.get('id')
@@ -180,17 +183,17 @@ def prepare_images(manager, key):
             if existing:records.extend(existing);continue
             outputs=manifest.get('outputs',[])
             images=[]
-            if outputs:
+            if outputs and not from_mmf:
                 sources=[verified(r['path'],r,base) for r in outputs]
                 images=extract_images(sorted(sources)[0],work/mid,progress,manager.stopped,warnings=warnings)
-            if not images:
+            if not images and from_mmf:
                 images=fetch_images(manager.client(),[i for i in group if (i.get('repack') or {}).get('id')==mid],work/(mid+'-gallery'),manager.stopped,progress)
             for index,image in enumerate(images):
-                progress()
-                dest,size,checksum=deliver(image,base,first['folder'],first['release_folder'],mid[:8]+'-'+str(index)+'--'+image.name,lambda *_:progress(),subdirectories=('release_images',),release_directory=first['release_folder'])
+                progress('moving_images',index,len(images))
+                dest,size,checksum=deliver(image,base,first['folder'],first['release_folder'],mid[:8]+'-'+str(index)+'--'+image.name,lambda n,total:progress('moving_images',index,len(images),n,total),subdirectories=('release_images',),release_directory=first['release_folder'])
                 records.append({'path':str(dest),'size':size,'sha256':checksum})
         manager.put('prepared_images:'+key,{'images':records,'keys':[i['key'] for i in group]})
-        manager.progress(phase='complete',message=('Images ready. Create and save a collage next.' if records else 'No images found in the archives or MMF galleries.'),warnings=warnings,speed_mbps=0)
+        manager.progress(phase='complete',message=('Images ready. Create and save a collage next.' if records else 'No images found in MMF galleries.' if from_mmf else 'No images found in the archives. You can download images from MMF.'),warnings=warnings,speed_mbps=0)
 
 
 def start(manager,payload):
@@ -219,8 +222,8 @@ def start(manager,payload):
             plan={'id':hashlib.sha256((key+':'+str(number)).encode()).hexdigest(),'release_key':key,'number':number,'title':title,'keys':[i['key'] for i in delta],'items':delta,'state':'pending','base':manager.store.config()['download_directory'],'folder':group[0]['folder'],'release_folder':group[0]['release_folder']}
             save(manager,plan)
         config=manager.store.config()
-        plan.setdefault('compression_level',config['release_compression_level'])
-        plan.setdefault('volume_bytes',config['release_volume_mib']*1024*1024)
+        plan.setdefault('compression_level',config.get('release_compression_level',7))
+        plan.setdefault('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
         save(manager,plan)
         manager.put('stop',False);manager.put('job',{'phase':'starting','action':'package','release_key':key,'message':'Making '+plan['title'],'errors':[]})
         log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
@@ -241,8 +244,8 @@ def verified(path,receipt,base):
 
 def execute(manager,plan):
     config=manager.store.config()
-    compression=plan.get('compression_level',config['release_compression_level'])
-    volume_bytes=plan.get('volume_bytes',config['release_volume_mib']*1024*1024)
+    compression=plan.get('compression_level',config.get('release_compression_level',7))
+    volume_bytes=plan.get('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
     work=manager.directory/'release-preparation'/plan['id'];work.mkdir(parents=True,exist_ok=True)
     def progress(phase,percent):
         if manager.stopped():raise ValueError('Preparation stopped. Use the same preparation button to resume.')
@@ -260,6 +263,11 @@ def execute(manager,plan):
             progress('verifying_inputs',0)
             outputs=[verified(r['path'],r,plan['base']) for r in manifest['outputs']]
             outputs.sort();prefixes=manifest.get('source_prefixes',{})
+            for r in manifest.get('images',[]):images[r['path']]=r
+            if manifest.get('kind')=='original_archives':
+                head=selected[mid][0]
+                sources.append({'path':outputs[0],'folder':safe_component(head['object_name'])+'/'+archive_name(head['filename'])[:-3]+'-'+mid[:8]})
+                continue
             if len(manifests)==1 and manifest.get('compression_level')==compression and manifest.get('policy_version')==POLICY_VERSION and set(manifest.get('source_keys',[]))==set(plan['keys']) and all(re.search(r'\.7z(?:\.\d{3,})?$',p.name,re.I) and p.stat().st_size<=volume_bytes for p in outputs):
                 reusable=outputs
             include=[]
@@ -276,7 +284,7 @@ def execute(manager,plan):
             packed=repack(sources[0]['path'],work/'packed',plan['id'],progress,manager.stopped,compression_level=compression,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'])
         for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
             images.setdefault(record['path'],record)
-        fallback=[] if images else fetch_images(manager.client(),plan['items'],work/'mmf-images',manager.stopped,progress)
+        fallback=[]
         sub=();outputs=[]
         def moving(n,total):
             if manager.stopped():raise ValueError('Preparation stopped. Use the preparation button to resume.')
@@ -301,7 +309,8 @@ if __name__=='__main__':
     manager=MMFManager(SubscriptionStore(Path(sys.argv[1])))
     plan=None
     try:
-        if sys.argv[2].startswith('images:'):prepare_images(manager,sys.argv[2][7:])
+        if sys.argv[2].startswith('gallery:'):prepare_images(manager,sys.argv[2][8:],from_mmf=True)
+        elif sys.argv[2].startswith('images:'):prepare_images(manager,sys.argv[2][7:])
         else:
             plan=next(p for p in rows(manager) if p['id']==sys.argv[2])
             execute(manager,plan)

@@ -25,7 +25,7 @@ being delivered to your chosen local folder or mounted network share.
 | Python | Application logic, job management and the local web server, using Python's built-in `ThreadingHTTPServer`. No separate Apache or nginx installation is needed. |
 | Telegram CLI (`tdl`, written in Go) | Connects directly to Telegram through the `gotd` MTProto library. The bundled build includes this project's integration patches for transfer control and server selection. It reads the configured source and downloads attachments without controlling Telegram Desktop. |
 | SQLite and JSON files | SQLite stores download history, MMF source versions and collage records. JSON stores settings, subscriptions and saved job state. SQLite is embedded; there is no separate database server to configure. |
-| 7-Zip | Reads supported archive formats, including RAR, extracts release contents and builds MMF `.7z` sets with volumes no larger than 4000 MiB. |
+| 7-Zip | Reads supported archive formats, including RAR, extracts release contents and builds prepared MMF `.7z` sets with configurable compression and part size (defaults: level 7, 4000 MiB). |
 | Pillow | Processes images, creates previews and renders the final JPEG collages. |
 | pypdf | Processes recognized PDF footer stamps during MMF repackaging, without rasterizing pages. |
 | Direct MMF HTTP client (beta) | Python's HTTP and cookie libraries authenticate to MyMiniFactory, read the supported library collections and fetch files. Checks and downloads do not require a separate MMF browser window or Tampermonkey. |
@@ -48,8 +48,8 @@ operation. Installation details and platform requirements are in [INSTALL.md](IN
    additions or changes to older collections can be considered too.
 4. **Download and process locally.** Workers stage files on the application
    machine, collect companion archive parts and extract images into a flat
-   `release_images` folder. MMF additionally repackages each release into one
-   7-Zip set; Telegram archives retain their original filenames.
+   `release_images` folder. MMF and Telegram downloads retain the original archives;
+   MMF packaging is a separate **Make release** action.
 5. **Deliver and remember.** Files are verified during delivery to the selected
    destination, and successful work is recorded. New monthly folders use
    `Artist/Artist YYYY-MM/`; named MMF collections keep their names with the
@@ -290,23 +290,20 @@ available releases**. **Resume unfinished** reuses the saved queue and local par
 files. One MMF transfer runs at a time in this initial implementation.
 
 The release list follows the artist’s MMF folders, including monthly releases,
-Welcome Packs and loyalty rewards. Expand a release to see its files. Each release
-produces one 7-Zip set named after that release, with a maximum volume size of
-**4000M** (4000 MiB). Original member filenames are preserved under model/archive
+Welcome Packs and loyalty rewards. Expand a release to see its files. **Make release**
+produces one 7-Zip set named after that release. Configuration controls compression
+and maximum part size, defaulting to level **7** and **4000M** (4000 MiB). Original member filenames are preserved under model/archive
 subfolders to avoid collisions. Small releases use `.7z`; larger sets use
 `.7z.001`, `.002`, and so on.
 
-Files stage locally and the complete repacked archive is tested before verified
-delivery to `<creator>/<Artist YYYY-MM>/`, or an artist-prefixed named collection
+Original archives stage locally and are verified during delivery to `<creator>/<Artist YYYY-MM>/`, or an artist-prefixed named collection
 folder such as `<creator>/<Artist Welcome Pack>/`. Unsafe filename characters are
 sanitized for the filesystem. Images go into one flat `release_images` folder
 inside the release. For ordinary releases without a month in their name, the MMF release folder’s
 creation date supplies the destination month (`YYYY-MM`). Each named release
 still produces its own archive set. The UI labels this inferred month; later
 file updates never change it. Welcome Packs and loyalty rewards retain named
-folders. Missing or invalid dates also keep the release name. If an existing
-archive with the same name differs, the new version goes into
-`MMF versions/<version>` inside the release; the existing archive is preserved.
+folders. Missing or invalid dates also keep the release name. Original archives are kept in separate source-set folders under `MMF sources/originals`, preserving filenames and existing files. **Re-download release** fetches fresh originals and extracts images again without repackaging or deleting history. Missing recorded archives are highlighted.
 Source downloads stay local until archive/image delivery and database recording
 succeed. Completed source versions and extraction receipts are recorded separately
 from Telegram history. A changed release is rebuilt as a complete set, which can
@@ -337,11 +334,11 @@ Copyright © 2026 trumphater77
 
 ### Preparing MMF months for Telegram
 
-Expand a downloaded month in MMF Beta and click **Prepare** to extract images into `release_images` (existing verified images are reused). This step does not build an archive and requires no collage. Next use **Create collage**, save it, then click **Make release**. Making the release and uploading both require a valid saved collage. The app creates a verified 7-Zip set with volumes up to 4000M, an image folder and the saved collage, directly in the monthly folder. Intermediate MMF archives are retained in its `MMF sources` subfolder.
+MMF Download and Re-download automatically extract archive images into `release_images`. **Extract images** can repeat this separately. If no images are found, choose **Download images from MMF** to fetch the gallery images. Next use **Create collage**, save it, then click **Make release**. Making the release and uploading both require a valid saved collage. The app creates a verified 7-Zip set with volumes up to 4000M, an image folder and the saved collage, directly in the monthly folder. Intermediate MMF archives are retained in its `MMF sources` subfolder.
 
 Preparation records which source file versions were included. Later additions or updated downloads use **Make Addendum 1**, then Addendum 2, and so on; unchanged files are excluded. A failed preparation retries the same number. Preparing successfully reserves that release number even before you upload it. Previously downloaded months remain eligible for update checks regardless of the subscription start month. This action prepares files only; it does not upload to Telegram.
 
-When archives contain no images, MMF Beta fetches the owning products’ gallery images into `release_images`. Release preparation reuses an existing verified 7-Zip set when its contents exactly match the requested files and its volumes meet the 4000M limit; selective addenda are repackaged. Repackaging uses level 7 compression with two threads. Only verified archives made with the current level-7 policy can be reused without recompression.
+Gallery images are fetched only on request. Packaging uses the configured compression level and part size with two threads. Legacy verified 7-Zip sets can be reused only when their contents, compression, cleanup policy and part sizes meet the requested settings.
 
 Prepared MMF releases offer manual Upload and Re-upload actions. Every attempt sends a valid release collage as a Telegram photo first, then the existing archive volumes, and verifies the resulting messages. Re-upload remains available after success, failure, deletion, or interruption; it creates a separate receipt without downloading MMF sources again or creating an addendum. Choose the destination in Configuration. An uncertain attempt may have delivered some messages, so check the Release Pad before retrying.
 

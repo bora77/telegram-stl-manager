@@ -72,6 +72,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.path='/mmf.html'
         elif path in ('/collages','/collages/'):
             self.path='/collages.html'
+        elif path in ('/whats-new','/whats-new/'):
+            self.path='/whats-new.html'
         elif path not in ("/catalog.html", "/favicon.svg", "/data/creators.json", "/data/creators.csv") and not re.fullmatch(r"/data/toc-links/page-\d{3}\.png", path):
             self.send_error(404)
             return None

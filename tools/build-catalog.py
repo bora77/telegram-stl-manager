@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build a local, searchable review page and CSV from the captured TOC."""
 import csv
+import html
 import json
 import re
 from pathlib import Path
@@ -9,6 +10,17 @@ sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from app.source_scope import load_source
 
 root = Path(__file__).resolve().parent.parent
+roadmap = (root / 'TODO.md').read_text().split('## Upcoming features\n', 1)[1].split('\n## ', 1)[0]
+upcoming = ''.join('<li><strong>' + html.escape(title) + '</strong><span>' + html.escape(description) + '</span></li>'
+    for title, description in re.findall(r'^- \[ \] \*\*(.+?)\*\* — (.+)$', roadmap, re.M))
+if not upcoming:upcoming = '<li>No upcoming features announced.</li>'
+history = []
+for block in re.split(r'^## ', (root / 'CHANGELOG.md').read_text(), flags=re.M)[1:]:
+    title, _, body = block.partition('\n')
+    notes = re.findall(r'^- (.+)$', body, re.M)
+    if notes:
+        history.append('<article class="version-entry"><h3>' + html.escape(title.strip()) + '</h3><ul>'
+                       + ''.join('<li>' + html.escape(note) + '</li>' for note in notes) + '</ul></article>')
 version=(root/'VERSION').read_text().strip()
 if not re.fullmatch(r'\d+\.\d+\.\d+',version):raise ValueError('Invalid application version.')
 catalog = json.loads((root / "data/creators.json").read_text())
@@ -87,7 +99,7 @@ def app_layout(page):
 
 
 def write_page(name, content):
-    content=content.replace('</main>', f'<footer class="app-copyright">v{version} '+(root/'templates/update-footer.html').read_text()+' · Copyright © 2026 trumphater77</footer></main>')
+    content=content.replace('</main>', f'<footer class="app-copyright">v{version} '+(root/'templates/update-footer.html').read_text()+' · <a href="/whats-new">What’s new &amp; upcoming</a> · Copyright © 2026 trumphater77</footer></main>')
     # The running server always sees a complete page; no restart is needed.
     temporary = root / (name + '.tmp')
     temporary.write_text(content)
@@ -105,12 +117,13 @@ pages = {
         .replace("__APP_LAYOUT__", app_layout('queue')),
     'mmf.html': (root / 'templates/mmf.html').read_text().replace('__APP_LAYOUT__', app_layout('mmf')).replace('__MMF_VIEW__', (root / 'mmf-view.js').read_text()),
     'configuration.html': (root / 'templates/configuration.html').read_text().replace('__APP_LAYOUT__', app_layout('config')),
+    'whats-new.html': (root / 'templates/whats-new.html').read_text().replace('__APP_LAYOUT__', app_layout('news')).replace('__UPCOMING_FEATURES__', upcoming).replace('__VERSION_HISTORY__', ''.join(history)),
     'organizer.html': (root / 'templates/organizer.html').read_text().replace('__APP_LAYOUT__', app_layout('organize')).replace('__RULES__', (root / 'selection-rules.js').read_text()),
     'collages.html': (root / 'templates/collages.html').read_text().replace('__APP_LAYOUT__', app_layout('collages')).replace('__COLLAGE_VIEW__', (root / 'collage-view.js').read_text()),
 }
 for name, content in pages.items():
     write_page(name, content)
-print(f"Built five pages with shared navigation and data/creators.csv with {len(catalog['creators'])} records.")
+print(f"Built {len(pages)} pages with shared navigation and data/creators.csv with {len(catalog['creators'])} records.")
 
 configuration=root/'configuration.html'
 configuration.write_text(configuration.read_text().replace('__FIRST_RUN__',(root/'templates/first-run.html').read_text().replace('__SETUP_VIEW__',(root/'setup-view.js').read_text())))

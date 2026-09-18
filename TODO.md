@@ -1,5 +1,14 @@
 # TODO
 
+## Upcoming features
+
+These unchecked items appear on the What's new page, linked from the footer. Check an item off when it ships
+to remove it from the upcoming list on the next page build.
+
+- [ ] **STL ↔ DRC conversion** — Optional conversion in both directions while organizing releases, with configurable compression and precision.
+- [ ] **PDF washer in the organizer** — Optional cleaning of supported PDF stamps, using the RC-based cleaner and preserving original archives.
+- [ ] **Linux and Docker updates** — Install updates from the app while keeping accounts, settings and download history.
+
 ## Completed
 
 - [x] Create the GitHub repository `bora77/telegram-stl-manager` and push the application source. Release publishing uses the version in `VERSION`.
@@ -11,16 +20,21 @@
 ## Testing and follow-up
 
 - [x] Diagnose the Windows delivery failure: WSL Windows drives reject `renameat2(RENAME_NOREPLACE)` with errno 22. Add a safe no-overwrite hard-link fallback for delivery and organizer moves, verified on the Windows VM.
-- [ ] Provide Quartz with a configuration-preserving update containing the latest fixes; his previously supplied package is 0.1.10.
+- [x] Provide Quartz with a configuration-preserving update containing the latest fixes. He confirmed the v0.1.14 update and resumed downloads succeeded.
 - [ ] Reload the local web application safely and verify the error display without interrupting active transfers. Running workers need a subsequent run to use updated worker code.
 - [ ] Test loss of internet and recovery end to end: error visibility, preserved progress and successful resume without falsely reporting completion.
 - [ ] Resolve the pre-existing full-suite test failures, including outdated release-folder expectations and the commit-hook test fixture. The focused tests pass; the full suite is not green.
+
+## Organizer enhancements
+
+- [ ] Add an optional DRC converter during organization, enabled only when selected by the user. Define the conversion format and handling of originals before implementation.
+- [ ] Add an optional PDF washer during organization, reusing the existing PDFCleaner adaptation by RC from MMF repackaging. Preserve original archives, process staged copies, and record cleaning status. Test representative PDFs before enabling it for real releases.
 
 ## Self-updater
 
 - [x] Choose the source and release repository: `bora77/telegram-stl-manager`.
 - [x] Decide distribution access: public GitHub source and releases, without a website or announcement. No user token is needed for the default release source.
-- [ ] Set up versioned release packages and a release manifest. Keep credentials, sessions, history and private test packages out of public distribution.
+- [x] Publish versioned release packages using GitHub release metadata and SHA-256 asset digests. Keep credentials, sessions, history and private test packages out of public distribution.
 - [x] Check daily while the browser is open; show a red **Update available** link beside the footer version and controls in Configuration. Installation starts only when the user clicks **Install update**; users do not need Git installed.
 - [x] Wait for downloads, organizing, packaging and other active jobs to finish before updating, and prevent new jobs during installation.
 - [x] Download and verify the update package before applying it.

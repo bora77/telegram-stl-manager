@@ -1,0 +1,34 @@
+# Version history
+
+## 0.1.16
+
+- Added a footer link to version history and upcoming features, together on one page.
+
+## 0.1.15
+
+- Added a prominent latest Windows installer link to the project README.
+- Updated the AI installation prompt for guided Windows setup, the tray launcher, optional updates and Docker.
+
+## 0.1.14
+
+- Prevented competing app launches while a Windows update replaces application files.
+- Improved startup-failure diagnostics and clarified the update completion message.
+
+## 0.1.13
+
+- Added optional Windows updates through Configuration, with a red update notice beside the footer version.
+- Added verified downloads, backups, startup checks and rollback for updates.
+- Fixed saving verified files to Windows drives when the filesystem rejects the Linux rename operation.
+
+## 0.1.12
+
+- Show incomplete download runs as errors and retain guidance to resume unfinished work.
+
+## 0.1.11
+
+- Moved application code, tests and maintenance tools into dedicated subdirectories.
+
+## 0.1.10
+
+- Added the Windows tray launcher, browser shortcuts and access to logs.
+- Clarified that mapped network drives must be configured as network shares.

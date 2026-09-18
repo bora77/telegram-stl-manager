@@ -1,6 +1,7 @@
 # Public source allowlist. Keep local data, generated pages, builds and notes private.
 /*
 !/AGENTS.md
+!/CHANGELOG.md
 !/.gitignore
 !/.gitattributes
 !/.githooks/

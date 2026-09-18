@@ -1,7 +1,7 @@
 (() => {
   const el=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n};
   const url=name=>'/api/artist-profiles/image?name='+encodeURIComponent(name)+'&library=__ARTIST_LIBRARY_REVISION__';
-  const cache=new Map();let current='',generation=0;
+  const cache=new Map();let current='',currentSources=[],generation=0;
   async function info(name){
     if(!cache.has(name))cache.set(name,fetch('/api/artist-profiles?name='+encodeURIComponent(name)).then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error);return d}));
     return cache.get(name);
@@ -17,12 +17,20 @@
   const dialog=el('dialog');dialog.className='artist-profile-dialog';
   const heading=el('h2'),image=el('img');image.className='artist-profile-preview';
   const detail=el('p'),destinations=el('div'),status=el('p');status.setAttribute('role','status');
+  const sources=el('section');sources.className='artist-source-details';
   const input=el('input');input.type='file';input.accept='image/png,image/jpeg,image/webp';input.hidden=true;
   const buttons=el('div');buttons.className='artist-profile-actions';
   const upload=el('button','Upload replacement'),initials=el('button','Use initials'),restore=el('button','Restore collected logo'),close=el('button','Close');
-  buttons.append(upload,initials,restore,close);dialog.append(heading,image,detail,destinations,input,buttons,status);
+  buttons.append(upload,initials,restore,close);dialog.append(heading,image,detail,destinations,sources,input,buttons,status);
   document.body.append(dialog);
-  async function show(name){
+  dialog.addEventListener('click',event=>{
+    if(event.target!==dialog)return;
+    const bounds=dialog.getBoundingClientRect();
+    if(event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom)dialog.close();
+  });
+  async function show(name,sourceDetails=[]){
+    currentSources=sourceDetails;sources.replaceChildren();
+    if(sourceDetails.length){sources.append(el('h3','Source details'));for(const entry of sourceDetails){const line=el('p');line.append(el('strong',entry.label+': '));if(entry.href&&/^(https?:|tg:)/.test(entry.href)){const link=el('a',entry.text||entry.href);link.href=entry.href;link.target='_blank';link.rel='noopener noreferrer';line.append(link)}else line.append(document.createTextNode(entry.text||''));sources.append(line)}}
     current=name;const token=++generation;heading.textContent=name;image.src=url(name)+'&v='+Date.now();image.alt=name+' logo';
     detail.textContent='Loading profile…';destinations.replaceChildren();status.textContent='';restore.disabled=true;
     if(!dialog.open)dialog.showModal();
@@ -37,7 +45,7 @@
     const name=current;status.textContent='Saving…';buttons.querySelectorAll('button').forEach(b=>b.disabled=true);
     try{const r=await fetch('/api/artist-profiles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,mode,image:data})});const d=await r.json();if(!r.ok)throw Error(d.error);
       cache.delete(name);document.querySelectorAll('img[data-artist-logo]').forEach(img=>{if(img.dataset.artistLogo===name)img.src=url(name)+'&v='+Date.now()});
-      if(current===name){await show(name);status.textContent='Saved.'}
+      if(current===name){await show(name,currentSources);status.textContent='Saved.'}
     }catch(e){status.textContent=e.message}
     finally{buttons.querySelectorAll('button').forEach(b=>b.disabled=false);restore.disabled=dialog.dataset.mode==='default';input.value=''}
   }
@@ -51,5 +59,7 @@
     const img=el('img');img.src=url(name);img.alt='';img.loading='lazy';img.dataset.artistLogo=name;button.append(img);button.onclick=()=>show(name);wrap.append(button);
     if(withLinks)info(name).then(d=>wrap.append(links(d))).catch(()=>{});
     return wrap;
+  },infoButton(name,sourceDetails=[]){
+    const button=el('button','i');button.type='button';button.className='artist-info-button';button.title='Creator information: '+name;button.setAttribute('aria-label',button.title);button.onclick=()=>show(name,sourceDetails);return button;
   },show};
 })();

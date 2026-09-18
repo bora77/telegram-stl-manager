@@ -27,13 +27,15 @@ def archive_name(filename):
     return safe_component(stem)+'.7z'
 
 
-def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,sources=None,release_name=None):
+def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None):
+    if type(compression_level) is not int or compression_level not in (0,1,3,5,7,9):raise ValueError('Invalid compression level.')
+    if type(volume_bytes) is not int or volume_bytes<=0:raise ValueError('Invalid volume size.')
     source=Path(source).resolve(strict=True);work=Path(work).resolve();work.mkdir(parents=True,exist_ok=True)
     receipt=work/'repack.json';name=safe_component(release_name)+'.7z' if release_name else archive_name(source.name)
     sources=sources or [{'path':source,'folder':''}]
     if receipt.exists():
         saved=json.loads(receipt.read_text())
-        if saved.get('identity')==identity and saved.get('volume_bytes')==volume_bytes and saved.get('policy_version')==POLICY_VERSION and saved.get('name')==name:
+        if saved.get('identity')==identity and saved.get('volume_bytes')==volume_bytes and saved.get('compression_level')==compression_level and saved.get('policy_version')==POLICY_VERSION and saved.get('name')==name:
             outputs=[]
             for item in saved['outputs']:
                 filename=item['name']
@@ -99,7 +101,7 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
             all_entries[member_name]=path.stat().st_size
             pdfs.append({'name':member_name,'before':before,'after':{'size':path.stat().st_size,'sha256':digest(path)},**result})
         progress('repacking',0)
-        command(['a','-t7z','-mx='+str(COMPRESSION_LEVEL),'-mmt=2','-ms=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
+        command(['a','-t7z','-mx='+str(compression_level),'-mmt=2','-ms=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
         parts=sorted(output.iterdir())
         if not parts or any(p.stat().st_size>volume_bytes for p in parts):raise ExtractionError('Repacked volume size exceeds the configured limit.')
         if len(parts)==1 and parts[0].name==name+'.001':parts[0].rename(output/name);parts=[output/name]
@@ -110,6 +112,6 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
         outputs=[];records=[]
         for path in parts:
             checksum=digest(path);target=work/path.name;path.replace(target);outputs.append(target);records.append({'name':target.name,'size':target.stat().st_size,'sha256':checksum})
-        state={'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':COMPRESSION_LEVEL,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
+        state={'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':compression_level,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
         staged=work/'repack.json.tmp';staged.write_text(json.dumps(state));staged.replace(receipt)
         return outputs

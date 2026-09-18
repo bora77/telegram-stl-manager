@@ -231,7 +231,8 @@ class MMFManager:
                     folder=safe_component(head['object_name'])+'/'+archive_name(head['filename'])[:-3]
                     if folder.casefold() in used_folders:folder+='__'+str(head['archive_id'])
                     used_folders.add(folder.casefold());sources.append({'path':paths[head['key']],'folder':folder,'item':head})
-                packed=repack(source,work/'packed',identity,packing,self.stopped,sources=sources,release_name=first.get('release_display_name') or first.get('release') or first['object_name'])
+                packaging=self.store.config()
+                packed=repack(source,work/'packed',identity,packing,self.stopped,compression_level=packaging['release_compression_level'],volume_bytes=packaging['release_volume_mib']*1024*1024,sources=sources,release_name=first.get('release_display_name') or first.get('release') or first['object_name'])
                 receipt=work/'images.json';warnings=[]
                 if receipt.exists():
                     saved=json.loads(receipt.read_text());images=[work/p for p in saved['images']];warnings=saved['warnings']

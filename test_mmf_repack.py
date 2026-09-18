@@ -25,6 +25,19 @@ class RepackTests(unittest.TestCase):
         with patch('mmf_repack.command',side_effect=AssertionError('should reuse verified outputs')):
             self.assertEqual(repack(source,self.root/'work','version'),outputs)
         self.assertTrue(source.exists());self.assertEqual(VOLUME_BYTES,4000*1024*1024)
+    def test_compression_change_rebuilds_cached_archive(self):
+        source=self.source();work=self.root/'work'
+        repack(source,work,'version')
+        with patch('mmf_repack.command',wraps=command) as commands:
+            outputs=repack(source,work,'version',compression_level=0,volume_bytes=4096)
+        additions=[call.args[0] for call in commands.call_args_list if call.args[0][0]=='a']
+        self.assertEqual(len(additions),1)
+        self.assertIn('-mx=0',additions[0]);self.assertIn('-v4096b',additions[0])
+        self.assertTrue(all(p.stat().st_size<=4096 for p in outputs))
+        self.assertEqual(json.loads((work/'repack.json').read_text())['compression_level'],0)
+        with patch('mmf_repack.command',side_effect=AssertionError('cached output must be reused')):
+            self.assertEqual(repack(source,work,'version',compression_level=0,volume_bytes=4096),outputs)
+
     def test_split_volumes_and_integrity(self):
         outputs=repack(self.source(),self.root/'work','version',volume_bytes=4096)
         self.assertGreater(len(outputs),1)

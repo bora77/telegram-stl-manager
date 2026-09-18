@@ -1,9 +1,9 @@
 <section id="queue-view" aria-labelledby="queue-tab">
-  <p id="availability-status" role="status" style="color:#654091;font-size:13px;margin:0 0 18px" hidden></p>
+  <p id="availability-status" class="availability-line" role="status">Loading download status…</p>
   <p>Choose and save your subscribed artists, then check for downloads. Press Download detected to save the files found without checking again. Completed files are skipped.</p>
   <div class="queue-panel">
   <div class="queue-actions"><button id="download-detected" disabled title="Download files found by the latest availability check, without checking subscriptions again.">Download detected</button><button id="download-all" disabled aria-describedby="download-start-help">Check for downloads</button><button id="resume-downloads" disabled aria-describedby="download-start-help">Resume</button><span class="queue-secondary-actions"><button id="stop-downloads" disabled>Stop</button><a class="queue-nav" href="#artists">Manage artists</a></span></div>
-  <small id="download-start-help">Save subscriptions, then start a manual run.</small>
+  <small id="download-start-help" hidden></small>
   <div id="availability-progress-panel" class="run-activity" data-active="true" hidden aria-live="polite"><strong>Checking for downloads</strong><p id="availability-current-artist"></p><div class="queue-metrics"><span id="availability-check-count"></span></div><progress id="availability-check-progress" max="100" aria-label="Artist checking progress"></progress></div>
   <div id="queue-details" hidden>
   <div id="run-activity" class="run-activity" aria-live="polite"><strong id="run-phase">Ready</strong><span id="run-elapsed"></span><p id="run-detail">Press Check for downloads to begin.</p>
@@ -31,7 +31,7 @@
   <details id="ignored-details" hidden><summary id="ignored-summary">Ignored corrupt sources</summary><ul id="ignored-files"></ul></details>
   <div id="parallel-panel" class="move-panel" hidden><strong>Active downloads</strong><div id="parallel-files"></div></div>
   <div id="extraction-panel" class="move-panel" hidden><strong id="extraction-title">Extracting release images locally</strong><progress id="extraction-progress" max="100" aria-label="Image extraction progress"></progress><p id="extraction-status" aria-live="polite"></p><small id="extraction-help">Images go into release_images inside the monthly release folder. Archive files remain intact.</small></div>
-  <div id="move-panel" class="move-panel" hidden><strong id="move-title">Moving from local disk to Kronos</strong><progress id="move-progress" max="100" value="0" aria-label="Move to Kronos progress"></progress><p id="move-status" aria-live="polite"></p><small>The local file is removed after destination verification and history recording.</small></div><details id="review-details"><summary id="review-summary">Items needing review</summary><ul id="run-warnings"></ul></details>
+  <div id="move-panel" class="move-panel" hidden><strong id="move-title">Moving to destination folder</strong><progress id="move-progress" max="100" value="0" aria-label="Move to destination progress"></progress><p id="move-status" aria-live="polite"></p><small>The local file is removed after destination verification and history recording.</small></div><details id="review-details"><summary id="review-summary">Items needing review</summary><ul id="run-warnings"></ul></details>
   <div id="queue-list"></div>
   <details id="recent-details"><summary>Recently completed files</summary><div id="recent-transfers"></div></details>
   </div>
@@ -50,9 +50,9 @@
 </style>
 
 <style>
-.detected-flash{font-weight:700;animation:detected-flash 1.6s ease-in-out infinite}
-@keyframes detected-flash{0%,100%{opacity:1}50%{opacity:.3}}
-@media(prefers-reduced-motion:reduce){.detected-flash{animation:none;text-decoration:underline}}
+.detected-flash{font-weight:700}
+
+
 </style>
 
 <style>#download-all.checking:before{content:"";display:inline-block;width:10px;height:10px;margin-right:7px;vertical-align:-1px;border:2px solid #ffffff66;border-top-color:white;border-radius:50%;animation:spin 1s linear infinite}@media(prefers-reduced-motion:reduce){#download-all.checking:before{animation:none}}</style>

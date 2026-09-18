@@ -1,5 +1,6 @@
 (()=>{
 const $=id=>document.getElementById(id);let data=null,draft=[],dirty=false,page=0,inFlight=false;
+let artistPage=0;
 const expandedReleases=new Set();let queueSignature='';
 function showMMFView(){
  const artists=location.hash==='#artists';
@@ -12,15 +13,29 @@ window.addEventListener('hashchange',showMMFView);showMMFView();
 const text=(tag,value)=>{const n=document.createElement(tag);n.textContent=value;return n};
 async function request(action,payload){const r=await fetch('/api/mmf'+(action?'/'+action:''),{cache:'no-store',...(payload!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value}
 function notice(value,error=false){$('notice').textContent=value;$('notice').className=error?'error':''}
-function changed(){dirty=JSON.stringify(draft)!==JSON.stringify(data.settings.subscriptions);$('save').disabled=!dirty||data.active}
-function artists(){const body=$('artists');body.replaceChildren();const search=$('search').value.toLowerCase();
- for(const creator of data.creators.filter(c=>c.name.toLowerCase().includes(search))){let sub=draft.find(s=>s.id===creator.id);const row=document.createElement('tr'),toggle=document.createElement('input');toggle.type='checkbox';toggle.className='toggle';toggle.checked=!!sub;toggle.setAttribute('role','switch');toggle.setAttribute('aria-label','Subscribe to '+creator.name);toggle.disabled=data.active;
- const folder=document.createElement('input');folder.setAttribute('list','folders');folder.setAttribute('aria-label',creator.name+' folder');folder.value=sub?.folder||data.folders.find(f=>f.replace(/^[-\s]+/,'').toLowerCase()===creator.name.toLowerCase())||creator.name;
- const scope=document.createElement('select');scope.setAttribute('aria-label',creator.name+' scope');scope.append(new Option('From month','month'),new Option('All (archiving)','all'));scope.value=sub&&sub.start_month===''?'all':'month';const month=document.createElement('input');month.type='month';month.setAttribute('aria-label',creator.name+' starting month');const now=new Date();now.setDate(1);now.setMonth(now.getMonth()-1);month.value=sub?.start_month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+function changed(){
+ const canonical=rows=>JSON.stringify([...rows].sort((a,b)=>a.id-b.id).map(s=>[s.id,s.folder,s.start_month]));
+ dirty=canonical(draft)!==canonical(data.settings.subscriptions);$('save').disabled=!dirty||data.active;
+ $('selected-count').textContent=`${draft.length} creators selected`;
+ $('sub-count').textContent=`${data.settings.subscriptions.length} subscriptions saved · manual downloads only`;
+ const status=$('artist-save-status');status.hidden=!dirty;status.textContent=dirty?'Unsaved changes. Press Save subscriptions to apply them.':'';
+}
+function artists(){const body=$('artists');body.replaceChildren();const search=$('search').value.toLowerCase(),mode=$('subscription-filter').value;
+ const saved=new Set(data.settings.subscriptions.map(s=>s.id));
+ const matches=data.creators.filter(c=>c.name.toLowerCase().includes(search)&&(!mode||(mode==='subscribed'?saved.has(c.id):!saved.has(c.id)))).sort((a,b)=>a.name.localeCompare(b.name));
+ artistPage=Math.min(artistPage,Math.max(0,Math.ceil(matches.length/50)-1));
+ $('artist-count').textContent=`${matches.length} matching creators · subscription filter uses saved subscriptions`;
+ $('artists-page').textContent=matches.length?`${artistPage*50+1}–${Math.min((artistPage+1)*50,matches.length)}`:'No matches';
+ $('artists-previous').disabled=artistPage===0;$('artists-next').disabled=(artistPage+1)*50>=matches.length;
+ changed();
+ for(const creator of matches.slice(artistPage*50,artistPage*50+50)){let sub=draft.find(s=>s.id===creator.id),defaults=sub||data.settings.subscriptions.find(s=>s.id===creator.id);const row=document.createElement('tr'),toggle=document.createElement('input');toggle.type='checkbox';toggle.className='toggle';toggle.checked=!!sub;toggle.setAttribute('role','switch');toggle.setAttribute('aria-label','Subscribe to '+creator.name);toggle.disabled=data.active;
+ const folder=document.createElement('input');folder.setAttribute('list','folders');folder.setAttribute('aria-label',creator.name+' folder');folder.value=defaults?.folder||data.folders.find(f=>f.replace(/^[-\s]+/,'').toLowerCase()===creator.name.toLowerCase())||creator.name;
+ const scope=document.createElement('select');scope.setAttribute('aria-label',creator.name+' scope');scope.append(new Option('From month/year','month'),new Option('All (archiving)','all'));scope.value=defaults&&defaults.start_month===''?'all':'month';const month=document.createElement('input');month.type='month';month.setAttribute('aria-label',creator.name+' starting month');const now=new Date();now.setDate(1);now.setMonth(now.getMonth()-1);month.value=defaults?.start_month||`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
  const enable=()=>{folder.disabled=scope.disabled=month.disabled=!toggle.checked||data.active;month.hidden=scope.value==='all'};enable();
- const update=()=>{if(toggle.checked){const old=draft.findIndex(s=>s.id===creator.id);const entry={id:creator.id,name:creator.name,folder:folder.value,start_month:scope.value==='all'?'':month.value};if(old<0)draft.push(entry);else draft[old]=entry}else draft=draft.filter(s=>s.id!==creator.id);enable();changed()};toggle.onchange=folder.oninput=scope.onchange=month.oninput=update;
+ const membership=text('small','');membership.className='changed';const updateMembership=()=>{membership.textContent=toggle.checked!==saved.has(creator.id)?(saved.has(creator.id)?'Removal pending':'Not saved yet'):''};updateMembership();
+ const update=()=>{if(toggle.checked){const old=draft.findIndex(s=>s.id===creator.id);const entry={id:creator.id,name:creator.name,folder:folder.value,start_month:scope.value==='all'?'':month.value};if(old<0)draft.push(entry);else draft[old]=entry}else draft=draft.filter(s=>s.id!==creator.id);enable();changed();updateMembership()};toggle.onchange=folder.oninput=scope.onchange=month.oninput=update;
  const identity=text('span',creator.name);identity.prepend(ArtistProfiles.badge(creator.name));
- for(const node of [toggle,identity,folder]){const td=document.createElement('td');td.append(node);row.append(td)}const td=document.createElement('td');td.append(scope,month);row.append(td);body.append(row);
+ for(const node of [toggle,identity,folder]){const td=document.createElement('td');td.append(node);if(node===toggle)td.append(membership);row.append(td)}const td=document.createElement('td');const scopeRow=document.createElement('div');scopeRow.className='artist-scope-row';scopeRow.append(scope,month);td.append(scopeRow);row.append(td);const infoCell=document.createElement('td');infoCell.className='artist-info-cell';infoCell.append(ArtistProfiles.infoButton(creator.name,[{label:'Source',text:'MyMiniFactory · Shared with me',href:'https://www.myminifactory.com/library#/shared-with-me'},{label:'MMF creator ID',text:String(creator.id)}]));row.append(infoCell);body.append(row);
  }}
 function releaseGroups(){
  const groups=new Map();
@@ -108,19 +123,23 @@ function render(reset=false){$('connection').hidden=data.connected;$('sub-count'
  $('folders').replaceChildren(...data.folders.map(f=>new Option(f,f)));if(reset||!draft.length&&!dirty){draft=structuredClone(data.settings.subscriptions);artists()}
  for(const id of ['check','download','resume'])$(id).disabled=data.active||!data.connected||dirty;
  $('resume').disabled ||= !data.resumable;
- $('download').disabled ||= !data.counts.available||!data.checked_at;$('stop').disabled=!data.active;$('save').disabled=!dirty||data.active;
+ $('download').disabled ||= !data.counts.available||!data.checked_at;$('stop').disabled=!data.active;$('save').disabled=!dirty||data.active;changed();
  const next=data.next_check_at?new Date(data.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'due now';
  const checking=data.active&&data.job.action==='check';
  const pending=data.availability_claimed?[]:data.items.filter(i=>!i.completed);
  const count=pending.length,months=new Set(pending.map(i=>i.release_key)).size,artistsCount=new Set(pending.map(i=>i.creator_id)).size;
  const label=$('availability');
  const schedule=`Next check: ${next} · Every ${data.interval_hours} hours while this tool is open.`;
- label.textContent=!data.connected?'Connect your MMF account to check for downloads.':!data.settings.subscriptions.length?'Subscribe to MMF artists to check for downloads.':checking?'Checking for available downloads…':data.availability_claimed?schedule:count?`${count} files detected · ${months} releases · ${artistsCount} artists · ${schedule}`:data.job.action==='check'&&['error','interrupted'].includes(data.job.phase)?'Availability check incomplete · '+schedule:(data.checked_at?'Check complete — no new files found · ':'No downloads detected yet · ')+schedule;
- if(count&&!checking&&data.connected&&data.settings.subscriptions.length){const content=label.textContent,index=content.indexOf('detected');if(index>=0){const word=text('span','detected');word.className='detected-flash';label.replaceChildren(document.createTextNode(content.slice(0,index)),word,document.createTextNode(content.slice(index+8)))}}
+ const statusText=!data.connected?'Connect your MMF account to check for downloads.':!data.settings.subscriptions.length?'Subscribe to MMF artists to check for downloads.':checking?'Checking for available downloads…':data.availability_claimed?schedule:count?`${count} files detected · ${months} releases · ${artistsCount} artists · ${schedule}`:data.job.action==='check'&&['error','interrupted'].includes(data.job.phase)?'Availability check incomplete · '+schedule:(data.checked_at?'Check complete — no new files found · ':'No downloads detected yet · ')+schedule;
+ if(label.textContent!==statusText){
+  const index=count&&!checking&&data.connected&&data.settings.subscriptions.length?statusText.indexOf('detected'):-1;
+  if(index>=0){const word=text('span','detected');word.className='detected-flash';label.replaceChildren(document.createTextNode(statusText.slice(0,index)),word,document.createTextNode(statusText.slice(index+8)))}else label.textContent=statusText;
+ }
+
  const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('progress').hidden=!data.active;$('progress').value=job.expected?100*(job.bytes||0)/job.expected:job.total?100*(job.done||0)/job.total:0;$('metrics').textContent=[job.phase==='processing_pdfs'?'Processing PDF footer stamps':job.phase,data.active&&job.expected?(['unpacking','repacking','verifying_archive'].includes(job.phase)?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
 }
 async function refresh(reset=false){if(inFlight)return;inFlight=true;try{const oldActive=data?.active;data=await request('');render(reset||oldActive!==data.active&&!dirty)}catch(e){notice(e.message,true)}finally{inFlight=false}}
 async function act(action,payload={}){try{notice('Working…');await request(action,payload);notice(action==='save'?'Subscriptions saved.':'');if(action==='save'){dirty=false}await refresh(action==='save'||action==='login')}catch(e){notice(e.message,true)}}
 $('save').onclick=()=>act('save',{revision:data.settings.revision,subscriptions:draft});for(const action of ['check','download','resume','stop'])$(action).onclick=()=>act(action);
-$('search').oninput=artists;$('filter').onchange=()=>{page=0;queue()};$('previous').onclick=()=>{page--;queue()};$('next').onclick=()=>{page++;queue()};refresh(true);setInterval(()=>refresh(),3000);
+$('search').oninput=()=>{artistPage=0;artists()};$('subscription-filter').onchange=()=>{artistPage=0;artists()};$('artists-previous').onclick=()=>{artistPage--;artists()};$('artists-next').onclick=()=>{artistPage++;artists()};$('filter').onchange=()=>{page=0;queue()};$('previous').onclick=()=>{page--;queue()};$('next').onclick=()=>{page++;queue()};refresh(true);setInterval(()=>refresh(),3000);
 })();

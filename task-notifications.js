@@ -153,15 +153,17 @@
     if(!response.ok)throw Error();state=await response.json();
    }
    if(label){
-    label.hidden=!state.subscribed;
+    label.hidden=false;
     const result=state.files?`${state.files} files detected · ${state.releases} releases · ${state.creators} artists`:(state.errors.length?'Availability check incomplete':state.checked_at?'Check complete — no new files found':'No downloads detected yet');
-    label.textContent=state.checking?'Checking for available downloads…':state.deferred?'Next check: due now · Waiting for the current task to finish.':
+    let statusText=state.checking?'Checking for available downloads…':state.deferred?'Next check: due now · Waiting for the current task to finish.':
      `${result}${state.checked_at?' · Checked '+new Date(state.checked_at*1000).toLocaleString():''} · Next check: ${new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · Every ${state.interval_seconds/3600} hours while this tool is open.`;
-    if(state.claimed&&!state.checking){label.textContent=state.deferred?'Next check: due now · Waiting for the current task to finish.':'Next check: '+new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
-    if(state.errors.length&&state.files)label.textContent+=' · Some artists could not be checked.';
-    if(state.files&&!state.checking&&!state.deferred){
-     const content=label.textContent,index=content.indexOf('detected');
-     if(index>=0){const word=document.createElement('span');word.className='detected-flash';word.textContent='detected';label.replaceChildren(document.createTextNode(content.slice(0,index)),word,document.createTextNode(content.slice(index+8)))}
+    if(state.claimed&&!state.checking){statusText=state.deferred?'Next check: due now · Waiting for the current task to finish.':'Next check: '+new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+    if(state.errors.length&&state.files)statusText+=' · Some artists could not be checked.';
+    if(!state.subscribed)statusText='Subscribe to artists to check for downloads.';
+    if(label.textContent!==statusText){
+     const index=state.files&&!state.checking&&!state.deferred?statusText.indexOf('detected'):-1;
+     if(index>=0){const word=document.createElement('span');word.className='detected-flash';word.textContent='detected';label.replaceChildren(document.createTextNode(statusText.slice(0,index)),word,document.createTextNode(statusText.slice(index+8)))}
+     else label.textContent=statusText;
     }
    }
   }catch{if(label){label.hidden=false;label.textContent='Availability check unavailable; the browser will retry.'}}

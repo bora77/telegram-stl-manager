@@ -3,15 +3,12 @@ async function api(path, data) {
   const body=await response.json();if(!response.ok)throw Error(body.error||'Request failed');return body;
 }
 function savedSummary(){document.getElementById('saved-summary').textContent=`${savedSubscriptions.length} subscriptions saved · manual downloads only`;}
-function applySaved(){
+function applySaved(showSaved=false){
   selected={};for(const r of savedSubscriptions)selected[r.topic_url]=SelectionRules.migrate({...r,selection_version:2},inventory);
   try{localStorage.setItem('telegram-stl-selection',JSON.stringify(selected))}catch{}
-  render();renderSelections();setSaveStatus('Loaded saved subscriptions.');
+  if(showSaved){search.value='';subscriptionFilter.value='subscribed'}
+  render(showSaved);renderSelections();setSaveStatus(`Loaded ${savedSubscriptions.length} saved subscriptions.`);
 }
-document.getElementById('load-subscriptions').onclick=async()=>{
-  try{const data=await api('/api/subscriptions');savedSubscriptions=data.subscriptions;serverRevision=data.revision;const config=await api('/api/config');configRevision=config.revision;applySaved();savedSummary()}
-  catch(error){setSaveStatus(error.message,true)}
-};
 document.getElementById('save-subscriptions').onclick=async()=>{
   if(!serverReady||saving||!hasSubscriptionChanges())return;
   const entries=Object.values(selected),allowed=new Set(all.map(r=>r.topic_url));
@@ -22,7 +19,7 @@ document.getElementById('save-subscriptions').onclick=async()=>{
   try{
     const data=await api('/api/subscriptions',{revision:serverRevision,config_revision:configRevision,subscriptions:entries.map(SelectionRules.exportRecord)});
     serverRevision=data.revision;savedSubscriptions=data.subscriptions;savedSummary();render();
-    setSaveStatus(JSON.stringify(selected)===snapshot?'Subscriptions saved. Press Check and download all when ready.':'Subscriptions saved, but you have newer unsaved edits.');
+    setSaveStatus(JSON.stringify(selected)===snapshot?'Subscriptions saved. Press Check for downloads when ready.':'Subscriptions saved, but you have newer unsaved edits.');
     refreshQueue();
   }catch(error){setSaveStatus('Not saved: '+error.message,true)}
   finally{saving=false;renderSelections()}
@@ -112,7 +109,6 @@ async function refreshQueue(){
     resume.textContent='Resume';
     document.getElementById('download-start-help').hidden=queue.active||(!queue.can_resume&&!!queue.subscriptions_saved);
     document.getElementById('download-start-help').textContent=queue.active?'':queue.can_resume?'Resume uses this run’s saved artists, scope and folders, without rechecking finished artists. Completed files and verified local downloads are reused.':queue.subscriptions_saved?'':'Save at least one subscription to start.';
-    if(availability.checking){const help=document.getElementById('download-start-help');help.hidden=false;help.textContent='Checking subscribed artists for new files. Downloads will wait for you to press Download detected.'}
     const total=queue.progress_total??queue.bytes_total;
     const percent=total>0?Math.min(100,100*queue.bytes_downloaded/total):null;
     document.getElementById('queue-percent').textContent=stopped?'Stopped'+(percent==null?'':' at '+Math.floor(percent)+'%'):checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'% processed';
@@ -145,7 +141,7 @@ async function refreshQueue(){
     progress(document.getElementById('extraction-progress'),extraction.extraction_bytes||0,extraction.extraction_total||null);
     document.getElementById('extraction-status').textContent=extracting?(checkingParts?`${extraction.extraction_total?Math.round(100*extraction.extraction_bytes/extraction.extraction_total)+'% checked · ':''}${duration(extraction.extraction_seconds)} elapsed`:listingArchive?`${duration(extraction.extraction_seconds)} elapsed`:`${preparingParts?'Preparing parts':`${extraction.images_done||0}${extraction.images_total!=null?' / '+extraction.images_total:''} images`} · ${duration(extraction.extraction_seconds)} elapsed${extraction.extraction_total?' · '+bytes(extraction.extraction_bytes)+' / '+bytes(extraction.extraction_total):''}`):'';
     const verifying=queue.run.move_stage==='verifying';
-    document.getElementById('move-title').textContent=verifying?'Verifying file on Kronos':'Moving from local disk to Kronos';
+    document.getElementById('move-title').textContent=verifying?'Verifying file at destination':'Moving to destination folder';
     progress(document.getElementById('move-progress'),queue.run.copy_bytes||0,queue.run.copy_total||null);
     document.getElementById('move-status').textContent=moving?`${bytes(queue.run.copy_bytes)} / ${bytes(queue.run.copy_total)} · ${verifying?'Checking checksum':speed(queue.run.move_speed_bps)} · ${duration(queue.run.move_seconds)} elapsed · average ${speed(queue.run.move_average_bps)}`:'';
 
@@ -188,7 +184,7 @@ async function initialize(){
     let hasDraft=false;try{hasDraft=localStorage.getItem('telegram-stl-selection')!==null}catch{}
     if(!hasDraft)applySaved();else {render();renderSelections()}
     subscriptionFilter.disabled=false;
-    document.getElementById('load-subscriptions').disabled=false;savedSummary();
+    savedSummary();
     if(!config.available)setSaveStatus('The configured download folder is currently unavailable. You can save settings, but downloads must wait.');
   }catch(error){setSaveStatus('Cannot load saved settings: '+error.message,true)}
 }
@@ -209,7 +205,7 @@ document.getElementById('download-all').onclick=async()=>{
   if(runRequestPending)return;
   runRequestPending=true;document.getElementById('download-all').disabled=true;document.getElementById('download-all').textContent='Checking…';
   const help=document.getElementById('download-start-help');
-  try{const result=await api('/api/availability/check',{force:true});renderCheckingProgress(result);help.hidden=false;help.textContent=result.deferred?'Wait for the active task to finish, then check again.':'Checking for downloads…';window.dispatchEvent(new Event('availability-config-saved'))}
+  try{const result=await api('/api/availability/check',{force:true});renderCheckingProgress(result);help.hidden=!result.deferred;help.textContent=result.deferred?'Wait for the active task to finish, then check again.':'';window.dispatchEvent(new Event('availability-config-saved'))}
   catch(error){help.hidden=false;help.textContent=error.message}
   finally{runRequestPending=false}
 };

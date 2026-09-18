@@ -30,7 +30,7 @@ template = r'''<!doctype html>
 <section id="artists-view" aria-labelledby="artists-tab" hidden>
 <div class="artist-controls">
 <div class="filters"><label>Search creators<input id="search" type="search" placeholder="Creator name"></label><label>Subscription<select id="subscription-filter" disabled><option value="">All creators</option><option value="subscribed">Subscribed</option><option value="not_subscribed">Not subscribed</option></select></label></div>
-<div class="subscription-toolbar"><div><span id="selected-count"></span><small id="saved-summary"></small></div><div class="subscription-buttons"><button id="save-subscriptions" disabled>Save subscriptions</button><button id="load-subscriptions" disabled>Load saved subscriptions</button></div></div>
+<div class="subscription-toolbar"><div><span id="selected-count"></span><small id="saved-summary"></small></div><div class="subscription-buttons"><button id="save-subscriptions" disabled>Save subscriptions</button></div></div>
 <style>#save-status.save-error{color:#a12632;background:#fff0f1;border:1px solid #e4acb3;border-left:5px solid #bd283b;border-radius:8px;padding:12px 16px;font-weight:600;overflow-wrap:anywhere}</style>
 <p id="save-status" aria-live="polite"></p><datalist id="incoming-folders"></datalist>
 </div>
@@ -53,7 +53,7 @@ template = r'''<!doctype html>
 .subscription-toggle input:focus-visible+.subscription-track{outline:2px solid #7651a6;outline-offset:3px}
 @media(max-width:850px){.artist-controls{padding:20px}.artist-controls .filters{grid-template-columns:1fr}}
 </style>
-<div id="count" aria-live="polite"></div><div class="table"><table><thead><tr><th>Subscribe</th><th>Creator</th><th>Creator folder</th><th>Download scope</th></tr></thead><tbody id="rows"></tbody></table></div><nav><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></nav>
+<div id="count" aria-live="polite"></div><div class="table"><table><thead><tr><th>Subscribe</th><th>Creator</th><th>Creator folder</th><th>Download scope</th><th class="artist-info-heading">Info</th></tr></thead><tbody id="rows"></tbody></table></div><nav><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></nav>
 </section>
 __QUEUE__
 <style>[hidden]{display:none!important}input[type=checkbox]{min-width:0;width:18px;height:18px;accent-color:#7651a6}section{margin:40px 0}.subscription-toolbar{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#eeE8f5;border-radius:12px;padding:16px 20px}.table input[type=text]{min-width:200px;width:100%}.table select{width:100%;min-width:220px}.table input[type=month]{min-width:180px;width:100%;margin-top:8px}.table td:nth-child(2){min-width:250px}.table td:nth-child(3){min-width:270px}.table small{max-width:350px;overflow-wrap:anywhere}.table input:disabled,.table select:disabled{background:#f8f7fa;color:#908896}.changed{color:#936217}</style>

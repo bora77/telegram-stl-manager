@@ -16,6 +16,19 @@ class StoreTests(unittest.TestCase):
         for value in (0,169,True,'4',float('nan')):
             with self.assertRaises(ValueError):self.store.save_config({'revision':result['revision'],'download_directory':str(self.root),'mmf_availability_interval_hours':value})
 
+    def test_release_packaging_settings(self):
+        config=self.store.config()
+        self.assertEqual((config['release_compression_level'],config['release_volume_mib']),(7,4000))
+        payload={'revision':config['revision'],'download_directory':str(self.root),'release_compression_level':3,'release_volume_mib':1500}
+        result=self.store.save_config(payload)
+        self.assertEqual((result['release_compression_level'],result['release_volume_mib']),(3,1500))
+        for key,values in {'release_compression_level':[True,2,10,'7'],'release_volume_mib':[True,0,1.5,65537]}.items():
+            for value in values:
+                with self.subTest(key=key,value=value),self.assertRaises(ValueError):
+                    self.store.save_config({**payload,'revision':result['revision'],key:value})
+        result=self.store.save_config({'revision':result['revision'],'download_directory':str(self.root)})
+        self.assertEqual((result['release_compression_level'],result['release_volume_mib']),(3,1500))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

@@ -9,7 +9,7 @@ from subprocess import Popen, DEVNULL
 import sys
 import time
 from file_delivery import deliver, digest, release_lock
-from mmf_repack import repack, archive_name, VOLUME_BYTES, COMPRESSION_LEVEL, POLICY_VERSION
+from mmf_repack import repack, archive_name, POLICY_VERSION
 from mmf_images import fetch_images
 from release_images import safe_component, volume_key
 from telegram_cli import require_release_collage, CLIError
@@ -218,6 +218,10 @@ def start(manager,payload):
             title=group[0]['release_folder']+(f' Addendum {number}' if number else '')
             plan={'id':hashlib.sha256((key+':'+str(number)).encode()).hexdigest(),'release_key':key,'number':number,'title':title,'keys':[i['key'] for i in delta],'items':delta,'state':'pending','base':manager.store.config()['download_directory'],'folder':group[0]['folder'],'release_folder':group[0]['release_folder']}
             save(manager,plan)
+        config=manager.store.config()
+        plan.setdefault('compression_level',config['release_compression_level'])
+        plan.setdefault('volume_bytes',config['release_volume_mib']*1024*1024)
+        save(manager,plan)
         manager.put('stop',False);manager.put('job',{'phase':'starting','action':'package','release_key':key,'message':'Making '+plan['title'],'errors':[]})
         log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
         try:Popen([sys.executable,str(manager.root/'mmf_release_prepare.py'),str(manager.root),plan['id'],str(lock.fileno())],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
@@ -236,6 +240,9 @@ def verified(path,receipt,base):
 
 
 def execute(manager,plan):
+    config=manager.store.config()
+    compression=plan.get('compression_level',config['release_compression_level'])
+    volume_bytes=plan.get('volume_bytes',config['release_volume_mib']*1024*1024)
     work=manager.directory/'release-preparation'/plan['id'];work.mkdir(parents=True,exist_ok=True)
     def progress(phase,percent):
         if manager.stopped():raise ValueError('Preparation stopped. Use the same preparation button to resume.')
@@ -253,7 +260,7 @@ def execute(manager,plan):
             progress('verifying_inputs',0)
             outputs=[verified(r['path'],r,plan['base']) for r in manifest['outputs']]
             outputs.sort();prefixes=manifest.get('source_prefixes',{})
-            if len(manifests)==1 and manifest.get('compression_level')==COMPRESSION_LEVEL and manifest.get('policy_version')==POLICY_VERSION and set(manifest.get('source_keys',[]))==set(plan['keys']) and all(re.search(r'\.7z(?:\.\d{3,})?$',p.name,re.I) and p.stat().st_size<=VOLUME_BYTES for p in outputs):
+            if len(manifests)==1 and manifest.get('compression_level')==compression and manifest.get('policy_version')==POLICY_VERSION and set(manifest.get('source_keys',[]))==set(plan['keys']) and all(re.search(r'\.7z(?:\.\d{3,})?$',p.name,re.I) and p.stat().st_size<=volume_bytes for p in outputs):
                 reusable=outputs
             include=[]
             for item in selected[mid]:
@@ -266,7 +273,7 @@ def execute(manager,plan):
             packed=reusable
             manager.progress(phase='moving',message='Reusing verified archive · '+plan['title'],bytes=0,expected=0)
         else:
-            packed=repack(sources[0]['path'],work/'packed',plan['id'],progress,manager.stopped,sources=sources,release_name=plan['title'])
+            packed=repack(sources[0]['path'],work/'packed',plan['id'],progress,manager.stopped,compression_level=compression,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'])
         for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
             images.setdefault(record['path'],record)
         fallback=[] if images else fetch_images(manager.client(),plan['items'],work/'mmf-images',manager.stopped,progress)
@@ -283,7 +290,7 @@ def execute(manager,plan):
         for path in fallback:
             deliver(path,plan['base'],plan['folder'],plan['release_folder'],path.name,moving,subdirectories=('release_images',),release_directory=plan['release_folder'])
         require_release_collage(release_archive,action='making the release')
-        plan.update(state='complete',compression_level=COMPRESSION_LEVEL,outputs=outputs,directory=str(Path(plan['base'])/plan['folder']/plan['release_folder']/Path(*sub)),completed_at=time.time(),collage_included=True)
+        plan.update(state='complete',compression_level=compression,volume_bytes=volume_bytes,outputs=outputs,directory=str(Path(plan['base'])/plan['folder']/plan['release_folder']/Path(*sub)),completed_at=time.time(),collage_included=True)
         save(manager,plan)
         manager.progress(phase='complete',message=plan['title']+' prepared',bytes=100,expected=100)
 

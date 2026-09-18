@@ -1,11 +1,12 @@
 <section id="queue-view" aria-labelledby="queue-tab">
   <p id="availability-status" role="status" style="color:#654091;font-size:13px;margin:0 0 18px" hidden></p>
-  <p>Choose and save your subscribed artists, then press Check and download all to begin saving files. Use Download detected to download known available files without checking again. After the first run, only new files are downloaded.</p>
+  <p>Choose and save your subscribed artists, then check for downloads. Press Download detected to save the files found without checking again. Completed files are skipped.</p>
   <div class="queue-panel">
-  <div class="queue-actions"><button id="resume-downloads" hidden disabled aria-describedby="download-start-help">Resume download queue</button><button id="download-detected" disabled title="Download files found by the latest availability check, without checking subscriptions again.">Download detected</button><button id="download-all" disabled aria-describedby="download-start-help">Check and download all</button><span class="queue-secondary-actions"><button id="stop-downloads" hidden disabled>Stop run</button><a class="queue-nav" href="#artists">Manage artists</a></span></div>
+  <div class="queue-actions"><button id="download-detected" disabled title="Download files found by the latest availability check, without checking subscriptions again.">Download detected</button><button id="download-all" disabled aria-describedby="download-start-help">Check for downloads</button><button id="resume-downloads" disabled aria-describedby="download-start-help">Resume</button><span class="queue-secondary-actions"><button id="stop-downloads" disabled>Stop</button><a class="queue-nav" href="#artists">Manage artists</a></span></div>
   <small id="download-start-help">Save subscriptions, then start a manual run.</small>
+  <div id="availability-progress-panel" class="run-activity" data-active="true" hidden aria-live="polite"><strong>Checking for downloads</strong><p id="availability-current-artist"></p><div class="queue-metrics"><span id="availability-check-count"></span></div><progress id="availability-check-progress" max="100" aria-label="Artist checking progress"></progress></div>
   <div id="queue-details" hidden>
-  <div id="run-activity" class="run-activity" aria-live="polite"><strong id="run-phase">Ready</strong><span id="run-elapsed"></span><p id="run-detail">Press Check and download all to begin.</p>
+  <div id="run-activity" class="run-activity" aria-live="polite"><strong id="run-phase">Ready</strong><span id="run-elapsed"></span><p id="run-detail">Press Check for downloads to begin.</p>
   <div class="queue-overview"><div class="queue-total">
     <div class="queue-metrics"><strong id="queue-percent">0%</strong><span id="queue-files">0 files</span><span id="queue-bytes">No transfers yet</span></div>
     <progress id="queue-progress" max="100" value="0" aria-label="Overall download progress"></progress>
@@ -53,3 +54,7 @@
 @keyframes detected-flash{0%,100%{opacity:1}50%{opacity:.3}}
 @media(prefers-reduced-motion:reduce){.detected-flash{animation:none;text-decoration:underline}}
 </style>
+
+<style>#download-all.checking:before{content:"";display:inline-block;width:10px;height:10px;margin-right:7px;vertical-align:-1px;border:2px solid #ffffff66;border-top-color:white;border-radius:50%;animation:spin 1s linear infinite}@media(prefers-reduced-motion:reduce){#download-all.checking:before{animation:none}}</style>
+
+<style>#resume-downloads:disabled{background:white;border-color:#d8d3e0;color:rgba(16,16,16,.3)}</style>

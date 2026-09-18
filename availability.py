@@ -31,7 +31,7 @@ def eligible(sub, files):
 class Availability:
     def __init__(self,store):
         self.store=store;self.path=store.root/'data/availability.json'
-        self.lock=threading.RLock();self.running=False
+        self.lock=threading.RLock();self.running=False;self.progress={}
 
     def read(self):
         try:return json.loads(self.path.read_text())
@@ -50,7 +50,7 @@ class Availability:
             except (OSError,ValueError):run={}
             claimed=checked is not None and run.get('availability_checked_at')==checked
             if claimed:available=[]
-            return {'claimed':claimed,'checking':self.running,'interval_seconds':interval,'checked_at':checked,
+            return {'progress':dict(self.progress) if self.running else {},'claimed':claimed,'checking':self.running,'interval_seconds':interval,'checked_at':checked,
                     'next_check_at':checked+interval if checked is not None else 0,'files':len(available),
                     'releases':len({(i['topic_url'],i['month']) for i in available}),
                     'creators':len({i['topic_url'] for i in available}), 'subscribed':len(subs),
@@ -94,13 +94,13 @@ class Availability:
                    scan_warnings=saved.get('errors',[]),warnings=saved.get('errors',[]))
         return True
 
-    def start(self):
+    def start(self,force=False):
         with self.lock:
             status=self.status()
-            if self.running or not status['subscribed'] or time.time()<status['next_check_at']:return status
+            if self.running or not status['subscribed'] or (not force and time.time()<status['next_check_at']):return status
             queue=self.store.queue()
             if queue['active'] or queue['organizer_active']:return {**status,'deferred':True}
-            self.running=True
+            self.running=True;self.progress={"done":0,"total":status["subscribed"],"creator":""}
             threading.Thread(target=self.check,daemon=True,name='availability-check').start()
             return self.status()
 
@@ -111,12 +111,15 @@ class Availability:
             Organizer(self.store).dismiss_finished()
             subs=self.store.read()['subscriptions']
             client=TelegramCLI(root=self.store.root,config=self.store.config())
-            for sub in subs:
+            for index,sub in enumerate(subs):
+                with self.lock:self.progress={'done':index,'total':len(subs),'creator':sub['creator']}
                 try:
                     files=client.list_files(sub['topic_url'],incremental=True)
                     items.extend({**i,'topic_url':sub['topic_url']} for i in eligible(sub,files))
                 except Exception:
                     errors.append(sub['creator']+': availability could not be checked.')
+                finally:
+                    with self.lock:self.progress['done']=index+1
         except Exception:
             errors.append('Telegram availability check failed. Check the connection and CLI login.')
         finally:

@@ -110,7 +110,7 @@ class MMFManager:
         job=self.get('job',{});active=self.busy()
         if not active and job.get('phase') in ('checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs'):
             job={**job,'phase':'interrupted','message':'Task interrupted. Resume the saved queue.'}
-        checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()['availability_interval_hours']*3600
+        checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()['mmf_availability_interval_hours']*3600
         known=self.completed();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])
         from mmf_release_prepare import downloaded
         subscribed={str(s['id']) for s in settings.get('subscriptions',[])}
@@ -121,7 +121,7 @@ class MMFManager:
         resumable=any(i['key'] not in known for i in self.get('queue',[]))
         from mmf_release_prepare import preparation_status, release_lifecycle, release_collages
         prepared=preparation_status(self)
-        return {'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
+        return {'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
     def login(self,payload):
         with self.idle():
             groups=self.client().login(payload.get('username'),payload.get('password'))
@@ -150,14 +150,14 @@ class MMFManager:
             try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError:raise FileExistsError('An MMF task is already running.')
             if not self.session.exists():raise LoginRequired('Connect your MMF account first.')
-            if due and (self.get('auth_required',False) or time.time()<max(self.get('checked_at',0),self.get('attempted_at',0))+self.store.config()['availability_interval_hours']*3600):return {'started':False}
+            if due and (self.get('auth_required',False) or time.time()<max(self.get('checked_at',0),self.get('attempted_at',0))+self.store.config()['mmf_availability_interval_hours']*3600):return {'started':False}
             settings=self.get('settings',{})
             if not settings.get('subscriptions'):return {'started':False}
             if action=='download':
                 if not self.get('checked_at',0):raise MMFError('Check availability before starting downloads.')
                 known=self.completed();groups=releases(self.get('items',[]),self.store.config()['download_directory']);queue=[i for group in groups.values() if any(i['key'] not in known for i in group) for i in group]
                 if not queue:raise MMFError('No files are available in the selected scope.')
-                self.put('queue',queue);self.put('run_base',self.store.config()['download_directory'])
+                self.put('download_checked_at',self.get('checked_at',0));self.put('queue',queue);self.put('run_base',self.store.config()['download_directory'])
             if action=='resume' and not self.get('queue',[]):raise MMFError('No saved queue to resume.')
             if action=='check':self.put('attempted_at',time.time())
             self.put('stop',False);self.put('job',{'phase':'starting','action':action,'message':'Starting MMF task…','errors':[]})

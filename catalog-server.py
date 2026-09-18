@@ -4,6 +4,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
 import json
+import io
 from urllib.parse import unquote, urlsplit, parse_qs
 from subscription_store import SubscriptionStore
 from folder_organizer import Organizer
@@ -58,6 +59,20 @@ class Handler(SimpleHTTPRequestHandler):
         elif path not in ("/catalog.html", "/favicon.svg", "/data/creators.json", "/data/creators.csv") and not re.fullmatch(r"/data/toc-links/page-\d{3}\.png", path):
             self.send_error(404)
             return None
+        served_path=urlsplit(self.path).path
+        if served_path.endswith('.html'):
+            try:
+                content=(self.root/served_path.lstrip('/')).read_text()
+                enabled=self.store.config().get('mmf_beta_enabled') is True
+                if enabled:content=content.replace('id="mmf-nav-group" hidden','id="mmf-nav-group"')
+            except OSError:
+                self.send_error(404);return None
+            body=content.encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type','text/html; charset=utf-8')
+            self.send_header('Content-Length',str(len(body)))
+            self.end_headers()
+            return io.BytesIO(body)
         return super().send_head()
 
     def reply_json(self, data, code=200):
@@ -189,7 +204,7 @@ class Handler(SimpleHTTPRequestHandler):
                         finally:client.close()
                     self.reply_json(server_view(self.root));return
             if self.path=='/api/availability/check':
-                self.reply_json(AVAILABILITY.start());return
+                self.reply_json(AVAILABILITY.start(force=payload.get("force") is True));return
             if self.path.startswith('/api/organizer'):
                 organizer=Organizer(self.store)
                 if self.path.endswith(('/apply','/resume','/repair')):

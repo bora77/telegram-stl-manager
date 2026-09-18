@@ -19,16 +19,24 @@ main.app-main{max-width:1440px;margin:40px auto;padding:0 24px}
 .configuration-content{max-width:900px}
 @media(max-width:600px){main.app-main{margin:24px auto;padding:0 16px}.app-header{gap:16px}.app-navigation{display:grid;flex-basis:100%;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.app-navigation a{text-align:center;padding:12px 8px;font-size:14px}}
 @media(prefers-reduced-motion:reduce){.app-navigation a{transition:none}}
+
+.app-navigation{gap:10px}.nav-group{display:flex;flex-direction:column;gap:5px;border:1px solid #ded6e8;border-radius:12px;padding:7px;background:#f0ecf6}.nav-group-label{padding:0 8px;font-size:12px;font-weight:700;color:#706478;line-height:18px}.nav-group-links{display:flex;gap:4px}.nav-group-links a{padding:8px 12px}.app-navigation [hidden]{display:none!important}@media(max-width:600px){.nav-group-links a{flex:1;min-width:0;padding:8px 6px}.nav-group-label{text-align:center}.nav-group{align-self:stretch}}
+.detected-flash{font-weight:700;animation:detected-flash 1.6s ease-in-out infinite}@keyframes detected-flash{0%,100%{opacity:1}50%{opacity:.3}}@media(prefers-reduced-motion:reduce){.detected-flash{animation:none;text-decoration:underline}}
 </style>
 <script>__ARTIST_PROFILES__</script>
 <header class="app-header">
   <a class="app-brand" href="/" aria-label="Telegram STL manager home"><img src="/favicon.svg" width="44" height="44" alt=""><span><strong>Telegram STL manager</strong><small>Even chaos deserves a folder.</small></span></a>
   <nav class="app-navigation" aria-label="Main navigation">
-    <a id="queue-tab" href="__QUEUE_HREF__" __CURRENT_QUEUE__>Download queue</a>
-    <a id="artists-tab" href="__ARTISTS_HREF__" __CURRENT_ARTISTS__>Artists</a>
+    <div class="nav-group" role="group" aria-labelledby="telegram-nav-label">
+      <span class="nav-group-label" id="telegram-nav-label">Telegram</span>
+      <div class="nav-group-links"><a id="queue-tab" href="__QUEUE_HREF__" __CURRENT_QUEUE__>Queue</a><a id="artists-tab" href="__ARTISTS_HREF__" __CURRENT_ARTISTS__>Artists</a></div>
+    </div>
+    <div class="nav-group" id="mmf-nav-group" hidden role="group" aria-labelledby="mmf-nav-label">
+      <span class="nav-group-label" id="mmf-nav-label">MMF <span class="beta-badge">Beta</span></span>
+      <div class="nav-group-links"><a id="mmf-tab" href="/mmf#queue" __CURRENT_MMF__>Queue</a><a id="mmf-artists-tab" href="/mmf#artists">Artists</a></div>
+    </div>
     <a id="organize-tab" href="/organize" __CURRENT_ORGANIZE__>Organize folders</a>
     <a id="collages-tab" href="/collages" __CURRENT_COLLAGES__>Collages</a>
-    <a id="mmf-tab" hidden href="/mmf" __CURRENT_MMF__>MyMiniFactory <span class="beta-badge">Beta</span></a>
     <a id="config-tab" href="/config" __CURRENT_CONFIG__>Configuration</a>
   </nav>
   <span id="task-completion-announcement" class="task-announcement" role="status" aria-live="polite"></span>

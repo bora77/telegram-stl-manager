@@ -8,6 +8,14 @@ from subscription_store import SubscriptionStore
 from download_history import DownloadHistory
 
 class StoreTests(unittest.TestCase):
+    def test_separate_mmf_check_interval(self):
+        current=self.store.config()
+        result=self.store.save_config({'revision':current['revision'],'download_directory':str(self.root),'availability_interval_hours':8,'mmf_availability_interval_hours':2})
+        self.assertEqual(result['availability_interval_hours'],8)
+        self.assertEqual(self.store.config()['mmf_availability_interval_hours'],2)
+        for value in (0,169,True,'4',float('nan')):
+            with self.assertRaises(ValueError):self.store.save_config({'revision':result['revision'],'download_directory':str(self.root),'mmf_availability_interval_hours':value})
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

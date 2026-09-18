@@ -20,6 +20,23 @@ class MMFTests(unittest.TestCase):
         self.manager.put('creators',[{'id':1,'name':'Example Creator'}])
         self.item={'object_id':22,'archive_id':33,'size':3,'updated_at':'v1','filename':'January2025_Model.zip','creator':'Example Creator','creator_id':1,'folder':'Example Creator','month':'2025-01','release':'January 2025','object_name':'Model','start_month':''}
         self.item['key']=version_key(self.item)
+    def test_mmf_check_interval_is_independent_and_download_claims_notification(self):
+        config=self.store.config()
+        self.store.atomic_write(self.store.config_path,{**config,'availability_interval_hours':12,'mmf_availability_interval_hours':1})
+        self.manager.put('checked_at',1000)
+        self.manager.put('settings',{'revision':1,'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':''}]})
+        self.manager.session.touch()
+        state=self.manager.state();self.assertEqual(state['next_check_at'],4600);self.assertEqual(state['interval_hours'],1)
+        with patch('mmf_manager.time.time',return_value=5000),patch('mmf_manager.subprocess.Popen') as launch:
+            self.assertTrue(self.manager.start('check',due=True)['started'])
+            self.assertFalse(self.manager.start('check',due=True)['started'])
+            self.assertEqual(launch.call_count,1)
+        self.manager.put('items',[self.item])
+        with patch('mmf_manager.subprocess.Popen'):self.manager.start('download')
+        self.assertTrue(self.manager.state()['availability_claimed'])
+        self.manager.put('checked_at',6000)
+        self.assertFalse(self.manager.state()['availability_claimed'])
+
     def test_existing_artist_prefixed_release_is_used_for_mmf(self):
         from mmf_manager import releases
         existing=self.root/'Example Creator'/'Example Creator 2025-01';existing.mkdir(parents=True)

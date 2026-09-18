@@ -154,7 +154,7 @@
    }
    if(label){
     label.hidden=!state.subscribed;
-    const result=state.files?`${state.files} files detected · ${state.releases} releases · ${state.creators} artists`:(state.errors.length?'Availability check incomplete':'No downloads available');
+    const result=state.files?`${state.files} files detected · ${state.releases} releases · ${state.creators} artists`:(state.errors.length?'Availability check incomplete':state.checked_at?'Check complete — no new files found':'No downloads detected yet');
     label.textContent=state.checking?'Checking for available downloads…':state.deferred?'Next check: due now · Waiting for the current task to finish.':
      `${result}${state.checked_at?' · Checked '+new Date(state.checked_at*1000).toLocaleString():''} · Next check: ${new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · Every ${state.interval_seconds/3600} hours while this tool is open.`;
     if(state.claimed&&!state.checking){label.textContent=state.deferred?'Next check: due now · Waiting for the current task to finish.':'Next check: '+new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
@@ -167,21 +167,21 @@
   }catch{if(label){label.hidden=false;label.textContent='Availability check unavailable; the browser will retry.'}}
   finally{busy=false}
  }
- function start(){window.addEventListener('availability-config-saved',pollAvailability);window.addEventListener('download-started',pollAvailability);pollAvailability();setInterval(pollAvailability,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollAvailability()})}
+ function start(){window.addEventListener('telegram-availability-updated',pollAvailability);window.addEventListener('availability-config-saved',pollAvailability);window.addEventListener('download-started',pollAvailability);pollAvailability();setInterval(pollAvailability,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollAvailability()})}
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();
 
 /* MMF beta is opt-in. Hidden by default, including automatic checks. */
 (()=>{
  window.mmfBetaEnabled=false;
- function apply(config){const enabled=config.mmf_beta_enabled===true;window.mmfBetaEnabled=enabled;const tab=document.getElementById('mmf-tab'),account=document.getElementById('mmf-account');if(tab)tab.hidden=!enabled;if(account)account.hidden=!enabled;window.dispatchEvent(new Event('mmf-beta-changed'))}
+ function apply(config){const enabled=config.mmf_beta_enabled===true;window.mmfBetaEnabled=enabled;const tab=document.getElementById('mmf-nav-group'),account=document.getElementById('mmf-account');if(tab)tab.hidden=!enabled;if(account)account.hidden=!enabled;window.dispatchEvent(new Event('mmf-beta-changed'))}
  async function refresh(){try{const r=await fetch('/api/config',{cache:'no-store'});if(r.ok)apply(await r.json())}catch{}}
  window.addEventListener('beta-config-saved',e=>apply(e.detail));
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
  refresh();setInterval(refresh,60000);
 })();
 /* MMF availability is requested only while a manager page is open. */
-(()=>{let busy=false;async function check(){if(busy||!window.mmfBetaEnabled)return;busy=true;try{const response=await fetch('/api/mmf/status',{cache:'no-store'});if(!response.ok)return;const state=await response.json();const link=document.getElementById('mmf-tab');if(link)link.title=state.counts.available+' MMF files available';if(state.connected&&!state.active&&state.settings.subscriptions.length&&Date.now()/1000>=state.next_check_at)await fetch('/api/mmf/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({due:true})})}catch{}finally{busy=false}}check();setInterval(check,60000)})();
+(()=>{let busy=false;async function check(){if(busy||!window.mmfBetaEnabled)return;busy=true;try{const response=await fetch('/api/mmf/status',{cache:'no-store'});if(!response.ok)return;const state=await response.json();const link=document.getElementById('mmf-tab');if(link)link.title=state.counts.available+' MMF files available';if(state.connected&&!state.active&&state.settings.subscriptions.length&&Date.now()/1000>=state.next_check_at)await fetch('/api/mmf/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({due:true})})}catch{}finally{busy=false}}window.addEventListener('mmf-beta-changed',check);window.addEventListener('availability-config-saved',check);check();setInterval(check,60000)})();
 
 /* Initial setup is also enforced by the server for direct links and APIs. */
 (()=>{

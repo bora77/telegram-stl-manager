@@ -1,6 +1,14 @@
 (()=>{
 const $=id=>document.getElementById(id);let data=null,draft=[],dirty=false,page=0,inFlight=false;
 const expandedReleases=new Set();let queueSignature='';
+function showMMFView(){
+ const artists=location.hash==='#artists';
+ $('availability').hidden=artists;$('subscriptions').hidden=!artists;$('mmf-download-controls').hidden=artists;$('mmf-releases').hidden=artists;
+ for(const [id,active] of [['mmf-artists-tab',artists],['mmf-tab',!artists]]){const link=$(id);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}
+ document.title='Telegram STL manager · MMF '+(artists?'Artists':'Queue');
+}
+window.addEventListener('hashchange',showMMFView);showMMFView();
+
 const text=(tag,value)=>{const n=document.createElement(tag);n.textContent=value;return n};
 async function request(action,payload){const r=await fetch('/api/mmf'+(action?'/'+action:''),{cache:'no-store',...(payload!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value}
 function notice(value,error=false){$('notice').textContent=value;$('notice').className=error?'error':''}
@@ -101,7 +109,14 @@ function render(reset=false){$('connection').hidden=data.connected;$('sub-count'
  for(const id of ['check','download','resume'])$(id).disabled=data.active||!data.connected||dirty;
  $('resume').disabled ||= !data.resumable;
  $('download').disabled ||= !data.counts.available||!data.checked_at;$('stop').disabled=!data.active;$('save').disabled=!dirty||data.active;
- const next=data.next_check_at?new Date(data.next_check_at*1000).toLocaleString():'Due now';const releases=releaseGroups();const pending=releases.filter(g=>!data.release_lifecycle?.[g.key]?.finished).length;$('availability').textContent=`${pending} open tasks · ${releases.length-pending} finished releases · Next check: ${next}`;
+ const next=data.next_check_at?new Date(data.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'due now';
+ const checking=data.active&&data.job.action==='check';
+ const pending=data.availability_claimed?[]:data.items.filter(i=>!i.completed);
+ const count=pending.length,months=new Set(pending.map(i=>i.release_key)).size,artistsCount=new Set(pending.map(i=>i.creator_id)).size;
+ const label=$('availability');
+ const schedule=`Next check: ${next} · Every ${data.interval_hours} hours while this tool is open.`;
+ label.textContent=!data.connected?'Connect your MMF account to check for downloads.':!data.settings.subscriptions.length?'Subscribe to MMF artists to check for downloads.':checking?'Checking for available downloads…':data.availability_claimed?schedule:count?`${count} files detected · ${months} releases · ${artistsCount} artists · ${schedule}`:data.job.action==='check'&&['error','interrupted'].includes(data.job.phase)?'Availability check incomplete · '+schedule:(data.checked_at?'Check complete — no new files found · ':'No downloads detected yet · ')+schedule;
+ if(count&&!checking&&data.connected&&data.settings.subscriptions.length){const content=label.textContent,index=content.indexOf('detected');if(index>=0){const word=text('span','detected');word.className='detected-flash';label.replaceChildren(document.createTextNode(content.slice(0,index)),word,document.createTextNode(content.slice(index+8)))}}
  const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('progress').hidden=!data.active;$('progress').value=job.expected?100*(job.bytes||0)/job.expected:job.total?100*(job.done||0)/job.total:0;$('metrics').textContent=[job.phase==='processing_pdfs'?'Processing PDF footer stamps':job.phase,data.active&&job.expected?(['unpacking','repacking','verifying_archive'].includes(job.phase)?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
 }
 async function refresh(reset=false){if(inFlight)return;inFlight=true;try{const oldActive=data?.active;data=await request('');render(reset||oldActive!==data.active&&!dirty)}catch(e){notice(e.message,true)}finally{inFlight=false}}

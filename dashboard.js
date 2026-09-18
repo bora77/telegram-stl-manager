@@ -74,24 +74,45 @@ async function corruptFileAction(runId,fileId,ignore){
   }catch(error){errorMessage=error.message}
   finally{runRequestPending=false;await refreshQueue();if(errorMessage)document.getElementById('run-detail').textContent=errorMessage}
 }
+let checkingProgressActive=false,checkingProgressBusy=false;
+function renderCheckingProgress(availability){
+    checkingProgressActive=!!availability.checking;
+    document.getElementById('availability-progress-panel').hidden=!availability.checking;
+    const checkProgress=availability.progress||{};
+    document.getElementById('availability-current-artist').textContent=checkProgress.creator||'Checking subscribed artists…';
+    document.getElementById('availability-check-count').textContent=checkProgress.total?`${checkProgress.done} / ${checkProgress.total} artists checked`:'';
+    progress(document.getElementById('availability-check-progress'),checkProgress.done||0,checkProgress.total||null);
+}
+setInterval(async()=>{
+  if(!checkingProgressActive||checkingProgressBusy)return;
+  checkingProgressBusy=true;
+  try{const availability=await api('/api/availability');renderCheckingProgress(availability);if(!availability.checking)await refreshQueue()}
+  catch{}finally{checkingProgressBusy=false}
+},500);
+let availabilityDisplayKey=null;
 async function refreshQueue(){
   try{
     const [queue,availability]=await Promise.all([api('/api/queue'),api('/api/availability').catch(()=>({files:0}))]);
+    const availabilityKey=JSON.stringify([availability.checking,availability.checked_at,availability.files,availability.claimed]);
+    if(availabilityKey!==availabilityDisplayKey){availabilityDisplayKey=availabilityKey;window.dispatchEvent(new Event('telegram-availability-updated'))}
+    const checkButton=document.getElementById('download-all');checkButton.textContent=availability.checking?'Checking…':'Check for downloads';checkButton.classList.toggle('checking',!!availability.checking);checkButton.setAttribute('aria-busy',String(!!availability.checking));
+    renderCheckingProgress(availability);
     if(queue.active||queue.can_resume)revealQueue();
-    document.getElementById('queue-details').hidden=!queueDetailsShown;
-    document.getElementById('stop-downloads').hidden=!queue.active;
+    document.getElementById('queue-details').hidden=availability.checking||!queueDetailsShown;
+    document.getElementById('stop-downloads').hidden=false;
     document.getElementById('review-details').hidden=!(queue.run.warnings?.length);
     document.getElementById('recent-details').hidden=!(queue.recent_completed?.length);
     renderRunActivity(queue);
     const checking=['starting','scanning'].includes(queue.worker_state),emptyFinished=['completed','needs_review'].includes(queue.worker_state)&&queue.total_files===0;
     const stopped=['failed','interrupted','stopped'].includes(queue.worker_state);
     document.getElementById('download-detected').disabled=!queue.can_start||saving||runRequestPending||!availability.files;
-    document.getElementById('download-all').disabled=!queue.can_start||saving||runRequestPending;document.getElementById('stop-downloads').disabled=!queue.active;
+    document.getElementById('download-all').disabled=queue.active||!queue.subscriptions_saved||availability.checking||saving||runRequestPending;document.getElementById('stop-downloads').disabled=!queue.active;
     resumableRunId=queue.can_resume?queue.run.id:null;
-    const resume=document.getElementById('resume-downloads');resume.hidden=!queue.can_resume;resume.disabled=!queue.can_resume||saving||runRequestPending;
-    resume.textContent=queue.worker_state==='needs_review'?'Resume unfinished downloads':'Resume download queue';
+    const resume=document.getElementById('resume-downloads');resume.hidden=false;resume.disabled=!queue.can_resume||availability.checking||saving||runRequestPending;
+    resume.textContent='Resume';
     document.getElementById('download-start-help').hidden=queue.active||(!queue.can_resume&&!!queue.subscriptions_saved);
     document.getElementById('download-start-help').textContent=queue.active?'':queue.can_resume?'Resume uses this run’s saved artists, scope and folders, without rechecking finished artists. Completed files and verified local downloads are reused.':queue.subscriptions_saved?'':'Save at least one subscription to start.';
+    if(availability.checking){const help=document.getElementById('download-start-help');help.hidden=false;help.textContent='Checking subscribed artists for new files. Downloads will wait for you to press Download detected.'}
     const total=queue.progress_total??queue.bytes_total;
     const percent=total>0?Math.min(100,100*queue.bytes_downloaded/total):null;
     document.getElementById('queue-percent').textContent=stopped?'Stopped'+(percent==null?'':' at '+Math.floor(percent)+'%'):checking?'Checking files…':emptyFinished?'No files queued':percent==null?(queue.total_files?'—':'0%'):Math.floor(percent)+'% processed';
@@ -184,7 +205,14 @@ async function startDownload(mode){
   catch(error){document.getElementById('run-phase').textContent='Could not start';document.getElementById('run-detail').textContent=error.message;document.getElementById('run-activity').dataset.active='false';button.disabled=false}
   finally{runRequestPending=false}
 };
-document.getElementById('download-all').onclick=()=>startDownload('all');
+document.getElementById('download-all').onclick=async()=>{
+  if(runRequestPending)return;
+  runRequestPending=true;document.getElementById('download-all').disabled=true;document.getElementById('download-all').textContent='Checking…';
+  const help=document.getElementById('download-start-help');
+  try{const result=await api('/api/availability/check',{force:true});renderCheckingProgress(result);help.hidden=false;help.textContent=result.deferred?'Wait for the active task to finish, then check again.':'Checking for downloads…';window.dispatchEvent(new Event('availability-config-saved'))}
+  catch(error){help.hidden=false;help.textContent=error.message}
+  finally{runRequestPending=false}
+};
 document.getElementById('download-detected').onclick=()=>startDownload('detected');
 document.getElementById('resume-downloads').onclick=async()=>{
   if(!resumableRunId||runRequestPending)return;

@@ -65,6 +65,19 @@ class AvailabilityTests(unittest.TestCase):
             with patch('availability.time.time',return_value=20000),patch('availability.threading.Thread') as thread:
                 self.assertTrue(checker.start()['deferred']);thread.assert_not_called()
 
+    def test_manual_check_bypasses_interval_but_respects_active_tasks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store,checker=self.setup(Path(temp))
+            store.atomic_write(checker.path,{'subscriptions':[SUB],'items':[],'checked_at':1000})
+            with patch('availability.time.time',return_value=1001),patch('availability.threading.Thread') as thread:
+                checker.start();thread.assert_not_called()
+                store.queue.return_value['active']=True
+                self.assertTrue(checker.start(force=True)['deferred']);thread.assert_not_called()
+                store.queue.return_value['active']=False
+                checker.start(force=True);checker.start(force=True)
+                thread.assert_called_once()
+                self.assertEqual(thread.call_args.kwargs['target'],checker.check)
+
     def test_failed_scan_does_not_report_all_clear_and_changed_scope_invalidates(self):
         with tempfile.TemporaryDirectory() as temp:
             store,checker=self.setup(Path(temp))

@@ -35,6 +35,7 @@ class SubscriptionStore:
         data.setdefault('download_bandwidth_target_mbps',28)
         data.setdefault('adaptive_downloads',True)
         data.setdefault('availability_interval_hours',4)
+        data.setdefault('mmf_availability_interval_hours',4)
         return data
 
     def atomic_write(self, path, data):
@@ -85,9 +86,12 @@ class SubscriptionStore:
             interval=payload.get('availability_interval_hours',current['availability_interval_hours'])
             if type(interval) not in (int,float) or not math.isfinite(interval) or not .25<=interval<=168:
                 raise ValueError('Choose an availability check interval between 0.25 and 168 hours.')
+            mmf_interval=payload.get('mmf_availability_interval_hours',current['mmf_availability_interval_hours'])
+            if type(mmf_interval) not in (int,float) or not math.isfinite(mmf_interval) or not .25<=mmf_interval<=168:
+                raise ValueError('Choose an MMF check interval between 0.25 and 168 hours.')
             adaptive=payload.get('adaptive_downloads',current['adaptive_downloads'])
             if type(adaptive) is not bool:raise ValueError('Choose whether adaptive parallel downloads are enabled.')
-            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval}
+            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval,'mmf_availability_interval_hours':mmf_interval}
             self.atomic_write(self.config_path,data)
             return data
 

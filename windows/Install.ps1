@@ -1,5 +1,26 @@
+param([switch]$MachineSetup)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'Continue'
+# Only machine prerequisites run elevated. WSL registration and shortcuts remain
+# owned by the original user, even when UAC asks for another admin's credentials.
+if ($MachineSetup) {
+    try {
+        $Principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+        if (!$Principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Administrator approval is required for Windows setup.' }
+        Write-Host 'Checking Windows Subsystem for Linux (administrator)...'
+        Write-Host '> wsl.exe --status'
+        & cmd.exe /d /c 'wsl.exe --status 2>&1' | ForEach-Object { $_ -replace "`0", '' }
+        if ($LASTEXITCODE -eq 0) { exit 0 }
+        Write-Host '> wsl.exe --install --no-distribution'
+        & wsl.exe --install --no-distribution
+        if ($LASTEXITCODE -notin @(0,3010)) { throw 'WSL installation did not finish. Retry setup after correcting the error shown above.' }
+        exit 3010
+    } catch {
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        Read-Host 'Press Enter to close'
+        exit 1
+    }
+}
 $Distro = 'TelegramSTL'
 $HomeDir = Join-Path $env:LOCALAPPDATA 'TelegramSTLManager'
 $Installer = Join-Path $HomeDir 'installer'
@@ -24,22 +45,17 @@ try {
     $Payload = Join-Path $Support 'telegram-stl-linux-x64.tar.gz'
     $Expected = ((Get-Content ($Payload + '.sha256') -Raw).Trim() -split '\s+')[0]
     if ((Get-FileHash $Payload -Algorithm SHA256).Hash -ne $Expected) { throw 'Application package checksum failed. Download the package again.' }
-    # Windows PowerShell 5 treats native stderr as a terminating error under
-    # Stop, even with 2>$null. Probe via cmd so we can handle the exit code.
-    Write-Host 'Checking Windows Subsystem for Linux...'
-    Write-Host '> wsl.exe --status'
-    & cmd.exe /d /c 'wsl.exe --status 2>&1' | ForEach-Object { $_ -replace "`0", '' }
-    if ($LASTEXITCODE -ne 0) {
+    Write-Host 'Requesting Windows administrator approval. Choose Yes in the prompt.'
+    $MachineArguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $Support 'Install.ps1') + '" -MachineSetup'
+    $Process = Start-Process -FilePath "$PSHOME\powershell.exe" -ArgumentList $MachineArguments -Verb RunAs -Wait -PassThru
+    if ($Process.ExitCode -eq 3010) {
         New-Item -Force $RunOnce | Out-Null
         New-ItemProperty $RunOnce -Name 'TelegramSTLSetup' -Value $Resume -PropertyType String -Force | Out-Null
-        Write-Host 'Enabling Windows Subsystem for Linux. Accept the Windows administrator prompt.'
-        Write-Host '> wsl.exe --install --no-distribution (administrator)'
-        $Process = Start-Process wsl.exe -ArgumentList '--install --no-distribution' -Verb RunAs -Wait -PassThru
-        if ($Process.ExitCode -notin @(0,3010)) { throw 'WSL installation did not finish. Setup will resume after your next Windows sign-in.' }
         Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.MessageBox]::Show('Restart Windows to finish enabling WSL. Telegram STL setup will continue at your next sign-in.','Telegram STL Manager') | Out-Null
         exit 0
     }
+    if ($Process.ExitCode -ne 0) { throw 'Windows prerequisite setup failed. Review the administrator console output and run Install.cmd again.' }
     $Installed = ((& wsl.exe --list --quiet) -replace "`0", '')
     if ($Installed -notcontains $Distro) {
         $Image = Join-Path $Installer $WslImage

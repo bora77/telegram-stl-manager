@@ -16,7 +16,9 @@ try {
     $Log = Join-Path $PSScriptRoot ('manager-' + $Stamp + '.log')
     Write-Host '> wsl.exe -d TelegramSTL -u stl --exec bash /home/stl/telegram-stl/windows/session.sh'
     $QuotedLog = $Log.Replace("'", "''")
-    $ConsoleCommand = "& wsl.exe -d TelegramSTL -u stl --exec bash /home/stl/telegram-stl/windows/session.sh 2>&1 | Tee-Object -FilePath '$QuotedLog'"
+    # Merge native output in cmd, before PowerShell sees it. Windows PowerShell
+    # otherwise renders ordinary Python HTTP access logs as NativeCommandError.
+    $ConsoleCommand = "& cmd.exe /d /c 'wsl.exe -d TelegramSTL -u stl --exec bash /home/stl/telegram-stl/windows/session.sh 2>&1' | Tee-Object -FilePath '$QuotedLog'; if (`$LASTEXITCODE -ne 0) { Write-Host ('Telegram STL Manager stopped with exit code ' + `$LASTEXITCODE + '. See: $QuotedLog') -ForegroundColor Red }"
     $EncodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($ConsoleCommand))
     Start-Process powershell.exe -ArgumentList @('-NoProfile','-NoExit','-EncodedCommand',$EncodedCommand)
     $Ready = $false

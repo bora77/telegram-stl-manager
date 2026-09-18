@@ -326,6 +326,12 @@ browser. No manual WSL configuration is required. Installation, reboot continuat
 reset, reinstallation and uninstall were tested in a Windows 11 VM, including
 preservation of download files. See `INSTALL.md` for validation scope and limitations.
 
+After installation finishes, close any remaining **Welcome to WSL** window and
+completed installer PowerShell windows. Keep the PowerShell window running
+**Telegram STL Manager** open or minimized: closing it can stop the server and
+interrupt transfers. Use the app in your normal Windows browser at
+`http://127.0.0.1:6093`.
+
 The Git pre-commit hook increments the patch version in `VERSION` for each commit
 and refreshes the version shown beside the app copyright. Enable the repository
 hooks with `git config core.hooksPath .githooks` when cloning for development.

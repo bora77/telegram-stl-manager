@@ -4,7 +4,7 @@ Download and extract `Telegram-STL-Manager-Windows.zip`, then double-click
 `Install.cmd`. This Intel/AMD x64 test package enables WSL when necessary,
 imports a dedicated `TelegramSTL` Ubuntu environment, installs its dependencies,
 and creates desktop Start/Stop shortcuts. Internet access is needed for Ubuntu
-and OS package downloads. Accept Windows administrator approval if requested;
+and OS package downloads. Setup requests Windows administrator approval automatically; choose Yes. No right-click or “Run as administrator” is needed;
 if Windows needs a restart, setup continues at the next sign-in. An existing
 Ubuntu installation and global WSL settings are not modified.
 
@@ -30,6 +30,12 @@ installation is required. Local downloads work without a network share.
 Setup displays WSL commands, Ubuntu download progress and speed, and dependency
 installation output. Application startup opens a visible console and saves its
 output to a log. Passwords and session contents are not printed.
+
+After installation finishes, close any remaining **Welcome to WSL** window and
+completed installer PowerShell windows. Keep the PowerShell window running
+**Telegram STL Manager** open or minimized: closing it can stop the server and
+interrupt transfers. Use the app in your normal Windows browser at
+`http://127.0.0.1:6093`.
 
 The runtime is bundled; Ubuntu is downloaded from Canonical with a pinned SHA-256.
 The installer and launcher are currently unsigned and are a Windows test build:

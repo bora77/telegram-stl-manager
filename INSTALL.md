@@ -232,7 +232,7 @@ For a Windows Downloads folder, the archive path might be
 ### Check either installation route
 
 ```bash
-ls catalog-server.py build-catalog.py templates/app-layout.html \
+ls app/catalog_server.py tools/build-catalog.py templates/app-layout.html \
   examples/source.example.json examples/creators.example.json \
   .tools/tdl-stl/src/go.work .tools/tdl-stl/gotd/go.mod
 ```
@@ -395,8 +395,8 @@ without a Telegram source.
 Generate the pages and check the local code:
 
 ```bash
-python3 build-catalog.py
-python3 -m unittest discover -p 'test_*.py'
+python3 tools/build-catalog.py
+python3 -m unittest discover -s tests -t .
 ```
 
 The page builder should generate three HTML pages and the creators CSV from the
@@ -578,7 +578,7 @@ to use locally; no source is supplied or inferred by the installer.
    is a local setup step. An empty creator list is valid until you are ready.
 3. `data/incoming-folders.json` may keep its empty folder list initially. The
    Configuration page reads the chosen destination's directories at runtime.
-4. Run `python3 build-catalog.py` again after changing the local catalog. Do not
+4. Run `python3 tools/build-catalog.py` again after changing the local catalog. Do not
    change the configured source while a worker is active. A change of source
    should use a fresh local installation/state directory to keep catalogs,
    subscriptions, transfer receipts and history consistent.
@@ -619,7 +619,7 @@ again only to replace/repair the login deliberately, with all workers stopped;
 From the project directory, run in the foreground first:
 
 ```bash
-python3 catalog-server.py
+python3 -m app.catalog_server
 ```
 
 Open **http://127.0.0.1:6093/**. On Windows, use the same URL in your Windows
@@ -746,7 +746,7 @@ This generator refuses to overwrite an existing unit:
 python3 - <<'PY'
 from pathlib import Path
 root = Path.cwd().resolve()
-assert (root / 'catalog-server.py').is_file(), 'Run from the project directory.'
+assert (root / 'app/catalog_server.py').is_file(), 'Run from the project directory.'
 assert not any(c in str(root) for c in '\n\r'), 'Use a project path without line breaks.'
 def quote(value):
     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%').replace('$', '$$') + '"'
@@ -754,7 +754,7 @@ unit = Path.home() / '.config/systemd/user/telegram-stl-catalog.service'
 unit.parent.mkdir(parents=True, exist_ok=True)
 text = ('[Unit]\nDescription=Telegram STL manager web interface and manual downloader\nAfter=network.target\n\n'
         '[Service]\nType=simple\nWorkingDirectory=' + str(root).replace('%', '%%') + '\n'
-        'ExecStart=/usr/bin/python3 ' + quote(root / 'catalog-server.py') + '\n'
+        'ExecStart=/usr/bin/python3 -m app.catalog_server' + '\n'
         'UMask=0077\nRestart=on-failure\nRestartSec=3\n\n'
         '[Install]\nWantedBy=default.target\n')
 with unit.open('x') as out:
@@ -785,7 +785,7 @@ command keeps an ordinary Linux process running while the service operates.
 Keep the task running, disable any automatic execution-time limit for that task,
 and test startup after a Windows login. Windows sleep/shutdown still interrupts
 work; systemd is not a guarantee against WSL termination. If services are not
-wanted, simply run `python3 catalog-server.py` in an open Ubuntu terminal instead.
+wanted, simply run `python3 -m app.catalog_server` in an open Ubuntu terminal instead.
 
 ## 10. Backup, migration and troubleshooting
 

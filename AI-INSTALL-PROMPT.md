@@ -128,7 +128,7 @@ Follow these requirements:
    rather than including authentication in an installation package.
 
 10. **Run and verify the web app.** Regenerate pages with
-    `python3 build-catalog.py`. Start `python3 catalog-server.py` as the normal
+    `python3 tools/build-catalog.py`. Start `python3 -m app.catalog_server` as the normal
     Linux user, confirm `http://127.0.0.1:6093/` loads, and check Queue, Artists,
     Organize folders, Collages and Configuration with consistent navigation. On Windows,
     also check the same URL from the Windows browser. Set the chosen Linux

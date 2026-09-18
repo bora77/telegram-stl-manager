@@ -364,3 +364,14 @@ MMF repackaging excludes known operating-system metadata such as `__MACOSX`, App
 PDF footer processing is a **modified adaptation of PDFCleaner by RC**. Credit for the original tool and its footer-stamp profiles belongs to RC. This integration uses [pypdf content operations](https://pypdf.readthedocs.io/en/latest/modules/generic.html) instead of the original desktop GUI and PyMuPDF pipeline. It recognizes the known bottom-left order stamp and dark footer badge/text patterns. It does not remove arbitrary white text, small images, document metadata, or unknown watermark types, and does not rasterize pages. PDFs without a recognized stamp remain byte-identical. Processing failures stop that release's repackaging and retain the source.
 
 Repack receipts record changed PDF pages/profiles, before/after hashes and additional metadata files omitted. An archive created with an older processing policy is not reused for a new repack under this policy. Already delivered releases are not rewritten automatically.
+
+### Source layout
+
+Application modules live in `app/`, automated tests in `tests/`, and build and
+packaging utilities in `tools/`. Windows integration stays in `windows/`; Docker
+launchers stay in `docker/`. Local settings, databases and generated state remain
+in `data/`, outside version control. Downloads keep their configured locations.
+
+Start a bundled installation with `start.sh`. For source development, run
+`python3 tools/build-catalog.py` and `python3 -m app.catalog_server` from the project
+root. Run the Python test suite with `python3 -m unittest discover -s tests -t .`.

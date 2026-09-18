@@ -7,7 +7,7 @@ runtime=ROOT/'dist/telegram-stl-linux-x64.tar.gz'
 if not runtime.is_file():raise SystemExit('Build the runtime first with tools/package-runtime.py')
 # Reject stale runtime payloads: the installer must contain the current public files.
 with tarfile.open(runtime) as archive:
-    for path in [ROOT/'first_run.py',ROOT/'file_delivery.py',*sorted((ROOT/'windows').glob('*'))]:
+    for path in [ROOT/'app/first_run.py',ROOT/'app/file_delivery.py',ROOT/'tools/launch.py',*sorted((ROOT/'windows').glob('*'))]:
         if not path.is_file():continue
         member=archive.extractfile('telegram-stl/'+str(path.relative_to(ROOT)))
         if member.read()!=path.read_bytes():raise SystemExit('Runtime is stale; rebuild it before packaging Windows.')

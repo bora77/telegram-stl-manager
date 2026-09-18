@@ -3,5 +3,5 @@ set -e
 python3 tools/bump-version.py
 python3 tools/check-git.py
 if [ -f data/creators.json ] && [ -f data/incoming-folders.json ]; then
-    python3 build-catalog.py
+    python3 tools/build-catalog.py
 fi

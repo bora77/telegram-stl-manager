@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
-from artist_profiles import artist_key,normalized,image_bytes
+from app.artist_profiles import artist_key, normalized, image_bytes
 
 PLATFORMS={'patreon.com':'Patreon','myminifactory.com':'MyMiniFactory','cults3d.com':'Cults',
  'only-games.co':'Only-Games','onlygames.co':'Only-Games','thangs.com':'Thangs',

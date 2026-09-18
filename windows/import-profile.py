@@ -3,7 +3,7 @@
 import base64,json,os,re,sqlite3,sys
 from pathlib import Path
 ALLOWED={'source.json','creators.json','incoming-folders.json','subscriptions.json','settings.json','telegram-servers.json','setup-share.json'}
-BLOBS={'download-history.sqlite3','telegram-catalog.sqlite3','collages.sqlite3','mmf/manager.sqlite3','mmf/session.cookies','telegram-session'}
+BLOBS={'download-history.sqlite3','telegram-catalog.sqlite3','app.collages.sqlite3','mmf/manager.sqlite3','mmf/session.cookies','telegram-session'}
 def install_mount(profile):
     value=profile.get('mount_path')
     if not value:return
@@ -24,7 +24,7 @@ def install(root,profile,home=None):
     session=(home or Path.home())/'.local/share/telegram-stl-tdl/data/telegram-stl-trial'
     if 'telegram-session' in blobs and session.exists():raise ValueError('Existing Telegram session was kept.')
     source=files.get('source.json',{})
-    from source_scope import SourceScope
+    from app.source_scope import SourceScope
     scope=SourceScope(**source)
     if any(scope.topic_id(r.get('topic_url')) is None for r in files.get('creators.json',{}).get('creators',[])):raise ValueError('Profile creator is outside its configured source.')
     target.mkdir(exist_ok=True,mode=0o700)

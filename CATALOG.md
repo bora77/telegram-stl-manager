@@ -135,7 +135,7 @@ The runtime uses Python's standard library, the customized `.tools/tdl-stl/tdl`
 binary, 7-Zip with a working RAR decoder, local staging and the configured
 filesystem. Go is needed for builds only. No AI service is involved.
 
-`python3 build-catalog.py` regenerates private local HTML/CSV from the catalog.
+`python3 tools/build-catalog.py` regenerates private local HTML/CSV from the catalog.
 Shared navigation lives in `templates/app-layout.html`. A source/configuration
 change must be coordinated with idle workers; a web-service restart does not
 start or resume a batch. Avoid restarting the service during a real operation.
@@ -146,7 +146,7 @@ source settings, catalogs, databases or jobs with application code.
 
 ## Verification
 
-Run `python3 -m unittest discover -p 'test_*.py'` and
+Run `python3 -m unittest discover -s tests -t .` and
 `node --test selection-rules.test.js`. Tests use synthetic source IDs, temporary
 files and mocked Telegram calls. The Python suite covers scopes, exact metadata,
 progress, cancellation, verified delivery, image extraction and organizer resume.

@@ -12,6 +12,7 @@ from file_delivery import deliver, digest, release_lock
 from mmf_repack import repack, archive_name, VOLUME_BYTES, COMPRESSION_LEVEL, POLICY_VERSION
 from mmf_images import fetch_images
 from release_images import safe_component, volume_key
+from telegram_cli import require_release_collage, CLIError
 
 
 def rows(manager):
@@ -81,6 +82,44 @@ def confirm_released(manager, payload):
     return {'recorded':True}
 
 
+def has_release_images(directory, depth=0):
+    """Look for nonempty editor-supported images; do not follow symbolic links."""
+    from collages import SUPPORTED, BYTE_LIMIT
+    if depth>8 or directory.is_symlink():return False
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if entry.is_symlink():continue
+                if entry.is_file(follow_symlinks=False) and Path(entry.name).suffix.lower() in SUPPORTED:
+                    if 0<entry.stat(follow_symlinks=False).st_size<=BYTE_LIMIT:return True
+                elif entry.is_dir(follow_symlinks=False) and has_release_images(Path(entry.path),depth+1):
+                    return True
+    except OSError:pass
+    return False
+
+
+def release_collages(items, base):
+    from collages import collage_filename, valid_release_folder
+    result={}
+    for item in items:
+        key=item['release_key']
+        if key in result:continue
+        folder=item.get('folder');release=item.get('release_folder')
+        if not valid_release_folder(folder) or not valid_release_folder(release):continue
+        directory=Path(base)/folder/release
+        try:
+            if (Path(base)/folder).is_symlink() or directory.is_symlink():continue
+            collage=directory/collage_filename({'folder':folder,'month':release})
+            images=directory/'release_images'
+            try:require_release_collage(directory/'release.7z',action='making the release');valid=True
+            except CLIError:valid=False
+            result[key]={'valid':valid,'exists':collage.is_file() and not collage.is_symlink(),
+                         'ready':has_release_images(images),
+                         'folder':folder,'release':release}
+        except OSError:continue
+    return result
+
+
 def release_lifecycle(items, prepared):
     """Exact source versions reopen a published month when old releases change."""
     result={}
@@ -95,6 +134,65 @@ def release_lifecycle(items, prepared):
     return result
 
 
+def start_images(manager, payload):
+    key=payload.get('release_key')
+    group=[i for i in downloaded(manager) if i['release_key']==key]
+    if not group:raise ValueError('Download this release first.')
+    lock=(manager.directory/'worker.lock').open('a')
+    try:
+        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:raise FileExistsError('Wait for the current MMF task to finish.')
+        manager.put('stop',False)
+        manager.put('job',{'phase':'starting','action':'prepare_images','release_key':key,'message':'Preparing release images','errors':[]})
+        log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
+        try:Popen([sys.executable,str(manager.root/'mmf_release_prepare.py'),str(manager.root),'images:'+key,str(lock.fileno())],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
+        finally:os.close(log)
+    finally:lock.close()
+    return {'started':True}
+
+
+def prepare_images(manager, key):
+    from release_images import extract_images
+    group=[i for i in downloaded(manager) if i['release_key']==key]
+    if not group:raise ValueError('Downloaded release is missing.')
+    first=group[0];base=manager.store.config()['download_directory']
+    work=manager.directory/'release-images'/key;work.mkdir(parents=True,exist_ok=True)
+    records=[];warnings=[];seen=set()
+    previous=manager.get('prepared_images:'+key,{})
+    if set(previous.get('keys',[]))=={i['key'] for i in group} and previous.get('images'):
+        try:
+            for record in previous['images']:verified(record['path'],record,base)
+        except (OSError,ValueError):pass
+        else:
+            manager.progress(phase='complete',message='Images ready. Create and save a collage next.',speed_mbps=0);return
+    def progress(*args):
+        if manager.stopped():raise ValueError('Image preparation stopped.')
+        manager.progress(phase='extracting',message='Preparing images · '+first['release_folder'],speed_mbps=0)
+    with release_lock(manager.root,base,first['folder'],first['release_folder'],manager.stopped):
+        for item in group:
+            manifest=item.get('repack') or {};mid=manifest.get('id')
+            if not mid or mid in seen:continue
+            seen.add(mid);progress()
+            existing=manifest.get('images',[])
+            try:
+                for record in existing:verified(record['path'],record,base)
+            except (OSError,ValueError):existing=[]
+            if existing:records.extend(existing);continue
+            outputs=manifest.get('outputs',[])
+            images=[]
+            if outputs:
+                sources=[verified(r['path'],r,base) for r in outputs]
+                images=extract_images(sorted(sources)[0],work/mid,progress,manager.stopped,warnings=warnings)
+            if not images:
+                images=fetch_images(manager.client(),[i for i in group if (i.get('repack') or {}).get('id')==mid],work/(mid+'-gallery'),manager.stopped,progress)
+            for index,image in enumerate(images):
+                progress()
+                dest,size,checksum=deliver(image,base,first['folder'],first['release_folder'],mid[:8]+'-'+str(index)+'--'+image.name,lambda *_:progress(),subdirectories=('release_images',),release_directory=first['release_folder'])
+                records.append({'path':str(dest),'size':size,'sha256':checksum})
+        manager.put('prepared_images:'+key,{'images':records,'keys':[i['key'] for i in group]})
+        manager.progress(phase='complete',message=('Images ready. Create and save a collage next.' if records else 'No images found in the archives or MMF galleries.'),warnings=warnings,speed_mbps=0)
+
+
 def start(manager,payload):
     key=payload.get('release_key')
     if not isinstance(key,str):raise ValueError('Choose a downloaded monthly release.')
@@ -104,6 +202,8 @@ def start(manager,payload):
         except BlockingIOError:raise FileExistsError('Wait for the current MMF task to finish.')
         history=rows(manager);group=[i for i in downloaded(manager) if i['release_key']==key]
         if not group or not group[0].get('release_month'):raise ValueError('Choose a downloaded monthly release.')
+        directory=Path(manager.store.config()['download_directory'])/group[0]['folder']/group[0]['release_folder']
+        require_release_collage(directory/'release.7z',action='making the release')
         # Do not silently issue a partial month while known files await downloading.
         current=[i for i in manager.state()['items'] if i['release_key']==key]
         if any(not i['completed'] for i in current):raise ValueError('Download the available files for this month first.')
@@ -118,7 +218,7 @@ def start(manager,payload):
             title=group[0]['release_folder']+(f' Addendum {number}' if number else '')
             plan={'id':hashlib.sha256((key+':'+str(number)).encode()).hexdigest(),'release_key':key,'number':number,'title':title,'keys':[i['key'] for i in delta],'items':delta,'state':'pending','base':manager.store.config()['download_directory'],'folder':group[0]['folder'],'release_folder':group[0]['release_folder']}
             save(manager,plan)
-        manager.put('stop',False);manager.put('job',{'phase':'starting','action':'prepare','message':'Preparing '+plan['title'],'errors':[]})
+        manager.put('stop',False);manager.put('job',{'phase':'starting','action':'package','release_key':key,'message':'Making '+plan['title'],'errors':[]})
         log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
         try:Popen([sys.executable,str(manager.root/'mmf_release_prepare.py'),str(manager.root),plan['id'],str(lock.fileno())],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
         finally:os.close(log)
@@ -141,6 +241,8 @@ def execute(manager,plan):
         if manager.stopped():raise ValueError('Preparation stopped. Use the same preparation button to resume.')
         manager.progress(phase=phase,message=plan['title'],bytes=percent,expected=100)
     with release_lock(manager.root,plan['base'],plan['folder'],plan['release_folder'],manager.stopped):
+        release_archive=Path(plan['base'])/plan['folder']/plan['release_folder']/'release.7z'
+        require_release_collage(release_archive,action='making the release')
         manifests={};selected={}
         for item in plan['items']:
             manifest=item.get('repack')
@@ -165,6 +267,8 @@ def execute(manager,plan):
             manager.progress(phase='moving',message='Reusing verified archive · '+plan['title'],bytes=0,expected=0)
         else:
             packed=repack(sources[0]['path'],work/'packed',plan['id'],progress,manager.stopped,sources=sources,release_name=plan['title'])
+        for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
+            images.setdefault(record['path'],record)
         fallback=[] if images else fetch_images(manager.client(),plan['items'],work/'mmf-images',manager.stopped,progress)
         sub=();outputs=[]
         def moving(n,total):
@@ -178,22 +282,24 @@ def execute(manager,plan):
             deliver(path,plan['base'],plan['folder'],plan['release_folder'],path.name,moving,subdirectories=(*sub,'release_images'),release_directory=plan['release_folder'])
         for path in fallback:
             deliver(path,plan['base'],plan['folder'],plan['release_folder'],path.name,moving,subdirectories=('release_images',),release_directory=plan['release_folder'])
-        month=plan['items'][0]['release_month'];artist=plan['folder'].lstrip('!- ')
-        collage=Path(plan['base'])/plan['folder']/plan['release_folder']/(artist+'-'+month+'.jpg')
-        has_collage=collage.is_file() and not collage.is_symlink()
-        if has_collage:deliver(collage,plan['base'],plan['folder'],plan['release_folder'],collage.name,moving,subdirectories=sub,release_directory=plan['release_folder'])
-        plan.update(state='complete',compression_level=COMPRESSION_LEVEL,outputs=outputs,directory=str(Path(plan['base'])/plan['folder']/plan['release_folder']/Path(*sub)),completed_at=time.time(),collage_included=has_collage)
+        require_release_collage(release_archive,action='making the release')
+        plan.update(state='complete',compression_level=COMPRESSION_LEVEL,outputs=outputs,directory=str(Path(plan['base'])/plan['folder']/plan['release_folder']/Path(*sub)),completed_at=time.time(),collage_included=True)
         save(manager,plan)
-        manager.progress(phase='complete',message=plan['title']+' prepared'+('' if has_collage else ' · no saved collage found'),bytes=100,expected=100)
+        manager.progress(phase='complete',message=plan['title']+' prepared',bytes=100,expected=100)
 
 
 if __name__=='__main__':
     from mmf_manager import MMFManager
     from subscription_store import SubscriptionStore
     manager=MMFManager(SubscriptionStore(Path(sys.argv[1])))
-    plan=next(p for p in rows(manager) if p['id']==sys.argv[2])
-    try:execute(manager,plan)
+    plan=None
+    try:
+        if sys.argv[2].startswith('images:'):prepare_images(manager,sys.argv[2][7:])
+        else:
+            plan=next(p for p in rows(manager) if p['id']==sys.argv[2])
+            execute(manager,plan)
     except Exception as error:
-        plan.update(state='failed',error=str(error));save(manager,plan)
+        if plan:
+            plan.update(state='failed',error=str(error));save(manager,plan)
         manager.progress(phase='error',message=str(error),speed_mbps=0)
     finally:os.close(int(sys.argv[3]))

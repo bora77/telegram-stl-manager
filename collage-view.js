@@ -16,14 +16,16 @@ function filterFolders(){
  el('folder').value=matches.includes(old)?old:q&&matches.length?matches[0]:'';
  if(el('folder').value!==old)loadMonths();
 }
-async function loadMonths(){
- const version=++pickerVersion,folder=el('folder').value;clearWorkspace();el('month').replaceChildren(new Option('Choose a month',''));el('month').disabled=true;el('open-release').disabled=true;
+async function loadMonths(preferred=null){
+ if(typeof preferred!=='string')preferred=null;
+ const version=++pickerVersion,folder=el('folder').value;clearWorkspace();el('month').replaceChildren(new Option(preferred||'Choose a month',preferred||''));el('month').disabled=true;el('open-release').disabled=true;
  let logo=document.getElementById('collage-artist-logo');if(!logo){logo=document.createElement('span');logo.id='collage-artist-logo';el('folder').parentElement.append(logo)}
  logo.replaceChildren(...(folder?[ArtistProfiles.badge(folder.replace(/^[-!\s]+/,''))]:[]));
  el('picker-status').textContent=folder?'Finding releases with extracted images…':'Choose an artist folder.';
  if(!folder)return;
  try{const data=await api('/api/collages/months?folder='+encodeURIComponent(folder));if(version!==pickerVersion)return;
   el('month').replaceChildren(...(data.months.length?data.months.map(m=>new Option(m,m)):[new Option('No extracted images','')]));el('month').disabled=!data.months.length;el('open-release').disabled=!data.months.length;
+  if(preferred){el('month').value=data.months.includes(preferred)?preferred:'';el('open-release').disabled=!el('month').value;if(!el('month').value)throw Error('The selected release has no extracted images: '+preferred)}
   el('picker-status').textContent=data.months.length?`${data.months.length} releases with images.`:'Extract images for this artist first, using Downloads or Organize folders.';
  }catch(e){if(version===pickerVersion){error(e.message);el('picker-status').textContent='Could not read release folders.'}}
 }
@@ -148,8 +150,13 @@ el('open-release').onclick=async()=>{
   c.savedSignature=signature(result.selection);c.draft.images=c.draft.images.map(id=>id&&c.byId.has(id)&&!c.byId.get(id).reason?id:null);context=c;
   for(const key of ['layout','shape','theme'])el(key).value=c.draft[key];el('slot-count').value=c.draft.images.length;el('collage-title').value=c.draft.title;
   el('image-search').value='';el('archive-filter').replaceChildren(new Option('All archives',''),...[...new Set(c.images.map(i=>i.archive))].sort().map(a=>new Option(a,a)));
+  const source=new URLSearchParams(location.search),selectedArchive=source.get('folder')===folder&&source.get('month')===month?source.get('archive'):null;
+  if(selectedArchive){if(![...el('archive-filter').options].some(o=>o.value===selectedArchive))el('archive-filter').append(new Option(selectedArchive,selectedArchive));el('archive-filter').value=selectedArchive}
   el('collage-grid').querySelectorAll('.slot').forEach(n=>n.remove());el('canvas-title').textContent='';
-  const filename=(folder.replace(/^[-! ]+/,'').trim()||folder)+'-'+month+'.jpg';
+  const artist=folder.replace(/^[-! ]+/,'').trim()||folder,date=month.match(/(?:^|[^0-9])(20[0-9]{2}-(?:0[1-9]|1[0-2]))(?:$|[^0-9])/);
+  const label=date?date[1]:month.toLowerCase().startsWith(artist.toLowerCase()+' ')?month.slice(artist.length).replace(/^[ _-]+/,''):month;
+  const filename=artist+'-'+label+'.jpg';
+  history.replaceState(null,'','/collages?'+new URLSearchParams({folder,month,...(selectedArchive?{archive:selectedArchive}:{})}));
   el('workspace').hidden=false;el('empty-state').hidden=true;el('preview-details').hidden=true;el('destination').textContent=`${folder}/${month}/${filename} · Replaces the previous collage, keeping a local backup`;el('picker-status').textContent=`${folder} · ${month} · ${c.images.length} images`;
   listWarnings('scan-warnings',result.warnings);renderGallery();renderExports();changed();pollExports(c);
  }catch(e){error(e.message);el('picker-status').textContent='Could not open this release.'}
@@ -158,9 +165,9 @@ el('open-release').onclick=async()=>{
 for(const id of ['layout','shape','theme'])el(id).onchange=()=>{if(context){context.draft[id]=el(id).value;changed()}};
 el('slot-count').onchange=()=>{if(context){const n=Number(el('slot-count').value);context.draft.images=Array.from({length:n},(_,i)=>context.draft.images[i]||null);context.active=Math.min(context.active,n-1);changed()}};
 el('collage-title').oninput=()=>{if(context){context.draft.title=el('collage-title').value;changed()}};
-el('image-search').oninput=renderGallery;el('archive-filter').onchange=renderGallery;
+el('image-search').oninput=renderGallery;el('archive-filter').onchange=()=>{const url=new URL(location.href);const archive=el('archive-filter').value;if(archive)url.searchParams.set('archive',archive);else url.searchParams.delete('archive');history.replaceState(null,'',url);renderGallery()};
 el('remove-image').onclick=()=>{if(context){context.draft.images[context.active]=null;changed()}};
 for(const [id,offset] of [['move-left',-1],['move-right',1]])el(id).onclick=()=>{if(context)placeImage(context.draft.images[context.active],context.active+offset)};
 el('save-collage').onclick=()=>saveCollage();el('close-image').onclick=()=>el('image-dialog').close();
 window.addEventListener('beforeunload',event=>{if(pendingDrafts.size||(context&&signature(context.draft)!==context.savedSignature)){event.preventDefault();event.returnValue=''}});
-(async()=>{try{const config=await api('/api/config');folders=config.folders||[];filterFolders();el('picker-status').textContent=folders.length?'Choose an artist folder.':'No folders available. Check the download folder in Configuration.'}catch(e){error(e.message);el('picker-status').textContent='Could not load folders.'}})();
+(async()=>{try{const config=await api('/api/config');folders=config.folders||[];filterFolders();const target=new URLSearchParams(location.search);if(target.has('folder')){const folder=target.get('folder'),month=target.get('month');if(!folders.includes(folder))throw Error('The requested artist folder is unavailable.');el('folder').value=folder;el('folder-search').value=folder.replace(/^[-! ]+/,'');el('picker-status').textContent='Opening '+month+'…';await loadMonths(month);if(![...el('month').options].some(o=>o.value===month))throw Error('The requested release has no extracted images.');el('month').value=month;await el('open-release').onclick();return}el('picker-status').textContent=folders.length?'Choose an artist folder.':'No folders available. Check the download folder in Configuration.'}catch(e){error(e.message);el('picker-status').textContent='Could not load folders.'}})();

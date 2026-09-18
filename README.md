@@ -27,10 +27,11 @@ being delivered to your chosen local folder or mounted network share.
 | SQLite and JSON files | SQLite stores download history, MMF source versions and collage records. JSON stores settings, subscriptions and saved job state. SQLite is embedded; there is no separate database server to configure. |
 | 7-Zip | Reads supported archive formats, including RAR, extracts release contents and builds MMF `.7z` sets with volumes no larger than 4000 MiB. |
 | Pillow | Processes images, creates previews and renders the final JPEG collages. |
+| pypdf | Processes recognized PDF footer stamps during MMF repackaging, without rasterizing pages. |
 | Direct MMF HTTP client (beta) | Python's HTTP and cookie libraries authenticate to MyMiniFactory, read the supported library collections and fetch files. Checks and downloads do not require a separate MMF browser window or Tampermonkey. |
 | WSL2, Ubuntu and PowerShell on Windows | The installer prepares a dedicated Linux environment and the launcher starts the app inside it. You use the interface in your normal Windows browser. Linux installations run directly. |
 
-The runtime package bundles Python, the application web server, SQLite, Pillow,
+The runtime package bundles Python, the application web server, SQLite, Pillow, pypdf,
 the compiled Telegram CLI and 7-Zip. Go is needed to build the CLI from source,
 not to run the packaged application. No AI service or OCR is used during normal
 operation. Installation details and platform requirements are in [INSTALL.md](INSTALL.md).
@@ -336,9 +337,9 @@ Copyright © 2026 trumphater77
 
 ### Preparing MMF months for Telegram
 
-Expand a downloaded month in the MMF Beta tab and click **Prepare Telegram release**. The app creates a verified 7-Zip set with volumes up to 4000M, an image folder and the saved collage when available, directly in the monthly folder. Intermediate MMF archives are retained in its `MMF sources` subfolder.
+Expand a downloaded month in MMF Beta and click **Prepare** to extract images into `release_images` (existing verified images are reused). This step does not build an archive and requires no collage. Next use **Create collage**, save it, then click **Make release**. Making the release and uploading both require a valid saved collage. The app creates a verified 7-Zip set with volumes up to 4000M, an image folder and the saved collage, directly in the monthly folder. Intermediate MMF archives are retained in its `MMF sources` subfolder.
 
-Preparation records which source file versions were included. Later additions or updated downloads use **Prepare Addendum 1**, then Addendum 2, and so on; unchanged files are excluded. A failed preparation retries the same number. Preparing successfully reserves that release number even before you upload it. Previously downloaded months remain eligible for update checks regardless of the subscription start month. This action prepares files only; it does not upload to Telegram.
+Preparation records which source file versions were included. Later additions or updated downloads use **Make Addendum 1**, then Addendum 2, and so on; unchanged files are excluded. A failed preparation retries the same number. Preparing successfully reserves that release number even before you upload it. Previously downloaded months remain eligible for update checks regardless of the subscription start month. This action prepares files only; it does not upload to Telegram.
 
 When archives contain no images, MMF Beta fetches the owning products’ gallery images into `release_images`. Release preparation reuses an existing verified 7-Zip set when its contents exactly match the requested files and its volumes meet the 4000M limit; selective addenda are repackaged. Repackaging uses level 7 compression with two threads. Only verified archives made with the current level-7 policy can be reused without recompression.
 
@@ -347,3 +348,11 @@ Prepared MMF releases offer manual Upload and Re-upload actions. Every attempt s
 MMF **Open tasks** tracks publication separately from downloading or uploading. After the release bot successfully publishes a package, use **Confirm released** to move it to **Finished releases**. Automatic bot-completion detection is not connected yet. New or changed source files reopen their month for an addendum; previously published file versions remain recorded.
 
 On the download page, **Download detected** uses the last availability check's exact file queue without scanning subscriptions again. **Check and download all** performs a fresh check of every saved subscription. Starting a detected run replaces its notification with the next scheduled check; subsequent checks can notify about new files. Each new checking cycle hides inactive organizer results from view while preserving their records and any running organizer job.
+
+### MMF archive cleanup and PDFCleaner credit
+
+MMF repackaging excludes known operating-system metadata such as `__MACOSX`, AppleDouble `._*` files, `.DS_Store`, Windows thumbnail databases and `desktop.ini`. Other hidden files, models, images, readmes and licences are retained. Only local working copies are processed; source archives stay intact.
+
+PDF footer processing is a **modified adaptation of PDFCleaner by RC**. Credit for the original tool and its footer-stamp profiles belongs to RC. This integration uses [pypdf content operations](https://pypdf.readthedocs.io/en/latest/modules/generic.html) instead of the original desktop GUI and PyMuPDF pipeline. It recognizes the known bottom-left order stamp and dark footer badge/text patterns. It does not remove arbitrary white text, small images, document metadata, or unknown watermark types, and does not rasterize pages. PDFs without a recognized stamp remain byte-identical. Processing failures stop that release's repackaging and retain the source.
+
+Repack receipts record changed PDF pages/profiles, before/after hashes and additional metadata files omitted. An archive created with an older processing policy is not reused for a new repack under this policy. Already delivered releases are not rewritten automatically.

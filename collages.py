@@ -123,6 +123,21 @@ class CollageStore:
                 entries = json.loads(row['images_manifest'])
                 for image in entries:result[str(prefix/image['path'])] = volume_key(row['filename'])[0]
             except (TypeError, ValueError, KeyError):continue
+        # MMF images have their own durable manifests, separate from Telegram downloads.
+        mmf=self.root/'data/mmf/manager.sqlite3'
+        if mmf.is_file():
+            connection=sqlite3.connect(mmf.as_uri()+'?mode=ro',uri=True)
+            try:
+                records=[r[0] for r in connection.execute('SELECT data FROM completed')]
+                prepared=[json.loads(r[0]) for r in connection.execute("SELECT value FROM state WHERE key LIKE 'prepared_images:%'")]
+                records.extend(json.dumps({'repack':r}) for r in prepared)
+                for raw in records:
+                    item=json.loads(raw)
+                    for image in item.get('repack',{}).get('images',[]):
+                        try:relative=Path(image['path']).relative_to(destination)
+                        except (KeyError,TypeError,ValueError):continue
+                        result[str(relative)]=release['month']
+            finally:connection.close()
         return result
 
     def index(self, folder, month):

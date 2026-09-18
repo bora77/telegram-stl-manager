@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -49,6 +50,33 @@ class RepackTests(unittest.TestCase):
         _,entries=listing(outputs[0],self.root,lambda:False)
         self.assertTrue(entries[0]['name'].startswith('__renamed_'))
         self.assertFalse((self.root/'escape.stl').exists())
+    def test_metadata_removed_and_real_content_kept(self):
+        from mmf_repack import POLICY_VERSION
+        source=self.root/'metadata.zip'
+        keep=['Models/part.stl','Images/preview.jpg','Instructions.pdf','LICENSE.txt','README.md','.artist-settings','Models/.keep']
+        garbage=['__MACOSX/Models/._part.stl','.DS_Store','Models/._part.stl','Models/.ds_store','Thumbs.db','Folder/Desktop.ini','.Spotlight-V100/index']
+        with zipfile.ZipFile(source,'w') as archive:
+            from test_mmf_pdf import pdf, BODY
+            document=self.root/'fixture.pdf';pdf(document,BODY)
+            for name in keep+garbage:archive.writestr(name,document.read_bytes() if name.endswith('.pdf') else b'preserved contents')
+        original=source.read_bytes()
+        work=self.root/'cleaned';output=repack(source,work,'cleanup')[0]
+        _,entries=listing(output,self.root,lambda:False)
+        self.assertEqual({e['name'] for e in entries},set(keep))
+        self.assertEqual(source.read_bytes(),original)
+        receipt=json.loads((work/'repack.json').read_text())
+        self.assertEqual({r['name'] for r in receipt['removed_metadata']},set(garbage)-{'__MACOSX/Models/._part.stl','Models/._part.stl'})
+        # An archive receipt made before cleanup was introduced must not be reused.
+        receipt['policy_version']=POLICY_VERSION-1;(work/'repack.json').write_text(json.dumps(receipt))
+        with patch('mmf_repack.command',side_effect=ExtractionError('rebuild required')):
+            with self.assertRaisesRegex(ExtractionError,'rebuild required'):repack(source,work,'cleanup')
+
+    def test_metadata_only_source_retained_without_empty_package(self):
+        source=self.root/'empty.zip'
+        with zipfile.ZipFile(source,'w') as archive:archive.writestr('.DS_Store',b'metadata')
+        with self.assertRaisesRegex(ExtractionError,'No release files remain'):repack(source,self.root/'empty-work','empty')
+        self.assertTrue(source.is_file())
+
     def test_archive_names(self):
         self.assertEqual(archive_name('Original.part01.rar'),'Original.7z')
         self.assertEqual(archive_name('Original.7z.001'),'Original.7z')

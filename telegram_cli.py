@@ -23,21 +23,21 @@ class CLIError(RuntimeError):
     pass
 
 
-def require_release_collage(archive):
+def require_release_collage(archive, *, action="uploading"):
     """Every archive upload through the app requires its release's valid collage."""
     from collages import collage_filename
     from PIL import Image
     archive=Path(archive)
     collage=archive.parent/collage_filename({'folder':archive.parent.parent.name,'month':archive.parent.name})
     if not collage.is_file() or collage.is_symlink():
-        raise CLIError('Create and save a collage for this release before uploading: '+collage.name)
+        raise CLIError('Create and save a collage for this release before '+action+': '+collage.name)
     try:
         if not 0<collage.stat().st_size<=32*1024*1024:raise ValueError('Invalid collage size.')
         with Image.open(collage) as im:
             if im.format!='JPEG' or im.width*im.height>40_000_000:raise ValueError('Invalid collage image.')
             im.verify()
     except (OSError,ValueError,Image.DecompressionBombError) as error:
-        raise CLIError('The release collage is damaged or invalid. Save it again before uploading.') from error
+        raise CLIError('The release collage is damaged or invalid. Save it again before '+action+'.') from error
     return collage
 
 

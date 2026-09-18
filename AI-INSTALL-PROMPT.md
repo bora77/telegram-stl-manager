@@ -71,7 +71,7 @@ Follow these requirements:
 4. **Install every required dependency.** On the reference Ubuntu route this is
    Python 3.12, `python3-pil` (Pillow), `fonts-dejavu-core`, `7zip` **and `7zip-rar`**, `zip` (damaged image ZIP recovery), `util-linux`, `iproute2`, `tzdata`,
    `git`, `ca-certificates`, `curl`, `tar`, `coreutils` and `cifs-utils` for SMB. APT
-   resolves libraries such as SQLite, glibc and the C++ runtime. Python uses its standard library plus Pillow, installed through APT. Verify
+   resolves libraries such as SQLite, glibc and the C++ runtime. Python uses its standard library, Pillow, and `pypdf==6.14.2`. Install Pillow through APT and pypdf for the application Python as described in INSTALL.md; both are bundled by the runtime/Docker builders. Verify
    JPEG/WebP decoding and `ImageFont.truetype("DejaVuSans.ttf", 24)`.
    Systemd/user D-Bus are for optional background startup. Node.js is optional
    for the supplied JavaScript tests. Do not install VNC, OCR, Telegram Desktop,

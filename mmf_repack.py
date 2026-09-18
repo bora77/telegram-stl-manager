@@ -10,7 +10,16 @@ from release_images import (command, listing, safe_component, member_path,
 
 VOLUME_BYTES=4000*1024*1024  # 7-Zip's 4000M (MiB) volume size.
 COMPRESSION_LEVEL=7
-POLICY_VERSION=3
+POLICY_VERSION=5
+
+
+def is_metadata_file(name):
+    """Known OS-generated metadata only; never discard arbitrary hidden files."""
+    parts=name.replace('\\','/').split('/')
+    directories={'__macosx','.spotlight-v100','.trashes','.fseventsd','.temporaryitems','$recycle.bin'}
+    filenames={'.ds_store','thumbs.db','ehthumbs.db','desktop.ini'}
+    return (any(part.casefold() in directories for part in parts)
+            or parts[-1].casefold() in filenames or parts[-1].startswith('._'))
 
 
 def archive_name(filename):
@@ -37,7 +46,7 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
     if stopped():raise ExtractionError('Stopped before repackaging; source retained.')
     with tempfile.TemporaryDirectory(prefix='repack-',dir=work) as temporary:
         temporary=Path(temporary);members=temporary/'members';members.mkdir();output=temporary/'packed';output.mkdir()
-        all_entries={};release_total=0;prefixes=set()
+        all_entries={};release_total=0;prefixes=set();removed=[];pdfs=[]
         for spec in sources:
             prefix=spec['folder']
             if prefix and any(part in ('','.','..') or safe_component(part)!=part for part in prefix.split('/')):raise ExtractionError('Unsafe source folder.')
@@ -51,6 +60,9 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
                     if any(not any(e['name'].startswith(prefix.rstrip('/')+'/') for e in entries) for prefix in allowed):
                         raise ExtractionError('A selected source is missing from the downloaded repack; preparation stopped.')
                     entries=[e for e in entries if any(e['name'].startswith(prefix.rstrip('/')+'/') for prefix in allowed)]
+                removed.extend({'source':str(spec['path']),'name':e['name']} for e in entries if is_metadata_file(e['name']))
+                entries=[e for e in entries if not is_metadata_file(e['name'])]
+                if not entries:continue
                 total=sum(e['size'] for e in entries);release_total+=total
                 if len(all_entries)+len(entries)>100000 or release_total>500*1024**3:raise ExtractionError('Release exceeds the local repackaging limit.')
                 if len(entries)>100000 or total>500*1024**3:raise ExtractionError('Release exceeds the local repackaging limit; source retained.')
@@ -74,6 +86,18 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
                 expected={e.get('disk_name',e['name']) for e in entries}
                 if actual!=expected or any(p.is_symlink() for p in target_members.rglob('*')):raise ExtractionError('Unexpected content in unpacked release.')
             all_entries.update({(prefix+'/'+e.get('disk_name',e['name'])).lstrip('/'):e['size'] for e in entries})
+        if not all_entries:raise ExtractionError('No release files remain after removing operating-system metadata; source retained.')
+        from mmf_pdf import clean_pdf
+        for member_name in list(all_entries):
+            if Path(member_name).suffix.lower()!='.pdf':continue
+            if stopped():raise ExtractionError('Stopped before PDF processing; source retained.')
+            progress('processing_pdfs',0)
+            path=members/member_name
+            before={'size':path.stat().st_size,'sha256':digest(path)}
+            try:result=clean_pdf(path,stopped)
+            except Exception as error:raise ExtractionError('PDF processing failed for '+member_name+': '+str(error)) from error
+            all_entries[member_name]=path.stat().st_size
+            pdfs.append({'name':member_name,'before':before,'after':{'size':path.stat().st_size,'sha256':digest(path)},**result})
         progress('repacking',0)
         command(['a','-t7z','-mx='+str(COMPRESSION_LEVEL),'-mmt=2','-ms=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
         parts=sorted(output.iterdir())
@@ -86,6 +110,6 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
         outputs=[];records=[]
         for path in parts:
             checksum=digest(path);target=work/path.name;path.replace(target);outputs.append(target);records.append({'name':target.name,'size':target.stat().st_size,'sha256':checksum})
-        state={'name':name,'compression_level':COMPRESSION_LEVEL,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
+        state={'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':COMPRESSION_LEVEL,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
         staged=work/'repack.json.tmp';staged.write_text(json.dumps(state));staged.replace(receipt)
         return outputs

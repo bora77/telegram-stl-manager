@@ -132,7 +132,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
         if SETUP.setup_required and self.path not in ('/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/servers/refresh','/api/servers/retest'):
             self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
-        if self.path not in ('/api/release-pad/destinations','/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/upload','/api/mmf/released','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/release-pad/destinations','/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -161,9 +161,9 @@ class Handler(SimpleHTTPRequestHandler):
             if self.path=='/api/mmf/upload':
                 from mmf_release_upload import start
                 self.reply_json(start(MMF,payload));return
-            if self.path=='/api/mmf/prepare':
-                from mmf_release_prepare import start
-                self.reply_json(start(MMF,payload));return
+            if self.path in ('/api/mmf/prepare','/api/mmf/package'):
+                from mmf_release_prepare import start, start_images
+                self.reply_json(start_images(MMF,payload) if self.path.endswith('/prepare') else start(MMF,payload));return
             if self.path.startswith('/api/mmf/'):
                 action=self.path.rsplit('/',1)[1]
                 result=(MMF.login(payload) if action=='login' else MMF.save(payload) if action=='save' else MMF.stop() if action=='stop' else MMF.start(action,due=payload.get('due') is True))

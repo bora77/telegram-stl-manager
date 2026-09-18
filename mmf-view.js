@@ -32,24 +32,48 @@ function uploadPanel(pack){
  for(const f of job.files||[]){const row=document.createElement('div');row.className='upload-file';row.append(text('span',f.name||''),text('small',sizeLabel(f.size||0)+' · '+f.state));if(['uploading','verifying'].includes(f.state)){const bar=document.createElement('progress');bar.max=f.size||1;bar.value=f.uploaded||0;bar.setAttribute('aria-label',(f.name||'File')+' upload progress');row.append(bar)}body.append(row)}
  panel.append(body);return panel;
 }
+function workflowStep(button,number,state,label){
+ const step=document.createElement('div');step.className='workflow-step';step.dataset.state=state;
+ const heading=document.createElement('div');heading.className='workflow-heading';
+ const marker=text('span',state==='done'?'✓':state==='blocked'?'—':String(number));marker.className='workflow-marker';marker.setAttribute('aria-hidden','true');
+ heading.append(marker,text('strong',state==='done'?'Done':state==='running'?'In progress':state==='blocked'?'Blocked':'Ready'));
+ step.append(heading,button,text('small',label));return step;
+}
 function queue(){
  const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?data.release_lifecycle?.[g.key]?.finished:!data.release_lifecycle?.[g.key]?.finished));
  page=Math.min(page,Math.max(0,Math.ceil(rows.length/50)-1));
- const signature=JSON.stringify([data.items,data.preparations,data.release_lifecycle,data.active,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
+ const signature=JSON.stringify([data.items,data.preparations,data.collages,data.release_lifecycle,data.active,data.job?.action,data.job?.release_key,data.job?.phase,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
  for(const group of rows.slice(page*50,page*50+50)){
   const details=document.createElement('details');details.className='release-row';details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
   const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';const creatorLabel=text('small',group.creator);creatorLabel.prepend(ArtistProfiles.badge(group.creator,{compact:true}));heading.append(text('strong',group.name),creatorLabel);
   const info=document.createElement('span');info.className='release-info';info.append(text('span',`${group.items.length} ${group.items.length===1?'file':'files'} · ${sizeLabel(group.size)}`));
   const first=group.items[0];info.append(text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':'')));
   const lifecycle=data.release_lifecycle?.[group.key];const status=text('span',lifecycle?.finished?'Released':lifecycle?.published&&lifecycle.new_files?'Addendum available':group.recorded===group.items.length?'Awaiting publication':`${group.recorded}/${group.items.length} downloaded`);status.className='release-status '+(lifecycle?.finished?'recorded':'');summary.append(heading,info,status);details.append(summary);
-  if(first.release_month){
+  if(first.release_month||data.collages?.[group.key]){
    const prep=data.preparations?.[group.key],issued=new Set(prep?.keys||[]),fresh=group.items.filter(i=>i.completed&&!issued.has(i.key));
    const actions=document.createElement('div');actions.className='actions';actions.style.padding='12px 18px';
-   const button=text('button',prep?.pending?'Retry '+prep.pending:prep&&prep.number>=0?`Prepare Addendum ${prep.number+1}`:'Prepare Telegram release');
-   button.disabled=data.active||group.recorded!==group.items.length||(!fresh.length&&!prep?.pending);
-   button.onclick=()=>act('prepare',{release_key:group.key});actions.append(button);
+   const prepare=text('button','Prepare');prepare.disabled=data.active||!group.recorded;prepare.title='Extract release images without creating an archive.';prepare.onclick=()=>act('prepare',{release_key:group.key});
+   const button=text('button',prep?.pending?'Retry '+prep.pending:prep&&prep.number>=0?`Make Addendum ${prep.number+1}`:'Make release');
+   button.disabled=!data.collages?.[group.key]?.valid||data.active||group.recorded!==group.items.length||(!fresh.length&&!prep?.pending);
+   button.onclick=()=>act('package',{release_key:group.key});
+   const collage=data.collages?.[group.key];
+   if(!collage?.valid&&first.release_month){button.title='Create and save a valid collage before making this release.';}
+   const collageButton=text('button',collage?.exists?'Edit collage':'Create collage');collageButton.className='secondary';collageButton.disabled=!collage?.ready;
+   collageButton.title=collage?.ready?'Open this release in the collage editor.':'The release_images folder must contain images. Download and extract release images first.';
+   collageButton.onclick=()=>{location.href='/collages?'+new URLSearchParams({folder:collage.folder,month:collage.release,archive:collage.release})};
+   const jobHere=data.active&&data.job?.release_key===group.key;
+   const preparing=jobHere&&data.job?.action==='prepare_images',packaging=jobHere&&data.job?.action==='package';
+   const made=prep?.number>=0&&!fresh.length&&!prep.pending&&group.recorded===group.items.length;
+   const workflow=document.createElement('div');workflow.className='release-workflow';workflow.setAttribute('role','group');workflow.setAttribute('aria-label','Release workflow');
+   const steps=[workflowStep(prepare,1,preparing?'running':collage?.ready?'done':prepare.disabled?'blocked':'ready',preparing?'Extracting release images…':collage?.ready?'Release images available':!group.recorded?'Download release files first':data.active?'Wait for the current MMF task':'Extract images for the collage'),
+    workflowStep(collageButton,2,collage?.valid?'done':collageButton.disabled?'blocked':'ready',collage?.valid?'Saved collage available':!collage?.ready?'Prepare release images first':'Choose images and save the collage')];
+   if(first.release_month){
+    if(made)button.textContent='Make release';
+    steps.push(workflowStep(button,3,packaging?'running':made?'done':button.disabled?'blocked':'ready',packaging?'Building the archive…':made?'Release archive ready':group.recorded!==group.items.length?'Download remaining files first':!collage?.valid?'Save a valid collage first':data.active?'Wait for the current MMF task':'Build the release archive'));
+   }
+   steps.forEach((step,index)=>{if(index){const arrow=text('span','→');arrow.className='workflow-arrow';arrow.setAttribute('aria-hidden','true');workflow.append(arrow)}workflow.append(step)});actions.append(workflow);
    if(prep?.directory)actions.append(text('small','Prepared: '+prep.title+' · '+prep.directory));
-   else actions.append(text('small','Creates a 7-Zip set with volumes up to 4000M. Later additions get numbered addenda.'));
+   else if(first.release_month)actions.append(text('small','Creates a 7-Zip set with volumes up to 4000M. Later additions get numbered addenda.'));
    for(const pack of prep?.packages||[]){
     const upload=text('button',pack.attempted?'Re-upload':'Upload release');
     upload.disabled=prep.upload_active;upload.title=pack.title;
@@ -78,7 +102,7 @@ function render(reset=false){$('connection').hidden=data.connected;$('sub-count'
  $('resume').disabled ||= !data.resumable;
  $('download').disabled ||= !data.counts.available||!data.checked_at;$('stop').disabled=!data.active;$('save').disabled=!dirty||data.active;
  const next=data.next_check_at?new Date(data.next_check_at*1000).toLocaleString():'Due now';const releases=releaseGroups();const pending=releases.filter(g=>!data.release_lifecycle?.[g.key]?.finished).length;$('availability').textContent=`${pending} open tasks · ${releases.length-pending} finished releases · Next check: ${next}`;
- const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('progress').hidden=!data.active;$('progress').value=job.expected?100*(job.bytes||0)/job.expected:job.total?100*(job.done||0)/job.total:0;$('metrics').textContent=[job.phase,data.active&&job.expected?(['unpacking','repacking','verifying_archive'].includes(job.phase)?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
+ const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('progress').hidden=!data.active;$('progress').value=job.expected?100*(job.bytes||0)/job.expected:job.total?100*(job.done||0)/job.total:0;$('metrics').textContent=[job.phase==='processing_pdfs'?'Processing PDF footer stamps':job.phase,data.active&&job.expected?(['unpacking','repacking','verifying_archive'].includes(job.phase)?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
 }
 async function refresh(reset=false){if(inFlight)return;inFlight=true;try{const oldActive=data?.active;data=await request('');render(reset||oldActive!==data.active&&!dirty)}catch(e){notice(e.message,true)}finally{inFlight=false}}
 async function act(action,payload={}){try{notice('Working…');await request(action,payload);notice(action==='save'?'Subscriptions saved.':'');if(action==='save'){dirty=false}await refresh(action==='save'||action==='login')}catch(e){notice(e.message,true)}}

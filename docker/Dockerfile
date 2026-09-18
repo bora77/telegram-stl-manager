@@ -20,7 +20,7 @@ RUN case "$TARGETARCH" in \
     && echo "$digest  /tmp/7zip.tar.xz" | sha256sum -c - \
     && mkdir /opt/7zip && tar -xJf /tmp/7zip.tar.xz -C /opt/7zip \
     && ln -s /opt/7zip/7zz /usr/local/bin/7zz && rm /tmp/7zip.tar.xz
-RUN pip install --no-cache-dir Pillow==11.3.0
+RUN pip install --no-cache-dir Pillow==11.3.0 pypdf==6.14.2
 WORKDIR /opt/app
 COPY app/ ./
 COPY --from=cli /tdl .tools/tdl-stl/tdl

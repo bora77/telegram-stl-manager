@@ -64,7 +64,7 @@ Build with `python3 tools/package-runtime.py` followed by
 
 Download `telegram-stl-linux-x64.tar.gz` and verify its accompanying SHA-256 file. Extract it into a writable directory, then run `./start.sh` (or `bash start.sh`). Open `http://localhost:6093`. Optional: `./install.sh` copies it into your per-user application directory without installing a service. Existing installations are never overwritten.
 
-This package includes a relocatable CPython 3.12 runtime, Python's HTTP web server and SQLite database engine, Pillow, the compiled Telegram CLI, and 7-Zip with the RAR codec. No separate Python, pip, Go compiler, database server, or web server installation is needed. SQLite databases are created locally on first use; no existing user's database, account session or Telegram source configuration is included. The package uses the [Astral standalone Python distribution](https://github.com/astral-sh/python-build-standalone), with its download SHA-256 pinned in the runtime builder.
+This package includes a relocatable CPython 3.12 runtime, Python's HTTP web server and SQLite database engine, Pillow, pypdf, the compiled Telegram CLI, and 7-Zip with the RAR codec. No separate Python, pip, Go compiler, database server, or web server installation is needed. SQLite databases are created locally on first use; no existing user's database, account session or Telegram source configuration is included. The package uses the [Astral standalone Python distribution](https://github.com/astral-sh/python-build-standalone), with its download SHA-256 pinned in the runtime builder.
 
 Supported runtime target: Linux x86-64 with glibc, tested on Ubuntu/Zorin 24.04. The OS still provides normal Linux utilities (`bash`, `findmnt`) and any required network-share mount support. On Windows, install WSL2 with Ubuntu 24.04 (`wsl --install -d Ubuntu-24.04`), then use `Start-Windows.cmd`, or run `bash start.sh` inside that distribution. For the tested guided Windows installer, use the Windows ZIP described above; this is not a native Windows executable. ARM and macOS packages are not provided.
 
@@ -72,7 +72,7 @@ First launch creates blank local configuration and a local `downloads` directory
 
 The availability timer lives in the browser: while the app is open, it requests a metadata-only check at the configured interval (four hours by default; adjustable from 15 minutes to 7 days in Configuration), using saved incremental cursors and the selected creator scopes. Completed or explicitly ignored files are excluded. No download starts automatically, and no scheduled service is installed. Browsers may delay checks while sleeping or suspending tabs; an overdue check runs when the page becomes active again. A check already requested can finish after the tab closes.
 
-Maintainers: `python3 tools/package-runtime.py` builds the bundled archive from the public allowlist and locally built CLI/7-Zip binaries. The builder downloads the pinned Python runtime and Pillow wheel; recipients do not need those build-time downloads. The existing source-only package remains available separately.
+Maintainers: `python3 tools/package-runtime.py` builds the bundled archive from the public allowlist and locally built CLI/7-Zip binaries. The builder downloads the pinned Python runtime, Pillow and pypdf wheels; recipients do not need those build-time downloads. The existing source-only package remains available separately.
 
 ---
 
@@ -245,6 +245,7 @@ repository before distributing it.
 | --- | --- | --- |
 | Python | 3.12 tested; use Ubuntu 24.04's `python3` | Web server, workers, database and file handling. |
 | Python standard library | `sqlite3`, `fcntl`, `resource`, `ctypes`, `zoneinfo`, `http.server`, `subprocess`, `hashlib`, etc. | Already supplied by the Python/OS packages. Pillow is the additional image library, installed through APT below. |
+| pypdf | `pypdf==6.14.2` | Targeted PDF footer-stamp processing during MMF repackaging. |
 | Pillow | `python3-pil`, 10.2.0 tested | Collage metadata, thumbnails, previews and JPEG rendering; includes JPEG/PNG/WebP support. |
 | DejaVu fonts | `fonts-dejavu-core` | Consistent collage title rendering. |
 | SQLite library | Supplied with Python's SQLite module and OS dependencies | Durable history and organization records; no database server. |
@@ -276,8 +277,9 @@ sudo apt-get install -y software-properties-common
 sudo add-apt-repository -y universe
 sudo add-apt-repository -y multiverse
 sudo apt-get update
-sudo apt-get install -y python3 python3-pil fonts-dejavu-core git ca-certificates curl tar coreutils \
+sudo apt-get install -y python3 python3-pip python3-pil fonts-dejavu-core git ca-certificates curl tar coreutils \
   util-linux iproute2 tzdata cifs-utils 7zip 7zip-rar zip
+python3 -m pip install --user --break-system-packages pypdf==6.14.2
 ```
 
 Use a normal Linux account for the application, not root. `sudo` above is for
@@ -289,6 +291,7 @@ Confirm the decoder, image library, font and standard-library support:
 
 ```bash
 7z i
+python3 -c "import pypdf; print(pypdf.__version__)"
 python3 -c "from PIL import Image, ImageFont, features; print(Image.__version__); assert features.check('jpg') and features.check('webp'); ImageFont.truetype('DejaVuSans.ttf', 24)"
 python3 -c 'import sqlite3, fcntl, resource, ctypes; from zoneinfo import ZoneInfo; print("SQLite", sqlite3.sqlite_version); print(ZoneInfo("Europe/Berlin")); print("renameat2 available:", hasattr(ctypes.CDLL(None), "renameat2"))'
 ```

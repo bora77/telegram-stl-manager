@@ -98,7 +98,9 @@
     "mmf_images.py",
     "test_mmf_images.py",
     "mmf_release_upload.py",
-    "test_mmf_release_upload.py"
+    "test_mmf_release_upload.py",
+    "mmf_pdf.py",
+    "test_mmf_pdf.py"
   ],
   "trees": [
     "templates",

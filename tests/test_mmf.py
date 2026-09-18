@@ -120,7 +120,7 @@ class MMFTests(unittest.TestCase):
         class Client:
             def open(self,path):return io.BytesIO(b"<html></html>")
             def downloadables(self,oid):
-                if oid==23:raise MMFError('Bad release')
+                if oid==23:raise MMFError('MMF connection failed or timed out. Try again later.')
                 return {'archives':[{'id':33,'size':first['size'],'updatedAt':'v1'}]}
             def download(self,item,path,*args):path.write_bytes(source.read_bytes())
             def save(self):pass
@@ -128,6 +128,9 @@ class MMFTests(unittest.TestCase):
         with patch.object(self.manager,'client',return_value=Client()),patch('app.mmf_manager.extract_images',return_value=[]),patch('app.mmf_manager.deliver',side_effect=delivery):self.manager.download()
         self.assertIn(first['key'],self.manager.completed());self.assertNotIn(bad['key'],self.manager.completed())
         self.assertEqual(len(self.manager.get('job')['errors']),1)
+        self.assertEqual(self.manager.get('job')['phase'],'error')
+        self.assertIn('run incomplete',self.manager.get('job')['message'])
+        self.assertIn('Resume',self.manager.get('job')['message'])
         self.assertFalse(list((self.manager.directory/'staging').glob('**/*.zip')))
 
     def test_real_extract_deliver_and_resume_receipt(self):

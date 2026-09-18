@@ -306,7 +306,10 @@ class MMFManager:
             except Exception as error:
                 errors.append({'creator':first['creator'],'release':first['release'],'error':str(error) if isinstance(error,(ValueError,OSError,ExtractionError,DeliveryError)) else type(error).__name__})
                 self.progress(errors=errors)
-        self.progress(phase='stopped' if self.stopped() else 'complete',message=f'{done}/{len(queue)} files completed.'+(' Resume to retry unfinished files.' if done<len(queue) else ''),done=done,total=len(queue),errors=errors,bytes=0,expected=0,speed_mbps=0)
+        phase='stopped' if self.stopped() else 'error' if errors or done<len(queue) else 'complete'
+        message=('Download error — run incomplete. ' if phase=='error' else '')+f'{done}/{len(queue)} files completed.'
+        if done<len(queue):message+=' Saved progress is retained. Restore the connection if needed, then Resume to retry unfinished files.'
+        self.progress(phase=phase,message=message,done=done,total=len(queue),errors=errors,bytes=0,expected=0,speed_mbps=0)
         client.save()
 
 if __name__=='__main__':

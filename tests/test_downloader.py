@@ -491,3 +491,16 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(row['image_count'],1)
                 self.assertEqual(json.loads(row['images_manifest'])[0]['size'],20)
             self.assertEqual(json.loads((root/'data/run.json').read_text())['state'],'completed')
+
+class FailedRunOutcomeTests(unittest.TestCase):
+    def test_connection_failure_is_not_reported_as_complete(self):
+        from unittest.mock import Mock
+        from app.run_manager import update_run_outcome
+        history=Mock()
+        history.batch_outcome.return_value={'unfinished_files':1,'completed_files':2,'total_files':3}
+        run={'id':'offline-run','state':'needs_review','plan_version':1,'warnings':['Connection timed out']}
+        update_run_outcome(run,history)
+        self.assertEqual(run['state'],'failed')
+        self.assertIn('Download error',run['message'])
+        self.assertIn('Resume',run['message'])
+        self.assertEqual(run['completed_files'],2)

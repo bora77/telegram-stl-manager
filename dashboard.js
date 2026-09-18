@@ -49,13 +49,14 @@ function runMessage(run){
 function renderRunActivity(queue){
   const run=queue.run,state=queue.worker_state,ended=['completed','needs_review'].includes(state);
   document.getElementById('run-activity').dataset.active=String(queue.active);
-  const phase=ended&&queue.completed_files<queue.total_files?'Run ended · unfinished files':({starting:'Starting run',scanning:'Checking Telegram files',downloading:'Downloading file',extracting:'Extracting release images',copying:'Moving file to destination',completed:'Run complete',needs_review:'Run complete · review needed',failed:'Run stopped with an error',interrupted:'Run interrupted',stopped:'Run stopped'})[state]||'Ready';
+  const phase=ended&&queue.completed_files<queue.total_files?'Download error · run incomplete':({starting:'Starting run',scanning:'Checking Telegram files',downloading:'Downloading file',extracting:'Extracting release images',copying:'Moving file to destination',completed:'Run complete',needs_review:'Run needs attention',failed:'Run stopped with an error',interrupted:'Run interrupted',stopped:'Run stopped'})[state]||'Ready';
   document.getElementById('run-phase').textContent=phase;
+  document.getElementById('run-phase').style.color=['failed','interrupted','needs_review'].includes(state)?'#a12632':'';
   const started=run.resumed_at||run.started_at;
   const seconds=started?(Date.parse(run.finished_at||new Date().toISOString())-Date.parse(started))/1000:null;
   document.getElementById('run-elapsed').textContent=seconds==null?'':(queue.active?'Elapsed: ':'Run duration: ')+duration(seconds);
   const scanning=state==='scanning';
-  document.getElementById('run-detail').textContent=scanning?`${run.creators_checked||0} / ${run.creators_total||0} artists checked · ${run.message||'Checking new messages…'}${run.files_listed?' · '+run.files_listed+' new file records':''}`:ended&&queue.total_files===0?'No matching releases were queued for download.'+(run.warnings?.length?' Some entries could not be classified; review them below.':''):runMessage(run);
+  document.getElementById('run-detail').textContent=scanning?`${run.creators_checked||0} / ${run.creators_total||0} artists checked · ${run.message||'Checking new messages…'}${run.files_listed?' · '+run.files_listed+' new file records':''}`:state==='completed'&&queue.total_files===0?'No matching releases were queued for download.'+(run.warnings?.length?' Some entries could not be classified; review them below.':''):runMessage(run);
   if(state==='downloading'&&run.download_server&&!queue.scheduler)document.getElementById('run-detail').textContent+=' · Server: '+run.download_server;
   document.getElementById('review-summary').textContent=`Items needing review (${run.warnings?.length||0})`;
 }

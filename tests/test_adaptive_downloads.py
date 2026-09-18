@@ -232,7 +232,7 @@ class CoordinatorTests(unittest.TestCase):
                 future.result(timeout=5)
             self.assertTrue(store.history.was_downloaded(1))
             self.assertFalse(store.history.was_downloaded(3))
-            self.assertEqual(worker.run['state'], 'needs_review')
+            self.assertEqual(worker.run['state'], 'failed')
             self.assertIn('Fixture transfer failed', ' '.join(worker.run['warnings']))
 
     def test_adaptive_split_archive_waits_for_every_volume_before_delivery(self):

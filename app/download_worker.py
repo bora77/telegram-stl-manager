@@ -413,7 +413,7 @@ class Worker:
             self.run['warnings']=image_warnings(self.run['warnings'])
             from app.run_manager import update_run_outcome, current_run_warnings
             current_run_warnings(self.run,self.history)
-            self.run.update(state='needs_review' if self.run['warnings'] else 'completed',message='Run complete. '+('Some entries need review; see details below.' if self.run['warnings'] else 'All eligible discovered files are handled.'))
+            self.run.update(state='needs_review' if self.run['warnings'] else 'completed',message=('Run needs attention. Some files or artist checks need review; see details below.' if self.run['warnings'] else 'Run complete. All eligible discovered files are handled.'))
             update_run_outcome(self.run,self.history)
             self.update(self.run['state'],self.run['message'],finished_at=datetime.now(timezone.utc).isoformat())
         except Exception as error:

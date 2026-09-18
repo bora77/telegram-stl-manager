@@ -29,7 +29,7 @@ def update_run_outcome(data,history):
     if data.get('id') and data.get('state') in ('completed','needs_review'):
         data.update(history.batch_outcome(data['id']))
         if data['unfinished_files']:
-            data.update(state='needs_review',message=f"Run ended with unfinished files: {data['completed_files']} / {data['total_files']} complete. Resume retries the remaining {data['unfinished_files']} files using saved artist checks and verified local downloads.")
+            data.update(state='failed',message=f"Download error — run incomplete: {data['completed_files']} / {data['total_files']} complete. Resume retries the remaining {data['unfinished_files']} files using saved artist checks and verified local downloads.")
         elif data.get('plan_version')==1 and not data.get('warnings'):
             data.update(state='completed',message='Run complete. All eligible discovered files are handled.')
             if data.get('ignored_count'):data['message']=f"Run complete. {data['ignored_count']} corrupt attachment(s) ignored by you."

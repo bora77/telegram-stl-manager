@@ -68,7 +68,7 @@ class FirstRun:
     def state(self):
         try:source=load_source(self.root).home_url
         except ValueError:source=''
-        return {'setup_required':self.setup_required,'missing_setup':self.missing_setup(),'application':'telegram-stl-manager','source':source,'login':self.phase,'challenge':self.challenge,'share_supported':Path('/etc/telegram-stl-managed').exists(),'share':json.loads((self.root/'data/setup-share.json').read_text()) if (self.root/'data/setup-share.json').exists() else {},'creators':len(json.loads((self.root/'data/creators.json').read_text()).get('creators',[]))}
+        return {'setup_required':self.setup_required,'missing_setup':self.missing_setup(),'application':'telegram-stl-manager','version':(self.root/'VERSION').read_text().strip() if (self.root/'VERSION').exists() else 'unknown','source':source,'login':self.phase,'challenge':self.challenge,'share_supported':Path('/etc/telegram-stl-managed').exists(),'share':json.loads((self.root/'data/setup-share.json').read_text()) if (self.root/'data/setup-share.json').exists() else {},'creators':len(json.loads((self.root/'data/creators.json').read_text()).get('creators',[]))}
     def start_login(self):
         with self.lock,self.idle():
             if self.child and self.child.poll() is None:raise ValueError('Telegram sign-in is already open.')

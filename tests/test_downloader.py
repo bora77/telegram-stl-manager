@@ -504,3 +504,29 @@ class FailedRunOutcomeTests(unittest.TestCase):
         self.assertIn('Download error',run['message'])
         self.assertIn('Resume',run['message'])
         self.assertEqual(run['completed_files'],2)
+
+class WindowsPublishTests(unittest.TestCase):
+    def test_unsupported_rename_uses_link_and_retains_staged_source(self):
+        import ctypes,errno
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp);source=base/'source.zip';source.write_bytes(b'verified data')
+            with patch('app.file_delivery.ctypes.CDLL') as libc:
+                libc.return_value.renameat2.side_effect=lambda *args:(ctypes.set_errno(errno.EINVAL) or -1)
+                target,_,_=deliver(source,base,'Example','2026-09','file.zip')
+            self.assertEqual(target.read_bytes(),source.read_bytes())
+            self.assertTrue(source.exists())
+            self.assertFalse(list(target.parent.glob('*.partial')))
+
+    def test_fallback_never_overwrites_racing_destination(self):
+        import ctypes,errno,os
+        from app.file_delivery import rename_no_replace
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp);(base/'source').write_bytes(b'new');(base/'target').write_bytes(b'existing')
+            fd=os.open(base,os.O_RDONLY|os.O_DIRECTORY)
+            try:
+                with patch('app.file_delivery.ctypes.CDLL') as libc:
+                    libc.return_value.renameat2.side_effect=lambda *args:(ctypes.set_errno(errno.EINVAL) or -1)
+                    with self.assertRaises(FileExistsError):rename_no_replace(fd,'source',fd,'target')
+                self.assertEqual((base/'target').read_bytes(),b'existing')
+                self.assertEqual((base/'source').read_bytes(),b'new')
+            finally:os.close(fd)

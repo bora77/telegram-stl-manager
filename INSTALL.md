@@ -906,3 +906,43 @@ builds the image with visible output. Account configuration remains in the app.
 The selected host destination is mapped to `/downloads`; application data uses
 the persistent `telegram-stl-manager-data` Docker volume. Do not remove that
 volume during updates. Public packages contain no saved credentials or sessions.
+
+## Updating an existing installation
+
+On Windows, open **Configuration → Application updates**. The app checks once
+per day while a page is open and shows a red **Update available** link beside
+the footer version; **Check for updates** checks immediately. **Install update**
+waits for active tasks, pauses new tasks, downloads the GitHub release asset and
+verifies its published SHA-256 digest. A visible Windows updater then backs up
+the old installation, installs into the existing WSL environment and checks that
+the new version starts. If startup fails, it restores the previous application
+and saved state. No Git installation, administrator approval or Ubuntu reinstall
+is needed. Keep the updater window open until it finishes.
+
+For versions without the updater, download `Telegram-STL-Manager-Update.zip`
+from this repository's GitHub Releases, extract it into a new folder and run
+`Update.cmd` using the same Windows account as the original installation. Finish
+all tasks first and type `UPDATE` when prompted. Do not use Reset or Uninstall.
+This bootstrap update also installs the in-app updater for future versions.
+
+Settings, sessions, subscriptions and history are retained. External download
+folders, network shares and other WSL distributions are not deleted or replaced.
+Private backups remain inside the dedicated distribution under
+`/home/stl/telegram-stl-update-backups`; they can contain account data and must not
+be shared. Update logs are in
+`%LOCALAPPDATA%\TelegramSTLManager\logs\update-*\update.log`.
+If interrupted, rerun `Update.cmd`; the updater recovers its previous transaction
+before trying again. Keep backup folders until you have checked the new version.
+
+The default update source is `bora77/telegram-stl-manager`. Public releases need
+no login. If using a private fork, Configuration accepts a personal GitHub token
+with Contents read access to that repository. Tokens stay in local private data,
+are never shipped in packages, and are not forwarded to release download hosts.
+
+In-app installation initially supports managed Windows/WSL installations only.
+For Linux, stop the app, back up its `data` directory, extract the new runtime
+package into a new directory, transfer your existing `data` directory and keep
+the previous runtime for rollback. Preserve the Telegram session directory under
+`~/.local/share/telegram-stl-tdl`. For Docker, stop the old container and replace
+its image/container while retaining the same persistent volumes and destination
+mounts; never remove data volumes when updating.

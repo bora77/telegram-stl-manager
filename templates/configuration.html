@@ -94,7 +94,28 @@ __FIRST_RUN__
 <div class="actions"><button id="drive-check-network" type="button">Use Network share</button><button id="drive-check-local" class="secondary" type="button">It is a local disk</button><button id="drive-check-cancel" class="secondary" type="button">Cancel</button></div>
 </dialog>
 <button id="save" disabled>Save configuration</button><p id="status" aria-live="polite">Loading settings…</p>
-</div></main>
+</div>
+<section class="panel" id="updates"><h2>Application updates</h2>
+<p id="update-status" role="status">Checking update status…</p>
+<progress id="update-progress" hidden style="width:100%"></progress>
+<div class="actions"><button id="update-check" type="button" class="secondary">Check for updates</button><button id="update-install" type="button" disabled>Install update</button></div>
+<small id="update-platform">Settings, accounts, history and downloaded files are preserved. Installation waits for active tasks.</small>
+<details><summary>Update source</summary><label for="update-repository">GitHub release repository</label><input id="update-repository" autocomplete="off">
+<label for="update-token">Personal GitHub token (private downloads only)</label><input id="update-token" type="password" autocomplete="new-password"><small id="update-token-status"></small>
+<button id="update-save" class="secondary" type="button">Save update source</button></details>
+</section>
+<script>
+(()=>{
+const el=id=>document.getElementById(id);let lastCheck=0,inFlight=false;
+async function api(action,payload){const response=await fetch('/api/updates'+(action?'/'+action:''),{cache:'no-store',...(payload?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const data=await response.json();if(!response.ok)throw Error(data.error||'Update request failed');return data}
+function render(d){el('update-status').textContent='v'+d.current+' · '+d.message;el('update-status').style.color=d.phase==='error'?'#a12632':d.available?'#7651a6':'';el('update-repository').value||=d.repository;el('update-token-status').textContent=d.has_token?'A private access token is saved. Leave blank to keep it.':'No access token saved. Public releases need none.';el('update-check').disabled=d.working||d.reserved;el('update-install').disabled=!d.available||!d.supported||d.working||d.reserved;el('update-save').disabled=d.working||d.reserved;el('update-progress').hidden=!d.working;el('update-progress').max=d.total||1;if(d.total)el('update-progress').value=d.bytes||0;else el('update-progress').removeAttribute('value');if(!d.supported)el('update-platform').textContent='In-app installation is available on managed Windows installations. Linux and Docker users: follow the update instructions in INSTALL.md.';lastCheck=Math.max(lastCheck,d.last_checked||0)}
+async function act(action,payload={}){try{render(await api(action,payload))}catch(e){el('update-status').textContent=e.message;el('update-status').style.color='#a12632'}}
+el('update-check').onclick=()=>act('check');el('update-install').onclick=()=>act('install');el('update-save').onclick=()=>{const token=el('update-token').value;el('update-token').value='';act('settings',{repository:el('update-repository').value,token})};
+async function refresh(){if(inFlight)return;inFlight=true;try{const d=await api('');render(d);if(!d.working&&!d.reserved&&Date.now()/1000-lastCheck>86400){lastCheck=Date.now()/1000;await act('check')}}catch(e){el('update-status').textContent='Reconnecting to the application…'}finally{inFlight=false}}
+refresh();setInterval(refresh,3000);
+})();
+</script>
+</main>
 <script>
 let revision=0;
 const releasePad=document.getElementById('release-pad-destination');

@@ -60,6 +60,12 @@ try {
         $Ready = $Existing.application -eq 'telegram-stl-manager'
     } catch {}
     if (!$Ready) {
+        $Recovery = Join-Path $PSScriptRoot 'update.sh'
+        if (Test-Path $Recovery) {
+            $LinuxRecovery = ((& wsl.exe -d TelegramSTL -u root --exec wslpath -u $Recovery) -join "`n").Trim()
+            & wsl.exe -d TelegramSTL -u root --exec bash $LinuxRecovery recover
+            if ($LASTEXITCODE -ne 0) { throw 'Update recovery needs attention. Run Update.cmd again and keep its log.' }
+        }
         $Server = Start-Process wsl.exe -ArgumentList @('-d','TelegramSTL','-u','stl','--exec','bash','/home/stl/telegram-stl/windows/session.sh') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $LogDir 'server.log') -RedirectStandardError (Join-Path $LogDir 'server-errors.log')
     }
     $State = @{ Ready=$Ready; BrowserOpened=$false; Deadline=(Get-Date).AddSeconds(90); LastCheck=[datetime]::MinValue }

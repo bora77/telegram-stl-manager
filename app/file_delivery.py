@@ -8,9 +8,26 @@ import subprocess
 import uuid
 import fcntl
 import time
+import ctypes
+import errno
 from contextlib import contextmanager
 
 class DeliveryError(RuntimeError):pass
+
+def rename_no_replace(sourcefd, source, targetfd, target):
+    """Publish without overwriting, including WSL drives lacking RENAME_NOREPLACE."""
+    libc=ctypes.CDLL(None,use_errno=True)
+    rename=getattr(libc,'renameat2',None)
+    if rename is not None:
+        if rename(sourcefd,os.fsencode(source),targetfd,os.fsencode(target),1)==0:return
+        error=ctypes.get_errno()
+        if error not in (errno.EINVAL,errno.ENOSYS,errno.EOPNOTSUPP):
+            raise OSError(error,'Could not publish verified file without overwriting')
+    # Creating a hard link fails atomically if the target already exists. Never
+    # fall back to an ordinary rename, which could replace another user's file.
+    os.link(source,target,src_dir_fd=sourcefd,dst_dir_fd=targetfd,follow_symlinks=False)
+    os.fsync(targetfd)
+    os.unlink(source,dir_fd=sourcefd)
 
 @contextmanager
 def release_lock(root, base, folder, month, stopped=lambda:False, waiting=lambda:None, *, blocking=True):
@@ -103,11 +120,7 @@ def deliver(source,base,folder,month,filename,progress=lambda done,total:None,ph
         phase('verifying')
         if digest(temporary)!=checksum:raise DeliveryError('Destination checksum mismatch; local file retained.')
         if mount_identity(base)!=identity:raise DeliveryError('Destination mount changed; local file retained.')
-        # Atomic no-overwrite publish on CIFS and local Linux filesystems.
-        import ctypes
-        libc=ctypes.CDLL(None,use_errno=True)
-        result=libc.renameat2(dirfd,os.fsencode(temporary.name),dirfd,os.fsencode(destination.name),1)
-        if result:raise OSError(ctypes.get_errno(),'Could not publish verified file without overwriting')
+        rename_no_replace(dirfd,temporary.name,dirfd,destination.name)
         os.fsync(dirfd)
         return destination,size,checksum
     finally:

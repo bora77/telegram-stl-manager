@@ -1,5 +1,4 @@
 """Manually applied folder plans, with durable per-release recovery."""
-import ctypes
 import fcntl
 import json
 import os
@@ -13,7 +12,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from app.file_delivery import deliver, digest, mount_identity, release_lock
+from app.file_delivery import deliver, digest, mount_identity, release_lock, rename_no_replace
 from app.release_images import extract_images, flat_image_name, is_image_attachment, volume_key, image_warnings
 from app.subscription_store import SubscriptionStore
 from app.telegram_cli import safe_filename
@@ -181,9 +180,7 @@ class PinnedFolder:
                         raise ValueError('Verified destination changed before removing the duplicate source.')
                     os.unlink(name,dir_fd=sourcefd)
                 else:
-                    libc = ctypes.CDLL(None, use_errno=True)
-                    if libc.renameat2(sourcefd, os.fsencode(name), targetfd, os.fsencode(target), 1):
-                        raise OSError(ctypes.get_errno(), 'Could not move without overwriting: ' + source)
+                    rename_no_replace(sourcefd,name,targetfd,target)
                 os.fsync(targetfd);os.fsync(sourcefd)
             finally:os.close(targetfd)
         finally:os.close(sourcefd)

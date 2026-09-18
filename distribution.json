@@ -103,7 +103,13 @@
     "app/mmf_pdf.py",
     "tests/test_mmf_pdf.py",
     "app/__init__.py",
-    "tests/__init__.py"
+    "tests/__init__.py",
+    "app/updater.py",
+    "windows/Update.cmd",
+    "windows/Update.ps1",
+    "windows/update.sh",
+    "tests/test_updater.py",
+    "tests/test_windows_updater.py"
   ],
   "trees": [
     "templates",

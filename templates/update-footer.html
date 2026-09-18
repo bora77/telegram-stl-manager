@@ -1,0 +1,8 @@
+<a id="footer-update" href="/config#updates" hidden style="color:#b42332;font-weight:700;margin-left:10px">Update available</a>
+<script>
+(()=>{
+const link=document.getElementById('footer-update');let checking=false,lastAttempt=0;
+async function refresh(){if(checking||document.hidden)return;checking=true;try{const response=await fetch('/api/updates',{cache:'no-store'});if(!response.ok)return;const state=await response.json();link.hidden=!state.available;link.title=state.available?state.message:'';const now=Date.now()/1000;if(!state.working&&!state.reserved&&now-Math.max(state.last_checked||0,lastAttempt)>86400){lastAttempt=now;await fetch('/api/updates/check',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})}}catch(e){}finally{checking=false}}
+refresh();setInterval(refresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+})();
+</script>

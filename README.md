@@ -375,3 +375,19 @@ in `data/`, outside version control. Downloads keep their configured locations.
 Start a bundled installation with `start.sh`. For source development, run
 `python3 tools/build-catalog.py` and `python3 -m app.catalog_server` from the project
 root. Run the Python test suite with `python3 -m unittest discover -s tests -t .`.
+
+### Application updates
+
+Windows installations can check and install GitHub Releases from Configuration.
+Updates preserve local settings and history, wait for active jobs and verify the
+package checksum before installation. The visible updater backs up the previous
+version and restores it if the startup check fails. Older installations can use
+the standalone `Telegram-STL-Manager-Update.zip` once to gain this feature.
+See [Updating an existing installation](INSTALL.md#updating-an-existing-installation).
+
+Maintainers: build the runtime with `python3 tools/package-runtime.py`, then run
+`python3 tools/package-update.py` and `python3 tools/package-windows.py`. Publish
+`Telegram-STL-Manager-Update.zip` as an asset on a stable GitHub Release tagged
+`vX.Y.Z` matching `VERSION`; the updater verifies GitHub's SHA-256 asset digest.
+Publish the Windows installer alongside it for new users. Packages must pass the
+public-file privacy check and must not contain local sessions or configuration.

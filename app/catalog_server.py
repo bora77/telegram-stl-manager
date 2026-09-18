@@ -27,6 +27,22 @@ SETUP = FirstRun(STORE)
 from app.availability import Availability
 AVAILABILITY = Availability(STORE)
 
+from app.updater import Updater
+
+def update_busy():
+    if AVAILABILITY.running or (SETUP.child and SETUP.child.poll() is None):return True
+    queue=STORE.queue()
+    if queue.get('active') or queue.get('organizer_active') or MMF.busy():return True
+    for name in ('worker.lock','organizer-worker.lock','mmf/worker.lock','mmf/upload.lock','collages/worker.lock'):
+        path=ROOT/'data'/name
+        if path.exists():
+            with path.open('a') as lock:
+                try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                except BlockingIOError:return True
+    return False
+
+UPDATER=Updater(ROOT,update_busy)
+
 class Handler(SimpleHTTPRequestHandler):
     store = STORE
     root = ROOT
@@ -87,6 +103,8 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.valid_host():
             self.send_error(403);return
         path=urlsplit(self.path).path
+        if path=='/api/updates':
+            self.reply_json(UPDATER.status());return
         if SETUP.setup_required and path.startswith('/api/') and path not in ('/api/setup','/api/config','/api/mmf/status'):
             self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
         if path=='/api/setup':
@@ -142,12 +160,18 @@ class Handler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        with UPDATER.gate:
+            if UPDATER.reserved and self.path not in ('/api/stop','/api/mmf/stop','/api/organizer/stop'):
+                self.reply_json({'error':'An update is pending. Wait for it to finish before starting new tasks.'},409);return
+            self.handle_post()
+
+    def handle_post(self):
         host=self.headers.get('Host')
         if not self.valid_host() or self.headers.get('Origin') != 'http://'+host:
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
-        if SETUP.setup_required and self.path not in ('/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/servers/refresh','/api/servers/retest'):
+        if SETUP.setup_required and not self.path.startswith('/api/updates/') and self.path not in ('/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/servers/refresh','/api/servers/retest'):
             self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
-        if self.path not in ('/api/release-pad/destinations','/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/redownload','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/images','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/updates/check','/api/updates/install','/api/updates/settings','/api/release-pad/destinations','/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/mmf/save','/api/mmf/check','/api/mmf/download','/api/mmf/redownload','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/images','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -156,6 +180,9 @@ class Handler(SimpleHTTPRequestHandler):
             if not 0 < length <= (7_000_000 if self.path=='/api/artist-profiles' else 1_000_000):raise ValueError('Invalid request size.')
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):raise ValueError('Expected an object.')
+            if self.path.startswith('/api/updates/'):
+                action=self.path.rsplit('/',1)[1]
+                self.reply_json(UPDATER.save(payload) if action=='settings' else UPDATER.start(action));return
             if self.path=='/api/release-pad/destinations':
                 client=TelegramCLI(root=self.root)
                 try:

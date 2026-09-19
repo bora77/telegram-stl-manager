@@ -1,5 +1,12 @@
 # Version history
 
+## 0.1.23
+
+- Allow releases published outside the tool to be marked as finished; new file versions reopen them for addenda.
+- Enable the full packaging workflow for named Frontier collections, including numbered addenda.
+- Align MMF release rows consistently and improve their mobile layout.
+- Add a prominent testers-only warning beside MMF Beta activation and in the installation guides.
+
 ## 0.1.22
 
 - Fix Tribe releases hidden by older duplicate Shared-with-me entries.

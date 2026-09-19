@@ -290,7 +290,10 @@ The browser checks subscribed creators for available downloads at the interval s
 
 ### MyMiniFactory
 
-MMF is a beta feature, hidden by default. Enable it in **Configuration → Beta
+MMF is a beta feature, hidden by default.
+
+**MMF Beta is for testers only: its features are incomplete and buggy, and should not be relied on for regular use.**
+ Enable it in **Configuration → Beta
 features**, then connect under **MyMiniFactory account**. The manager connects directly to MMF using an MMF username/email and
 password. A separate MMF browser, extension, Playwright or AI agent is not needed
 for checks and downloads. Google sign-in users may need to set an MMF password
@@ -305,7 +308,10 @@ available releases**. **Resume unfinished** reuses the saved queue and local par
 files. One MMF transfer runs at a time in this initial implementation.
 
 The release list follows the artist’s MMF folders, including monthly releases,
-Welcome Packs and loyalty rewards. Expand a release to see its files. **Make release**
+Welcome Packs and loyalty rewards. Named Frontier collections use the same full
+workflow: extract images, create collage, make release, upload, and confirm publication.
+Archive names follow the collection folder; later additions use numbered addenda.
+Expand a release to see its files. **Make release**
 produces one 7-Zip set named after that release. Configuration controls compression
 and maximum part size, defaulting to level **7** and **4000M** (4000 MiB). Original member filenames are preserved under model/archive
 subfolders to avoid collisions. Small releases use `.7z`; larger sets use
@@ -325,6 +331,11 @@ from Telegram history. A changed release is rebuilt as a complete set, which can
 require downloading its unchanged source archives again; other completed releases
 are skipped.
 Failed releases are reported and the run continues with the next release.
+
+If a release was published outside the tool, expand it in MMF Queue and choose
+**Mark as finished**. Confirmation moves the current file versions to Finished releases
+without uploading or deleting files, or claiming they were downloaded by this app.
+New or updated source files reopen the release for the next addendum.
 
 This integration covers archive downloads from Shared with me, Tribes and Frontiers.
 Creators are merged by MMF creator ID, and duplicate models across sources are checked once.

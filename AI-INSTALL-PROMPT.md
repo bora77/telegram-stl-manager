@@ -139,6 +139,9 @@ update, troubleshooting or uninstall.
 
 ## 3. Verify normal operation without starting content jobs
 
+**MMF Beta is for testers only: its features are incomplete and buggy, and should not be relied on for regular use.**
+
+
 - Confirm the web page loads and the displayed version matches the chosen
   release. Verify Telegram Queue/Artists, Organize folders, Collages and
   Configuration; MMF navigation appears only if its Beta is enabled.

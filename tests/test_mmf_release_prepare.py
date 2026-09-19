@@ -13,6 +13,62 @@ from app.release_images import listing
 from app.subscription_store import SubscriptionStore
 
 class PrepareTests(unittest.TestCase):
+    def test_named_frontier_packages_and_addenda(self):
+        from app.collages import collage_filename
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);manager=MMFManager(SubscriptionStore(root));base=root/'nas'
+            directory=base/'Artist'/'Artist Campaign';directory.mkdir(parents=True)
+            def install(letter):
+                archive=directory/(letter+'.zip')
+                with zipfile.ZipFile(archive,'w') as z:z.writestr('Original Model.stl',letter)
+                item={'key':letter,'creator_id':1,'creator':'Artist','folder':'Artist','object_id':ord(letter),'archive_id':ord(letter),'object_name':letter,'filename':archive.name,'release':'Campaign','release_id':'FRONTIER:50:1','size':archive.stat().st_size,'repack':{'id':letter,'kind':'original_archives','outputs':[{'path':str(archive),'size':archive.stat().st_size,'sha256':digest(archive)}],'images':[]}}
+                with manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',(letter,json.dumps(item)))
+                releases([item]);return item
+            first=install('A');key=first['release_key']
+            with patch.object(manager.store,'config',return_value={'download_directory':str(base)}),patch.object(manager,'state',return_value={'items':[]}),patch('app.mmf_release_prepare.Popen'):
+                with self.assertRaisesRegex(Exception,'collage'):start(manager,{'release_key':key})
+                Image.new('RGB',(64,64),'blue').save(directory/collage_filename({'folder':'Artist','month':directory.name}))
+                start(manager,{'release_key':key});plan=rows(manager)[0];execute(manager,plan)
+                self.assertEqual(Path(plan['outputs'][0]['path']),directory/'Artist Campaign.7z')
+                install('B');start(manager,{'release_key':key})
+                addendum=next(p for p in rows(manager) if p['number']==1)
+                self.assertEqual(addendum['keys'],['B']);execute(manager,addendum)
+                self.assertEqual(Path(addendum['outputs'][0]['path']),directory/'Artist Campaign Addendum 1.7z')
+                self.assertTrue((directory/'A.zip').exists());self.assertTrue((directory/'B.zip').exists())
+
+    def test_manual_finish_without_package_and_later_additions(self):
+        from app.mmf_release_prepare import finish_manually, release_lifecycle
+        with tempfile.TemporaryDirectory() as d:
+            manager=MMFManager(SubscriptionStore(Path(d)))
+            items=[{'key':'A','release_key':'release','release_folder':'Artist 2026-09'}]
+            payload={'release_key':'release','keys':['A'],'confirmed':True}
+            with patch.object(manager,'state',return_value={'items':items}):
+                with self.assertRaises(ValueError):finish_manually(manager,{**payload,'confirmed':False})
+                with self.assertRaises(FileExistsError):finish_manually(manager,{**payload,'keys':[]})
+                finish_manually(manager,payload);finish_manually(manager,payload)
+            self.assertEqual(len(rows(manager)),1);self.assertEqual(manager.completed(),set())
+            summary=preparation_status(manager)
+            self.assertTrue(release_lifecycle(items,summary)['release']['finished'])
+            self.assertEqual(summary['release']['number'],0)
+            items.append({**items[0],'key':'B'})
+            self.assertFalse(release_lifecycle(items,summary)['release']['finished'])
+            with patch.object(manager,'state',return_value={'items':items}):finish_manually(manager,{**payload,'keys':['A','B']})
+            self.assertEqual(preparation_status(manager)['release']['number'],1)
+            self.assertTrue(release_lifecycle(items,preparation_status(manager))['release']['finished'])
+
+    def test_manual_finish_closes_prepared_and_failed_packages(self):
+        from app.mmf_release_prepare import finish_manually, save, release_lifecycle
+        with tempfile.TemporaryDirectory() as d:
+            manager=MMFManager(SubscriptionStore(Path(d)));rows(manager)
+            for number,state in enumerate(['complete','failed']):
+                save(manager,{'id':str(number),'number':number,'state':state,'title':'Release','directory':d,'release_key':'release','keys':[str(number)]})
+            items=[{'key':str(n),'release_key':'release','release_folder':'Artist 2026-09'} for n in range(2)]
+            with patch.object(manager,'state',return_value={'items':items}):finish_manually(manager,{'release_key':'release','keys':['0','1'],'confirmed':True})
+            summary=preparation_status(manager)
+            self.assertTrue(release_lifecycle(items,summary)['release']['finished'])
+            self.assertNotIn('pending',summary['release'])
+            self.assertTrue(summary['release']['packages'][0]['published'])
+
     def test_initial_addendum_retry_and_changed_version(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);manager=MMFManager(SubscriptionStore(root));base=root/'nas';folder=base/'Artist'/'Artist 2025-01';folder.mkdir(parents=True)

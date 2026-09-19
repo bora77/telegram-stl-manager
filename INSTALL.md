@@ -891,6 +891,9 @@ See [CATALOG.md](CATALOG.md) for the application workflow and implementation not
 
 ## Optional MyMiniFactory connection
 
+**MMF Beta is for testers only: its features are incomplete and buggy, and should not be relied on for regular use.**
+
+
 Open **Configuration → MyMiniFactory account** in the manager and connect with your MMF username/email and
 MMF password. Google-only accounts may first need an MMF password from the site's
 Forgot password flow. Select creators from Shared with me, Tribes and Frontiers, their destination folders

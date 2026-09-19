@@ -103,9 +103,16 @@ function queue(){
   const details=document.createElement('details');details.className='release-row'+(group.items.some(i=>i.missing_files?.length)?' missing-files':'');details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
   const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';const creatorLabel=text('small',group.creator);creatorLabel.prepend(ArtistProfiles.badge(group.creator,{compact:true}));heading.append(text('strong',group.name),creatorLabel);
   const info=document.createElement('span');info.className='release-info';info.append(text('span',`${group.items.length} ${group.items.length===1?'file':'files'} · ${sizeLabel(group.size)}`));
-  const first=group.items[0];info.append(text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':first.release_month_basis==='delivery_at'?' · from MMF delivery date':'')));
+  const first=group.items[0];const folderLabel=text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':first.release_month_basis==='delivery_at'?' · from MMF delivery date':''));folderLabel.title=folderLabel.textContent;info.append(folderLabel);
   const lifecycle=data.release_lifecycle?.[group.key];const status=text('span',releaseStatus(group));status.className='release-status '+(group.items.some(i=>i.missing_files?.length)?'missing':lifecycle?.finished?'recorded':'');summary.append(heading,info,status);details.append(summary);
-  if(first.release_month||data.collages?.[group.key]){
+  if(!lifecycle?.finished){
+   const manualActions=document.createElement('div');manualActions.className='actions';manualActions.style.padding='12px 18px';
+   const finish=text('button','Mark as finished');finish.className='secondary';finish.disabled=data.active||data.preparations?.[group.key]?.upload_active;
+   finish.title='Record a release published outside this tool. Later new or updated files reopen it.';
+   finish.onclick=()=>{if(window.confirm('Mark '+group.name+' as finished outside this tool? This records the currently listed file versions. New or updated files will reopen the release. No files will be deleted.'))act('finish',{release_key:group.key,keys:[...new Set(group.items.map(i=>i.key))].sort(),confirmed:true})};
+   manualActions.append(finish);details.append(manualActions);
+  }
+  if(first.release_folder){
    const prep=data.preparations?.[group.key],issued=new Set(prep?.keys||[]),fresh=group.items.filter(i=>i.completed&&!issued.has(i.key));
    const actions=document.createElement('div');actions.className='actions';actions.style.padding='12px 18px';
    const offerGallery=group.recorded===group.items.length&&group.items.every(i=>i.images_checked)&&!data.collages?.[group.key]?.ready;
@@ -114,7 +121,7 @@ function queue(){
    button.disabled=!data.collages?.[group.key]?.valid||data.active||group.recorded!==group.items.length||(!fresh.length&&!prep?.pending);
    button.onclick=()=>act('package',{release_key:group.key});
    const collage=data.collages?.[group.key];
-   if(!collage?.valid&&first.release_month){button.title='Create and save a valid collage before making this release.';}
+   if(!collage?.valid){button.title='Create and save a valid collage before making this release.';}
    const collageButton=text('button',collage?.exists?'Edit collage':'Create collage');collageButton.className='secondary';collageButton.disabled=!collage?.ready;
    collageButton.title=collage?.ready?'Open this release in the collage editor.':'The release_images folder must contain images. Download and extract release images first.';
    collageButton.onclick=()=>{location.href='/collages?'+new URLSearchParams({folder:collage.folder,month:collage.release,archive:collage.release})};
@@ -124,13 +131,13 @@ function queue(){
    const workflow=document.createElement('div');workflow.className='release-workflow';workflow.setAttribute('role','group');workflow.setAttribute('aria-label','Release workflow');
    const steps=[workflowStep(prepare,1,preparing?'running':collage?.ready?'done':prepare.disabled?'blocked':'ready',preparing?'Extracting release images…':collage?.ready?'Release images available':!group.recorded?'Download release files first':data.active?'Wait for the current MMF task':'Extract images for the collage'),
     workflowStep(collageButton,2,collage?.valid?'done':collageButton.disabled?'blocked':'ready',collage?.valid?'Saved collage available':!collage?.ready?'Prepare release images first':'Choose images and save the collage')];
-   if(first.release_month){
+   if(first.release_folder){
     if(made)button.textContent='Make release';
     steps.push(workflowStep(button,3,packaging?'running':made?'done':button.disabled?'blocked':'ready',packaging?'Building the archive…':made?'Release archive ready':group.recorded!==group.items.length?'Download remaining files first':!collage?.valid?'Save a valid collage first':data.active?'Wait for the current MMF task':'Build the release archive'));
    }
    steps.forEach((step,index)=>{if(index){const arrow=text('span','→');arrow.className='workflow-arrow';arrow.setAttribute('aria-hidden','true');workflow.append(arrow)}workflow.append(step)});actions.append(workflow);
    if(prep?.directory)actions.append(text('small','Prepared: '+prep.title+' · '+prep.directory));
-   else if(first.release_month)actions.append(text('small','Creates a 7-Zip set using your configured compression and part size. Later additions get numbered addenda.'));
+   else if(first.release_folder)actions.append(text('small','Creates a 7-Zip set using your configured compression and part size. Later additions get numbered addenda.'));
    for(const pack of prep?.packages||[]){
     const upload=text('button',pack.attempted?'Re-upload':'Upload release');
     upload.disabled=prep.upload_active;upload.title=pack.title;

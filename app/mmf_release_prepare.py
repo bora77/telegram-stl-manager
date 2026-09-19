@@ -44,6 +44,11 @@ def preparation_status(manager):
         key=plan['release_key'];summary=result.setdefault(key,{'number':-1,'keys':[],'published_keys':[]})
         summary['upload_active']=uploads['active']
         if plan['state']=='complete':
+            if plan.get('manual_finish'):
+                summary['number']=max(summary['number'],plan['number'])
+                summary['keys']=sorted(set(summary['keys'])|set(plan['keys']))
+                summary['published_keys']=sorted(set(summary['published_keys'])|set(plan['keys']))
+                continue
             history=sorted((r for r in uploads['attempts'] if r['preparation_id']==plan['id']),key=lambda r:r['created_at'])
             last=history[-1] if history else plan.get('test_upload')
             summary.setdefault('packages',[]).append({'id':plan['id'],'title':plan['title'],'published':bool(plan.get('publication')),'upload':({k:last.get(k) for k in ('id','state','message','bytes','total','speed_mbps','current')}|{'files':[{k:f.get(k) for k in ('name','size','uploaded','state')} for f in last.get('files',[])]}) if last else None,'attempted':bool(last),'upload_state':last.get('state') if last else None,'upload_message':last.get('message','Test upload '+last.get('state','')) if last else ''})
@@ -52,6 +57,38 @@ def preparation_status(manager):
             summary['published_keys']=sorted(set(summary['published_keys'])|set(plan.get('publication',{}).get('keys',[])))
         else:summary['pending']=plan['title']
     return result
+
+
+def finish_manually(manager, payload):
+    """Record external publication of the exact versions the user reviewed."""
+    from app.mmf_release_upload import status
+    if payload.get('confirmed') is not True:raise ValueError('Confirm that this release was finished outside the tool.')
+    with manager.idle():
+        if status(manager)['active']:raise FileExistsError('Wait for the current release upload to finish.')
+        key=payload.get('release_key')
+        group=[i for i in manager.state()['items'] if i['release_key']==key]
+        if not group:raise ValueError('Choose an existing release.')
+        keys=sorted({i['key'] for i in group})
+        if payload.get('keys')!=keys:raise FileExistsError('Release files changed. Review the release and try again.')
+        history=[p for p in rows(manager) if p['release_key']==key]
+        published={k for p in history for k in p.get('publication',{}).get('keys',[])}
+        if set(keys)<=published and all(p.get('publication') for p in history):return {'recorded':True}
+        number=max((p['number'] for p in history),default=-1)
+        if not any(not p.get('publication') for p in history):number+=1
+        number=max(0,number)
+        publication={'confirmed_at':time.time(),'method':'manual_external','keys':keys}
+        plan={'id':'manual-'+hashlib.sha256((key+json.dumps(keys)).encode()).hexdigest(),
+              'release_key':key,'number':number,'title':group[0]['release_folder'],
+              'keys':keys,'state':'complete','manual_finish':True,'publication':publication}
+        with manager.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for previous in history:
+                if previous.get('publication'):continue
+                previous['publication']={**publication,'keys':list(previous['keys'])}
+                if previous['state']!='complete':previous.update(state='complete',manual_finish=True)
+                db.execute('UPDATE telegram_preparations SET data=? WHERE id=?',(json.dumps(previous),previous['id']))
+            db.execute('INSERT OR REPLACE INTO telegram_preparations VALUES (?,?)',(plan['id'],json.dumps(plan)))
+        return {'recorded':True}
 
 
 def confirm_released(manager, payload):
@@ -204,12 +241,12 @@ def start(manager,payload):
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:raise FileExistsError('Wait for the current MMF task to finish.')
         history=rows(manager);group=[i for i in downloaded(manager) if i['release_key']==key]
-        if not group or not group[0].get('release_month'):raise ValueError('Choose a downloaded monthly release.')
+        if not group:raise ValueError('Choose a downloaded release.')
         directory=Path(manager.store.config()['download_directory'])/group[0]['folder']/group[0]['release_folder']
         require_release_collage(directory/'release.7z',action='making the release')
-        # Do not silently issue a partial month while known files await downloading.
+        # Do not silently issue a partial release while known files await downloading.
         current=[i for i in manager.state()['items'] if i['release_key']==key]
-        if any(not i['completed'] for i in current):raise ValueError('Download the available files for this month first.')
+        if any(not i['completed'] for i in current):raise ValueError('Download the available files for this release first.')
         pending=[p for p in history if p['release_key']==key and p['state']!='complete']
         if pending:plan=pending[0]
         else:

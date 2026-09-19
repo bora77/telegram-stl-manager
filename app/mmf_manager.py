@@ -17,6 +17,7 @@ from app.release_images import extract_images, is_archive, safe_component, volum
 from app.file_delivery import deliver, release_lock, digest, DeliveryError
 from app.mmf_repack import repack, archive_name, VOLUME_BYTES, POLICY_VERSION, COMPRESSION_LEVEL
 from app.release_images import ExtractionError
+from app.mmf_source_layout import source_units, source_directory
 
 
 def month_for(filename,label):
@@ -143,7 +144,7 @@ class MMFManager:
         resumable=any(i['key'] not in known for i in self.get('queue',[]))
         from app.mmf_release_prepare import preparation_status, release_lifecycle, release_collages
         prepared=preparation_status(self)
-        return {'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
+        return {'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
     def login(self,payload):
         with self.idle():
             groups=self.client().login(payload.get('username'),payload.get('password'))
@@ -294,11 +295,12 @@ class MMFManager:
             if self.stopped():raise MMFError('Re-download stopped. Resume to finish saving archives.')
             self.progress(phase='moving',message='Saving original archives',bytes=n,expected=total,speed_mbps=0)
         with release_lock(self.root,base,first['folder'],release_folder,self.stopped):
-            for unit in units.values():
+            for unit in units:
                 unit.sort(key=lambda i:volume_key(i['filename'])[1]);head=unit[0]
-                unit_id=hashlib.sha256((identity+str(head['object_id'])+head['filename']).encode()).hexdigest()
-                # Separate source sets to preserve original names, including multipart archives.
-                sub=('MMF sources','originals',unit_id[:16]);outputs=[]
+                unit_id=hashlib.sha256(json.dumps(sorted(i['key'] for i in unit)).encode()).hexdigest()
+                source_root=Path(base)/first['folder']/release_folder/'MMF sources'
+                directory=source_directory(source_root,unit,paths)
+                sub=('MMF sources',*directory.relative_to(source_root).parts);outputs=[]
                 for item in unit:
                     path=paths[item['key']]
                     dest,size,checksum=deliver(path,base,first['folder'],release_folder,path.name,moving,subdirectories=sub,release_directory=release_folder)
@@ -340,13 +342,11 @@ class MMFManager:
             identity=hashlib.sha256((json.dumps(sorted(i['key'] for i in group))+nonce).encode()).hexdigest()
             work=self.directory/'staging'/identity;work.mkdir(parents=True,exist_ok=True)
             try:
-                current={};paths={};units={};names=set()
-                for item in group:units.setdefault((item['object_id'],volume_key(item['filename'])[0]),[]).append(item)
+                current={};paths={};units=source_units(group)
+                for unit in units:
+                    unit_dir=work/('source-'+str(unit[0]['object_id'])+'-'+str(unit[0]['archive_id']));unit_dir.mkdir(exist_ok=True)
+                    for item in unit:paths[item['key']]=unit_dir/safe_component(item['filename'])
                 for item in group:
-                    name=safe_component(item['filename']);unit_key=(item['object_id'],volume_key(item['filename'])[0]);unit_dir=work/('source-'+hashlib.sha256(json.dumps(unit_key).encode()).hexdigest()[:16]);unit_dir.mkdir(exist_ok=True)
-                    name_key=(unit_key,name.casefold())
-                    if name_key in names:raise MMFError('Two MMF files have the same staged filename; review this release.')
-                    names.add(name_key);paths[item['key']]=unit_dir/name
                     if item['object_id'] not in current:current[item['object_id']]={int(a['id']):a for a in client.downloadables(item['object_id'])['archives']}
                     remote=current[item['object_id']].get(item['archive_id'])
                     if not remote or int(remote['size'])!=item['size'] or remote.get('updatedAt','')!=item['updated_at']:raise MMFError('MMF file changed after checking. Run Check availability again.')

@@ -81,12 +81,18 @@ func runSTLRequest(ctx context.Context, c *telegram.Client, kv storage.Storage, 
 	f.SetOutput(io.Discard)
 	var output, events, destination, uploadPath, caption string
 	var photo bool
-	var forwardSource string
+	var forwardSource, botAction, botValue string
 	var forwardID int
 	var randomID int64
 	var topic, after int
 	var o stl.Options
 	switch request.Args[0] {
+	case "release-bot":
+		f.StringVar(&destination, "chat", "", "")
+		f.StringVar(&botAction, "action", "", "")
+		f.StringVar(&botValue, "value", "", "")
+		f.IntVar(&forwardID, "message", 0, "")
+		f.StringVar(&output, "output", "", "")
 	case "release-forward":
 		f.StringVar(&forwardSource, "from", "", "")
 		f.StringVar(&destination, "to", "", "")
@@ -136,6 +142,8 @@ func runSTLRequest(ctx context.Context, c *telegram.Client, kv storage.Storage, 
 		return fmt.Errorf("unexpected Telegram arguments")
 	}
 	switch request.Args[0] {
+	case "release-bot":
+		return stl.ReleaseBot(ctx, c, kv, destination, botAction, botValue, forwardID, output)
 	case "release-forward":
 		return stl.ForwardReleaseMessage(ctx, c, kv, forwardSource, destination, forwardID, randomID, output)
 	case "release-history":

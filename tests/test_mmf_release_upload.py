@@ -68,4 +68,48 @@ class UploadTests(unittest.TestCase):
         self.begin();view=status(self.manager)
         self.assertFalse(view['active']);self.assertEqual(view['attempts'][0]['state'],'interrupted')
 
+class BotCLI(FakeCLI):
+    def __init__(self,confirm=True):super().__init__();self.confirm=confirm;self.completed=False
+    def incoming(self,message,buttons=None):
+        m={'id':len(self.messages)+1,'raw':{'PeerID':{'UserID':456},'Out':False,'Message':message}}
+        if buttons:m['raw']['ReplyMarkup']={'Rows':[{'Buttons':buttons}]}
+        self.messages.append(m)
+    def _run(self,args,*rest,**kwargs):
+        import base64
+        from datetime import datetime
+        if args[1]=='release-bot':
+            action=args[args.index('--action')+1];value=args[args.index('--value')+1]
+            if action=='info':Path(args[args.index('--output')+1]).write_text(json.dumps({'id':456,'bot':True,'title':'Test bot'}))
+            elif action=='text':self.incoming('Select creator',[{'Text':'Example'},{'Text':'🟥 This Month','Data':base64.b64encode(b'month').decode()}])
+            elif base64.b64decode(value)==b'month':self.incoming('Upload a release for Example. The filename should start with: Example - '+datetime.now().strftime('%y-%m'))
+            else:
+                self.completed=True
+                if self.confirm:self.incoming('Upload done and saved.')
+            return
+        if args[1]=='release-history':
+            Path(args[args.index('--output')+1]).write_text(json.dumps({'id':456,'messages':self.messages}));return
+        super()._run(args,*rest,**kwargs)
+        self.messages[-1]['raw']['PeerID']={'UserID':456}
+        if '--photo' not in args:self.incoming('Your upload looks complete',[{'Text':'Complete','Data':'Y29tcGxldGU='}])
+
+class BotUploadTests(UploadTests):
+    def begin_bot(self):
+        from datetime import datetime
+        self.plan.update(keys=['A'],release_key='release');save_plan(self.manager,self.plan)
+        choice={'mode':'bot','destination':'@example_bot','profile':'eve','creator':'Example','month':datetime.now().strftime('%Y-%m')}
+        with patch('app.mmf_release_upload.subprocess.Popen'):
+            result=start(self.manager,{'preparation_id':'prepared','delivery':choice})
+        return next(r for r in attempts(self.manager) if r['id']==result['attempt_id'])
+    def test_verified_bot_conversation_publishes_only_after_confirmation(self):
+        row=self.begin_bot();client=BotCLI();execute(self.manager,row,client)
+        self.assertTrue(client.completed);self.assertEqual(row['state'],'complete')
+        self.assertEqual(plans(self.manager)[0]['publication']['method'],'bot_confirmation')
+        self.assertEqual(row['destination'],'456')
+    def test_bot_complete_without_success_does_not_publish(self):
+        row=self.begin_bot();client=BotCLI(False)
+        ticks=iter([0,0,0,0,0,0,0,0,0,0,1000])
+        with patch('app.mmf_release_flow.time.monotonic',side_effect=lambda:next(ticks,1000)),patch('app.mmf_release_flow.time.sleep'):
+            with self.assertRaisesRegex(Exception,'expected reply'):execute(self.manager,row,client)
+        self.assertNotIn('publication',plans(self.manager)[0]);self.assertEqual(row['state'],'failed')
+
 if __name__=='__main__':unittest.main()

@@ -13,6 +13,19 @@ from app.release_images import listing
 from app.subscription_store import SubscriptionStore
 
 class PrepareTests(unittest.TestCase):
+    def test_release_router_reuses_package_and_checks_snapshot(self):
+        from app.mmf_release_flow import start as route
+        from app.mmf_release_prepare import save
+        with tempfile.TemporaryDirectory() as d:
+            manager=MMFManager(SubscriptionStore(Path(d)))
+            item={'key':'A','release_key':'release','creator':'Artist','completed':True,'release_month':'2026-09'}
+            rows(manager);save(manager,{'id':'old','state':'complete','release_key':'release','keys':['A'],'number':0,'outputs':[{'path':'example.7z'}]})
+            payload={'mode':'pad','release_key':'release','keys':['A']}
+            with patch.object(manager.store,'config',return_value={'release_pad_destination':'-123'}),patch.object(manager,'state',return_value={'active':False,'items':[item]}),patch('app.mmf_release_upload.start',return_value={'started':True}) as upload,patch('app.mmf_release_prepare.start') as package:
+                route(manager,payload);package.assert_not_called();self.assertEqual(upload.call_args.args[1]['preparation_id'],'old')
+                with self.assertRaisesRegex(ValueError,'changed'):route(manager,{**payload,'keys':['B']})
+                item['key']='B';route(manager,{**payload,'keys':['B']});self.assertEqual(package.call_args.args[1]['delivery']['destination'],'-123')
+
     def test_named_frontier_packages_and_addenda(self):
         from app.collages import collage_filename
         with tempfile.TemporaryDirectory() as d:

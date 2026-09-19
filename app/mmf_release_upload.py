@@ -12,7 +12,7 @@ import uuid
 from app.file_delivery import digest, release_lock
 from app.telegram_cli import TelegramCLI, CLIError, require_release_collage
 
-ACTIVE={'queued','uploading','verifying','preparing'}
+ACTIVE={'queued','uploading','verifying','preparing','conversation'}
 
 
 def attempts(manager):
@@ -39,7 +39,7 @@ def status(manager):
         rows=attempts(manager)
         for row in rows:
             if row['state'] in ACTIVE and not active:
-                row.update(state='interrupted',message='Upload interrupted. Check Release Pad before re-uploading; some messages may already exist.')
+                row.update(state='interrupted',message='Upload interrupted. Check the selected destination before re-uploading; some messages may already exist.')
                 save(manager,row)
         return {'active':active,'attempts':rows}
 
@@ -69,10 +69,15 @@ def start(manager,payload):
         plan=next((p for p in rows(manager) if p['id']==payload.get('preparation_id') and p['state']=='complete'),None)
         if not plan:raise ValueError('Choose a prepared release.')
         inputs(manager,plan)
-        destination=manager.store.config().get('release_pad_destination','')
-        if not re.fullmatch(r'-[1-9][0-9]{0,18}',destination):raise ValueError('Choose a Release Pad using the channel/group picker in Configuration.')
+        choice=payload.get('delivery') or {'mode':'pad','destination':manager.store.config().get('release_pad_destination','')}
+        destination=choice.get('destination','')
+        if choice.get('mode')=='bot':
+            from app.mmf_release_flow import delivery
+            checked=delivery(manager,{**choice,'bot':destination,**{k:'\n'.join(choice[k]) for k in ('before','after') if isinstance(choice.get(k),list)}})
+            choice={**choice,**checked}
+        elif choice.get('mode')!='pad' or not re.fullmatch(r'-[1-9][0-9]{0,18}',destination):raise ValueError('Choose Your Telegram Release Channel in Configuration.')
         history=attempts(manager)
-        row={'id':uuid.uuid4().hex,'preparation_id':plan['id'],'title':plan['title'],'destination':destination,'state':'queued','message':'Preparing upload.','created_at':time.time(),'messages':[],
+        row={'id':uuid.uuid4().hex,'preparation_id':plan['id'],'title':plan['title'],'destination':destination,'delivery':choice,'state':'queued','message':'Preparing upload.','created_at':time.time(),'messages':[],
              'number':1+bool(plan.get('test_upload'))+sum(r['preparation_id']==plan['id'] for r in history)}
         save(manager,row)
         log=os.open(manager.directory/'upload.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
@@ -94,15 +99,28 @@ def execute(manager,row,client=None):
     def export(label):
         output=work/(label+'.json')
         client._run(['stl','release-history','--chat',row['destination'],'--output',output],work,lambda:False,timeout=120)
-        data=json.loads(output.read_text());marked=int(row['destination']);raw_id=-marked-1000000000000 if marked<=-1000000000000 else -marked
-        kind='ChannelID' if marked<=-1000000000000 else 'ChatID'
+        data=json.loads(output.read_text())
+        if row.get('bot_id'):
+            raw_id=row['bot_id'];kind='UserID'
+        else:
+            marked=int(row['destination']);raw_id=-marked-1000000000000 if marked<=-1000000000000 else -marked
+            kind='ChannelID' if marked<=-1000000000000 else 'ChatID'
         if data.get('id')!=raw_id or any(m.get('raw',{}).get('PeerID')!={kind:raw_id} for m in data['messages']):raise CLIError('Upload destination verification failed.')
         return data['messages']
     try:
         update('preparing','Checking destination and collage.')
-        allowed=client.destinations()['destinations']
-        peer=next((d for d in allowed if d['id']==row['destination']),None)
-        if not peer:raise CLIError('The saved Release Pad is unavailable or does not allow uploads.')
+        conversation=None
+        if row.get('delivery',{}).get('mode')=='bot':
+            from app.mmf_release_flow import BotConversation
+            conversation=BotConversation(client,work,{**row['delivery'],'title':plan['title']},export,update)
+            conversation.command('info')
+            peer=json.loads((work/'bot.json').read_text())
+            if peer.get('bot') is not True or type(peer.get('id')) is not int or peer['id']<=0:raise CLIError('The recipient is not a verified bot.')
+            row['bot_id']=peer['id'];row['destination']=str(peer['id']);conversation.choice['destination']=row['destination']
+        else:
+            allowed=client.destinations()['destinations']
+            peer=next((d for d in allowed if d['id']==row['destination']),None)
+            if not peer:raise CLIError('The saved Release Pad is unavailable or does not allow uploads.')
         row['destination_title']=peer['title']
         with release_lock(manager.root,plan['base'],plan['folder'],plan['release_folder']):
             collage,archives=inputs(manager,plan)
@@ -116,7 +134,9 @@ def execute(manager,row,client=None):
                 if source.stat().st_size!=target.stat().st_size or digest(source)!=checksum:raise ValueError('Release changed while staging. Retry when editing is finished.')
                 staged.append({'path':str(source),'name':source.name,'size':target.stat().st_size,'sha256':checksum,'uploaded':0,'state':'queued'})
             row['files']=staged;row['total']=sum(f['size'] for f in staged);row['bytes']=0;save(manager,row)
+        if conversation:conversation.begin()
         for index,info in enumerate(staged):
+            if conversation:conversation.checkpoint()
             path=work/Path(info['path']).name
             before={m['id'] for m in export(f'before-{index}')}
             update('uploading',f'Uploading {index+1}/{len(staged)}: {path.name}')
@@ -139,17 +159,22 @@ def execute(manager,row,client=None):
                 save(manager,row)
             client._run(args,work,lambda:False,tick=tick,timeout=3600)
             tick();info['state']='verifying';row['speed_mbps']=0
-            update('verifying',f'Verifying {path.name} in Release Pad.')
+            update('verifying',f'Verifying {path.name} at the selected destination.')
             matches=[]
             for m in export(f'after-{index}'):
                 raw=m['raw'];media=raw.get('Media') or {}
                 if m['id'] in before or not raw.get('Out') or raw.get('Message')!=plan['title']:continue
                 if index==0 and media.get('Photo'):matches.append(m)
                 if index and m.get('file')==path.name and (media.get('Document') or {}).get('Size')==info['size']:matches.append(m)
-            if len(matches)!=1:raise CLIError('Could not verify delivery. Check Release Pad before re-uploading; the message may already exist.')
+            if len(matches)!=1:raise CLIError('Could not verify delivery. Check the selected destination before re-uploading; the message may already exist.')
             info.update(uploaded=info['size'],state='complete');row['bytes']=sum(f['uploaded'] for f in staged)
             row['messages'].append({'message_id':matches[0]['id'],'filename':path.name,'kind':'collage' if index==0 else 'archive'});save(manager,row)
-        row['finished_at']=time.time();update('complete','Release uploaded and verified.')
+        if conversation:
+            confirmation=conversation.finish()
+            from app.mmf_release_prepare import save as save_plan
+            plan['publication']={'confirmed_at':time.time(),'method':'bot_confirmation','upload_id':row['id'],'message_id':confirmation['id'],'keys':list(plan['keys'])}
+            save_plan(manager,plan)
+        row['finished_at']=time.time();update('complete','Release published and confirmed by the bot.' if conversation else 'Release uploaded and verified.')
     except Exception as error:
         row['speed_mbps']=0
         if 'current' in row:row['files'][row['current']]['state']='failed'

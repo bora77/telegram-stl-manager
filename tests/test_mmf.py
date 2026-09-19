@@ -281,7 +281,7 @@ class MMFTests(unittest.TestCase):
         self.assertEqual(self.manager.get('job')['errors'],[])
         self.assertEqual(self.manager.pending_redownload_keys(),set())
         self.assertEqual(self.manager.state()['items'][0]['missing_files'],[])
-        self.assertFalse(output.exists())
+        self.assertTrue(output.exists())
         with self.manager.db() as db:original=json.loads(db.execute('SELECT data FROM completed').fetchone()[0])
         self.assertEqual(original['repack']['kind'],'original_archives');self.assertEqual(Path(original['destination']).name,item['filename']);self.assertEqual(Path(original['destination']).read_bytes(),archive.read_bytes())
         self.assertTrue(images[0].is_file());self.assertEqual(collage.read_bytes(),b'keep collage')
@@ -299,6 +299,27 @@ class MMFTests(unittest.TestCase):
 
 
 class ReleasePackagingTests(MMFTests):
+    def test_same_model_can_have_different_archives_with_the_same_filename(self):
+        import zipfile
+        sources={};items=[]
+        for aid in (41,42):
+            path=self.root/f'{aid}.zip'
+            with zipfile.ZipFile(path,'w') as z:z.writestr('model.stl',str(aid))
+            sources[aid]=path
+            item={**self.item,'archive_id':aid,'filename':'original.zip','size':path.stat().st_size}
+            item['key']=version_key(item);items.append(item)
+        self.manager.put('queue',items);self.manager.put('run_base',str(self.root))
+        class Client:
+            def downloadables(self,oid):return {'archives':[{'id':aid,'size':p.stat().st_size,'updatedAt':'v1'} for aid,p in sources.items()]}
+            def download(self,item,path,*args):path.write_bytes(sources[item['archive_id']].read_bytes())
+            def save(self):pass
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.download()
+        self.assertEqual(self.manager.get('job')['errors'],[])
+        self.assertEqual(self.manager.completed(),{i['key'] for i in items})
+        with self.manager.db() as db:records=[json.loads(row[0]) for row in db.execute('SELECT data FROM completed')]
+        self.assertEqual(len({r['destination'] for r in records}),2)
+        for r in records:self.assertEqual(Path(r['destination']).read_bytes(),sources[r['archive_id']].read_bytes())
+
     def test_welcome_pack_combines_models_and_resumes(self):
         import zipfile
         from app.release_images import listing, command
@@ -323,6 +344,9 @@ class ReleasePackagingTests(MMFTests):
         destination=self.root/'Example Creator'/'Example Creator Welcome Pack'
         originals=list((destination/'MMF sources').rglob('*.zip'))
         self.assertEqual(len(originals),2)
+        self.assertTrue((destination/'MMF sources'/'original.zip').is_file())
+        self.assertTrue((destination/'MMF sources'/'Model 102'/'original.zip').is_file())
+        self.assertFalse((destination/'MMF sources'/'originals').exists())
         self.assertEqual({p.read_bytes() for p in originals},{p.read_bytes() for p in sources.values()})
         self.assertFalse(list(destination.rglob('*.7z')))
         self.assertTrue(all(i['images_checked'] for i in self.manager.state()['items']))
@@ -376,3 +400,45 @@ class ReleaseDateTests(unittest.TestCase):
         self.assertTrue(all(i['release_month']=='2023-09' for i in items))
 
 if __name__=='__main__':unittest.main()
+
+class SourceLayoutTests(unittest.TestCase):
+    def test_duplicate_names_are_separate_units_and_only_conflicts_need_folders(self):
+        from app.mmf_source_layout import source_units, source_directory
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'staging';source.mkdir();dest=root/'MMF sources';dest.mkdir()
+            items=[];paths={}
+            for aid,body in [(1,b'first'),(2,b'second'),(3,b'first')]:
+                folder=source/str(aid);folder.mkdir();p=folder/'model.zip';p.write_bytes(body)
+                item={'key':str(aid),'object_id':10,'archive_id':aid,'object_name':'Readable Model','filename':'model.zip'}
+                items.append(item);paths[item['key']]=p
+            units=source_units(items);self.assertEqual(len(units),3)
+            reserved={}
+            self.assertEqual(source_directory(dest,units[0],paths,reserved),dest)
+            self.assertEqual(source_directory(dest,units[1],paths,reserved),dest/'Readable Model')
+            self.assertEqual(source_directory(dest,units[2],paths,reserved),dest)
+            parts=[{**items[0],'key':str(n),'filename':f'model.7z.{n:03}'} for n in (1,2)]
+            self.assertEqual(len(source_units(parts)),1)
+
+    def test_existing_sources_move_and_all_database_paths_follow(self):
+        from app.mmf_source_layout import migrate_legacy_sources
+        from app.file_delivery import digest
+        from app.subscription_store import SubscriptionStore
+        from app.mmf_manager import MMFManager
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);manager=MMFManager(SubscriptionStore(root));base=root/'downloads';base.mkdir()
+            manager.store.atomic_write(manager.store.config_path,{'download_directory':str(base)})
+            old=base/'Artist'/'Artist 2026-09'/'MMF sources'/'originals'/'aaaaaaaaaaaaaaaa'
+            old.mkdir(parents=True);archive=old/'Original.zip';archive.write_bytes(b'original contents')
+            receipt={'path':str(archive),'size':archive.stat().st_size,'sha256':digest(archive)}
+            record={'key':'A','object_name':'Model','destination':str(archive),'repack':{'outputs':[receipt]}}
+            with manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',('A',json.dumps(record)))
+            manager.put('old_receipt',record)
+            preview=migrate_legacy_sources(manager);self.assertFalse(preview['complete']);self.assertTrue(archive.exists())
+            result=migrate_legacy_sources(manager,True);target=old.parent.parent/'Original.zip'
+            self.assertTrue(result['complete']);self.assertEqual(target.read_bytes(),b'original contents');self.assertFalse(old.parent.exists())
+            self.assertEqual(manager.get('old_receipt')['destination'],str(target))
+            with manager.db() as db:changed=json.loads(db.execute('SELECT data FROM completed').fetchone()[0])
+            self.assertEqual(changed['repack']['outputs'][0]['path'],str(target))
+            self.assertEqual(changed['repack']['outputs'][0]['sha256'],receipt['sha256'])
+            self.assertTrue((manager.directory/'source-layout-migration'/'manager-before.sqlite3').exists())
+            self.assertTrue(migrate_legacy_sources(manager,True)['complete'])

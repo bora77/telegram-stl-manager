@@ -259,6 +259,7 @@ def start(manager,payload):
             plan={'id':hashlib.sha256((key+':'+str(number)).encode()).hexdigest(),'release_key':key,'number':number,'title':title,'keys':[i['key'] for i in delta],'items':delta,'state':'pending','base':manager.store.config()['download_directory'],'folder':group[0]['folder'],'release_folder':group[0]['release_folder']}
             save(manager,plan)
         config=manager.store.config()
+        plan['delivery']=payload.get('delivery')
         plan.setdefault('compression_level',config.get('release_compression_level',7))
         plan.setdefault('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
         save(manager,plan)
@@ -352,7 +353,15 @@ if __name__=='__main__':
             plan=next(p for p in rows(manager) if p['id']==sys.argv[2])
             execute(manager,plan)
     except Exception as error:
-        if plan:
+        if plan and plan.get('state')!='complete':
             plan.update(state='failed',error=str(error));save(manager,plan)
         manager.progress(phase='error',message=str(error),speed_mbps=0)
-    finally:os.close(int(sys.argv[3]))
+    finally:
+        try:
+            if plan and plan.get('state')=='complete' and plan.get('delivery') and not manager.stopped():
+                try:
+                    from app.mmf_release_upload import start as upload
+                    upload(manager,{'preparation_id':plan['id'],'delivery':plan['delivery']})
+                except Exception as error:
+                    manager.progress(phase='error',message='Archive ready, but release delivery could not start: '+str(error),speed_mbps=0)
+        finally:os.close(int(sys.argv[3]))

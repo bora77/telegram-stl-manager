@@ -1,5 +1,13 @@
 # Version history
 
+## 0.1.24
+
+- Store MMF originals directly in MMF sources, using readable folders only for filename collisions; preserve duplicate-named archives from the same model.
+- Choose channel delivery, a bot conversation, or manual completion from the Make release dialog.
+- Reuse prepared archives for re-upload and show bot conversation progress until publication is confirmed.
+
+- Hide empty error messages in the release dialog.
+
 ## 0.1.23
 
 - Allow releases published outside the tool to be marked as finished; new file versions reopen them for addenda.

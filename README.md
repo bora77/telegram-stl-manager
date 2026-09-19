@@ -324,7 +324,7 @@ inside the release. For ordinary releases without a month in their name, the MMF
 creation date supplies the destination month (`YYYY-MM`). Each named release
 still produces its own archive set. The UI labels this inferred month; later
 file updates never change it. Welcome Packs and loyalty rewards retain named
-folders. Missing or invalid dates also keep the release name. Original archives are kept in separate source-set folders under `MMF sources/originals`, preserving filenames and existing files. **Re-download release** fetches fresh originals and extracts images again without repackaging or deleting history. Missing recorded archives are highlighted.
+folders. Missing or invalid dates also keep the release name. Original archives are kept directly under `MMF sources`, preserving their filenames. Only conflicting names use a readable model-name subfolder; multipart archives stay together. Identical files are reused after a full-content comparison. **Re-download release** fetches fresh originals and extracts images again without repackaging or deleting history. Missing recorded archives are highlighted.
 Source downloads stay local until archive/image delivery and database recording
 succeed. Completed source versions and extraction receipts are recorded separately
 from Telegram history. A changed release is rebuilt as a complete set, which can
@@ -333,7 +333,7 @@ are skipped.
 Failed releases are reported and the run continues with the next release.
 
 If a release was published outside the tool, expand it in MMF Queue and choose
-**Mark as finished**. Confirmation moves the current file versions to Finished releases
+**Make release → Just mark as finished**. Confirmation moves the current file versions to Finished releases
 without uploading or deleting files, or claiming they were downloaded by this app.
 New or updated source files reopen the release for the next addendum.
 
@@ -392,15 +392,15 @@ Copyright © 2026 trumphater77
 
 ### Preparing MMF months for Telegram
 
-MMF Download and Re-download automatically extract archive images into `release_images`. **Extract images** can repeat this separately. If no images are found, choose **Download images from MMF** to fetch the gallery images. Next use **Create collage**, save it, then click **Make release**. Making the release and uploading both require a valid saved collage. The app creates a verified 7-Zip set with volumes up to 4000M, an image folder and the saved collage, directly in the monthly folder. Intermediate MMF archives are retained in its `MMF sources` subfolder.
+MMF Download and Re-download automatically extract archive images into `release_images`. **Extract images** can repeat this separately. If no images are found, choose **Download images from MMF** to fetch the gallery images. Next use **Create collage**, save it, then click **Make release** and choose a destination. Building archives and uploading require a valid saved collage; marking an external release finished does not. The app creates a verified 7-Zip set with volumes up to 4000M, an image folder and the saved collage, directly in the monthly folder. Intermediate MMF archives are retained in its `MMF sources` subfolder.
 
-Preparation records which source file versions were included. Later additions or updated downloads use **Make Addendum 1**, then Addendum 2, and so on; unchanged files are excluded. A failed preparation retries the same number. Preparing successfully reserves that release number even before you upload it. Previously downloaded months remain eligible for update checks regardless of the subscription start month. This action prepares files only; it does not upload to Telegram.
+Preparation records which source file versions were included. Later additions or updated downloads use **Make Addendum 1**, then Addendum 2, and so on; unchanged files are excluded. A failed preparation retries the same number. Preparing successfully reserves that release number even before you upload it. Previously downloaded months remain eligible for update checks regardless of the subscription start month. The Make release dialog chooses what happens after preparation: upload to your release channel or run a bot conversation.
 
 Gallery images are fetched only on request. Packaging uses the configured compression level and part size with two threads. Legacy verified 7-Zip sets can be reused only when their contents, compression, cleanup policy and part sizes meet the requested settings.
 
 Prepared MMF releases offer manual Upload and Re-upload actions. Every attempt sends a valid release collage as a Telegram photo first, then the existing archive volumes, and verifies the resulting messages. Re-upload remains available after success, failure, deletion, or interruption; it creates a separate receipt without downloading MMF sources again or creating an addendum. Choose the destination in Configuration. An uncertain attempt may have delivered some messages, so check the Release Pad before retrying.
 
-MMF **Open tasks** tracks publication separately from downloading or uploading. After the release bot successfully publishes a package, use **Confirm released** to move it to **Finished releases**. Automatic bot-completion detection is not connected yet. New or changed source files reopen their month for an addendum; previously published file versions remain recorded.
+MMF **Open tasks** tracks publication separately from downloading or uploading. After the release bot successfully publishes a package, use **Confirm released** to move it to **Finished releases**. Direct bot delivery records completion only after the configured bot confirms publication. New or changed source files reopen their month for an addendum; previously published file versions remain recorded.
 
 On the download page, **Download detected** uses the last availability check's exact file queue without scanning subscriptions again. **Check and download all** performs a fresh check of every saved subscription. Starting a detected run replaces its notification with the next scheduled check; subsequent checks can notify about new files. Each new checking cycle hides inactive organizer results from view while preserving their records and any running organizer job.
 
@@ -480,3 +480,29 @@ On both Telegram and MMF artist pages, leaving a creator folder blank when
 saving uses the artist’s name below the configured download base. Characters
 that are invalid in folder names are made safe. Explicit folder choices are
 preserved; saving subscriptions does not start downloads or create folders.
+
+### Choosing a release destination
+
+**Make release** opens three choices: upload to **Your Telegram Release Channel**,
+release directly through a bot, or **Just mark as finished**. Existing prepared
+archives are reused when unchanged; new file versions become numbered addenda.
+Channel delivery uses the destination configured in Configuration and still needs
+publication confirmation afterwards. Marking finished only records the displayed
+file versions and retains the files.
+
+For bot delivery, enter its @username and the creator name exactly as shown by the
+bot. The Eve quick flow selects the creator's **This Month** or **Last Month** button,
+checks the upload prompt's creator and month, sends the collage and archives,
+clicks **Complete**, and waits for **Upload done and saved.** before recording
+publication. It supports creators visible in the opening menu. Other creators,
+older months, named collections and bots with different menus need **Custom
+conversation**. Do not choose a monthly quick flow for a welcome pack or campaign.
+
+Custom conversations use one `send: message`, `click: exact button text`, or
+`wait: reply text` step per line, separately before and after file upload. Supported
+placeholders are `{creator}`, `{month}` and `{title}`. Enter the bot's final success
+reply; completion requires a new matching reply. Commands and callbacks run without
+AI. Bot settings are remembered locally. A missing or changed prompt stops the
+attempt with an error; inspect the bot conversation before retrying, because some
+files or the final command may already have reached it. No real release is sent
+until you submit the dialog.

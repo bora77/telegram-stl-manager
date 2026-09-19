@@ -237,3 +237,10 @@ On both Telegram and MMF artist pages, leaving a creator folder blank when
 saving uses the artist’s name below the configured download base. Characters
 that are invalid in folder names are made safe. Explicit folder choices are
 preserved; saving subscriptions does not start downloads or create folders.
+
+MMF beta release delivery is configured from **Make release** in MMF Queue. Choose
+the configured Telegram release channel, a bot conversation, or Just mark as
+finished. Bot delivery requires its @username and conversation settings; the Eve
+quick flow covers this/last month for creators in its initial menu. Use Custom
+conversation for other menus, older months or named collections. See README.md,
+“Choosing a release destination”, before configuring bot automation.

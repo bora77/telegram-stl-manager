@@ -56,7 +56,7 @@ function uploadPanel(pack){
  const job=pack.upload;if(!job)return null;
  const panel=document.createElement('details');panel.className='upload-panel';panel.open=!closedUploadPanels.has(job.id);
  panel.ontoggle=()=>{if(!panel.isConnected)return;if(panel.open)closedUploadPanels.delete(job.id);else closedUploadPanels.add(job.id)};
- const live=['queued','preparing','uploading','verifying'].includes(job.state);
+ const live=['queued','preparing','uploading','verifying','conversation'].includes(job.state);
  const heading=document.createElement('summary'),icon=text('span',live?'':job.state==='complete'?'✓':'!');if(live)icon.className='upload-spinner';heading.append(icon,text('strong','Release upload · '+(job.state||'unknown')));panel.append(heading);
  const body=document.createElement('div');body.className='upload-body';body.append(text('p',job.message||''));
  if(live){const metrics=document.createElement('div');metrics.className='upload-metrics';const bar=document.createElement('progress');bar.max=job.total||1;if(job.total)bar.value=job.bytes||0;bar.setAttribute('aria-label','Total upload progress');metrics.append(bar,text('strong',(job.speed_mbps||0).toFixed(1)+' MB/s'));body.append(metrics,text('small',sizeLabel(job.bytes||0)+' / '+sizeLabel(job.total||0)+' uploaded'));}
@@ -76,8 +76,8 @@ function releaseStatus(group){
  if(!data.active&&group.items.some(i=>i.missing_files?.length))return 'Files missing · Re-download release';
  if(lifecycle?.finished)return 'Released';
  const percent=(done,total)=>total>0?' · '+Math.min(100,Math.floor(100*(done||0)/total))+'%':'';
- const packages=prep?.packages||[],uploading=packages.find(p=>['queued','preparing','uploading','verifying'].includes(p.upload?.state));
- if(uploading)return (uploading.upload.state==='verifying'?'Verifying upload':'Uploading')+percent(uploading.upload.bytes,uploading.upload.total);
+ const packages=prep?.packages||[],uploading=packages.find(p=>['queued','preparing','uploading','verifying','conversation'].includes(p.upload?.state));
+ if(uploading)return uploading.upload.state==='conversation'?'Bot conversation · '+(uploading.upload.message||'Waiting for reply'):(uploading.upload.state==='verifying'?'Verifying upload':'Uploading')+percent(uploading.upload.bytes,uploading.upload.total);
  if(data.active&&data.job?.release_key===group.key){
   const job=data.job,phase={starting:'Starting',downloading:'Downloading',unpacking:'Unpacking archives',processing_pdfs:'Cleaning PDFs',repacking:'Compressing archive',verifying_archive:'Verifying archive',verifying_inputs:'Verifying files',extracting:'Extracting images',moving:'Moving files'}[job.phase]||(job.action==='prepare_images'?'Preparing images':job.action==='package'?'Making release':'Processing release');
   return phase+percent(job.bytes,job.expected)+(job.image_total!=null?` · ${job.image_count||0}/${job.image_total} images`:'');
@@ -95,6 +95,28 @@ function releaseStatus(group){
  if(!collage?.valid)return 'Images ready · Create collage';
  return prep?.pending?'Archive incomplete · Retry packaging':lifecycle?.published?'Collage ready · Make addendum':'Collage ready · Make release';
 }
+function releaseModal(group,pack=null){
+ const dialog=document.createElement('dialog');dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','release-dialog-title');
+ const title=text('h2','Make release');title.id='release-dialog-title';dialog.append(title,text('p',group.creator+' · '+(pack?.title||group.name)));
+ const form=document.createElement('form');form.method='dialog';
+ const label=(caption,node)=>{const l=text('label',caption);if(!node.hasAttribute('aria-label'))node.setAttribute('aria-label',caption);l.append(node);return l};
+ const mode=document.createElement('select');mode.setAttribute('aria-label','Release action');mode.append(new Option('Upload to my release channel','pad'),new Option('Release directly through a bot','bot'),new Option('Just mark as finished','finished'));form.append(label('What would you like to do?',mode));
+ const botFields=document.createElement('div'),saved=data.release_bot_settings||{};
+ const bot=document.createElement('input');bot.value=saved.destination||'';bot.placeholder='@your_release_bot';
+ const creator=document.createElement('input');creator.value=group.creator;
+ const profile=document.createElement('select');profile.append(new Option('Eve · this month / last month','eve'),new Option('Custom conversation','custom'));profile.value=saved.profile||'eve';
+ botFields.append(label('Bot username',bot),label('Creator name in the bot',creator),label('Conversation',profile));
+ const custom=document.createElement('div'),before=document.createElement('textarea'),after=document.createElement('textarea'),success=document.createElement('input');
+ before.rows=4;after.rows=3;before.value=(saved.before||[]).join('\n');after.value=(saved.after||[]).join('\n');success.value=saved.success||'';
+ before.placeholder='send: /start\nclick: {creator}\nclick: {month}\nwait: Upload files';after.placeholder='click: Complete';success.placeholder='Upload done and saved.';
+ custom.append(text('p','Use one step per line: send: message, click: exact button text, or wait: reply text. Placeholders: {creator}, {month}, {title}. Configure the exact sequence used by your bot.'),label('Before sending files',before),label('After sending files',after),label('Final success reply',success));botFields.append(custom);form.append(botFields);
+ const explanation=text('p',''),error=text('p','');error.className='error';error.setAttribute('role','alert');form.append(explanation,error);
+ const actions=document.createElement('div');actions.className='actions';const cancel=text('button','Cancel');cancel.type='button';cancel.className='secondary';cancel.onclick=()=>dialog.close();const submit=text('button','Continue');submit.type='submit';actions.append(cancel,submit);form.append(actions);dialog.append(form);document.body.append(dialog);
+ const update=()=>{botFields.hidden=mode.value!=='bot';custom.hidden=profile.value!=='custom';const blocked=mode.value!=='finished'&&(!data.collages?.[group.key]?.valid||group.recorded!==group.items.length);submit.disabled=blocked;explanation.textContent=blocked?'Download all release files and save a collage before uploading. You can still mark an externally published release as finished.':mode.value==='finished'?'Records these file versions as finished. New or updated files reopen the release. Files are retained.':mode.value==='bot'?'Builds the archive if needed, runs the conversation, sends the collage and archives, and completes publication. The release is finished only after the bot confirms success.':'Builds the archive if needed, then uploads the collage and archives to Your Telegram Release Channel. Publication is confirmed separately.';submit.textContent=mode.value==='finished'?'Mark as finished':mode.value==='bot'?'Release through bot':'Build and upload';};mode.onchange=profile.onchange=update;update();
+ let pending=false;dialog.oncancel=e=>{if(pending)e.preventDefault()};dialog.onclick=e=>{if(e.target===dialog&&!pending){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}};dialog.onclose=()=>dialog.remove();
+ form.onsubmit=async e=>{e.preventDefault();if(pending||submit.disabled)return;pending=true;submit.disabled=cancel.disabled=true;error.textContent='';try{await request('release',{release_key:group.key,preparation_id:pack?.id,keys:[...new Set(group.items.map(i=>i.key))].sort(),mode:mode.value,confirmed:mode.value==='finished',bot:bot.value,creator:creator.value,profile:profile.value,before:before.value,after:after.value,success:success.value});dialog.close();expandedReleases.add(group.key);await refresh();}catch(e){error.textContent=e.message;}finally{pending=false;cancel.disabled=false;update();}};
+ dialog.showModal();
+}
 function queue(){
  const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?data.release_lifecycle?.[g.key]?.finished:!data.release_lifecycle?.[g.key]?.finished));
  page=Math.min(page,Math.max(0,Math.ceil(rows.length/50)-1));
@@ -105,23 +127,16 @@ function queue(){
   const info=document.createElement('span');info.className='release-info';info.append(text('span',`${group.items.length} ${group.items.length===1?'file':'files'} · ${sizeLabel(group.size)}`));
   const first=group.items[0];const folderLabel=text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':first.release_month_basis==='delivery_at'?' · from MMF delivery date':''));folderLabel.title=folderLabel.textContent;info.append(folderLabel);
   const lifecycle=data.release_lifecycle?.[group.key];const status=text('span',releaseStatus(group));status.className='release-status '+(group.items.some(i=>i.missing_files?.length)?'missing':lifecycle?.finished?'recorded':'');summary.append(heading,info,status);details.append(summary);
-  if(!lifecycle?.finished){
-   const manualActions=document.createElement('div');manualActions.className='actions';manualActions.style.padding='12px 18px';
-   const finish=text('button','Mark as finished');finish.className='secondary';finish.disabled=data.active||data.preparations?.[group.key]?.upload_active;
-   finish.title='Record a release published outside this tool. Later new or updated files reopen it.';
-   finish.onclick=()=>{if(window.confirm('Mark '+group.name+' as finished outside this tool? This records the currently listed file versions. New or updated files will reopen the release. No files will be deleted.'))act('finish',{release_key:group.key,keys:[...new Set(group.items.map(i=>i.key))].sort(),confirmed:true})};
-   manualActions.append(finish);details.append(manualActions);
-  }
   if(first.release_folder){
    const prep=data.preparations?.[group.key],issued=new Set(prep?.keys||[]),fresh=group.items.filter(i=>i.completed&&!issued.has(i.key));
    const actions=document.createElement('div');actions.className='actions';actions.style.padding='12px 18px';
    const offerGallery=group.recorded===group.items.length&&group.items.every(i=>i.images_checked)&&!data.collages?.[group.key]?.ready;
    const prepare=text('button',offerGallery?'Download images from MMF':'Extract images');prepare.disabled=data.active||!group.recorded;prepare.title=offerGallery?'Download gallery images from MMF for this release.':'Extract release images without creating an archive.';prepare.onclick=()=>act(offerGallery?'images':'prepare',{release_key:group.key});
    const button=text('button',prep?.pending?'Retry '+prep.pending:prep&&prep.number>=0?`Make Addendum ${prep.number+1}`:'Make release');
-   button.disabled=!data.collages?.[group.key]?.valid||data.active||group.recorded!==group.items.length||(!fresh.length&&!prep?.pending);
-   button.onclick=()=>act('package',{release_key:group.key});
+   button.disabled=data.active||prep?.upload_active;
+   button.onclick=()=>releaseModal(group);
    const collage=data.collages?.[group.key];
-   if(!collage?.valid){button.title='Create and save a valid collage before making this release.';}
+   button.title='Choose channel delivery, a bot conversation, or mark this release as finished.';
    const collageButton=text('button',collage?.exists?'Edit collage':'Create collage');collageButton.className='secondary';collageButton.disabled=!collage?.ready;
    collageButton.title=collage?.ready?'Open this release in the collage editor.':'The release_images folder must contain images. Download and extract release images first.';
    collageButton.onclick=()=>{location.href='/collages?'+new URLSearchParams({folder:collage.folder,month:collage.release,archive:collage.release})};
@@ -141,7 +156,7 @@ function queue(){
    for(const pack of prep?.packages||[]){
     const upload=text('button',pack.attempted?'Re-upload':'Upload release');
     upload.disabled=prep.upload_active;upload.title=pack.title;
-    upload.onclick=()=>{expandedReleases.add(group.key);act('upload',{preparation_id:pack.id})};
+    upload.onclick=()=>releaseModal(group,pack);
     actions.append(upload);
     if(pack.published)actions.append(text('small','✓ Released · '+pack.title));
     else if(pack.upload?.state==='complete'){

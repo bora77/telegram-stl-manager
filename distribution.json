@@ -112,7 +112,10 @@
     "windows/update.sh",
     "tests/test_updater.py",
     "tests/test_windows_updater.py",
-    "tests/setup_wizard.cjs"
+    "tests/setup_wizard.cjs",
+    "app/mmf_release_flow.py",
+    ".tools/tdl-stl/src/app/stl/release_bot.go",
+    "app/mmf_source_layout.py"
   ],
   "trees": [
     "templates",

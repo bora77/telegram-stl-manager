@@ -1,5 +1,14 @@
 # Version history
 
+## 0.1.26
+
+- Add an optional Gumroad Beta with account sign-in, verification codes, artist subscriptions, availability checks and manual downloads.
+- Organize Gumroad downloads and images with the shared collage and release workflow, including new files added to older releases.
+- Explain how Google sign-in users can set a separate Gumroad password for the connector.
+- Apply the testers-only warning to all Beta features.
+- Fix MMF image downloads with spaces or Unicode characters in their URLs.
+- Compact the release filter and center pagination, showing 20 releases per page.
+
 ## 0.1.25
 
 - Speed up MMF availability checks with four concurrent model requests and per-model progress, while continuing to detect updates to older releases.

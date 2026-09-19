@@ -56,13 +56,15 @@ class FirstRun:
         except OSError:available=False
         if not available:missing.append('Choose an available download folder with read and write access.')
         if not (self.root/'data/setup-settings-reviewed').exists():missing.append('Review all configuration settings and press Save configuration.')
+        if settings.get('gumroad_beta_enabled') and not (self.root/'data/gumroad/session.cookies').is_file():missing.append('Connect Gumroad, or turn off its Beta feature and save.')
         if settings.get('mmf_beta_enabled') and not (self.root/'data/mmf/session.cookies').is_file():missing.append('Connect MyMiniFactory, or turn off its Beta feature and save.')
         return missing
-    def complete(self,mmf=None):
+    def complete(self,mmf=None,gumroad=None):
         with self.lock,self.idle():
             missing=self.missing_setup()
             if missing:raise ValueError(' '.join(missing))
             if self.store.config().get('mmf_beta_enabled') and mmf is not None and mmf.get('auth_required',False):raise ValueError('Reconnect MyMiniFactory before finishing setup.')
+            if self.store.config().get('gumroad_beta_enabled') and gumroad is not None and gumroad.get('auth_required',False):raise ValueError('Reconnect Gumroad before finishing setup.')
             from app.file_delivery import mount_identity
             mount_identity(self.store.config()['download_directory'])
             (self.root/'data/setup-complete').touch(mode=0o600)
@@ -73,7 +75,7 @@ class FirstRun:
     @contextlib.contextmanager
     def idle(self):
         with contextlib.ExitStack() as stack:
-            for name in ('operation.lock','worker.lock','organizer-worker.lock','mmf/worker.lock'):
+            for name in ('operation.lock','worker.lock','organizer-worker.lock','mmf/worker.lock','gumroad/worker.lock'):
                 path=self.root/'data'/name;path.parent.mkdir(parents=True,exist_ok=True)
                 f=stack.enter_context(path.open('a'))
                 try:fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)

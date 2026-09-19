@@ -182,7 +182,7 @@ def start_images(manager, payload,from_mmf=False):
         manager.put('stop',False)
         manager.put('job',{'phase':'starting','action':'prepare_images','release_key':key,'message':'Preparing release images','errors':[]})
         log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
-        try:Popen([sys.executable,'-m','app.mmf_release_prepare',str(manager.root),('gallery:' if from_mmf else 'images:')+key,str(lock.fileno())],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
+        try:Popen([sys.executable,'-m','app.mmf_release_prepare',str(manager.root),('gallery:' if from_mmf else 'images:')+key,str(lock.fileno()),getattr(manager,'provider','mmf')],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
         finally:os.close(log)
     finally:lock.close()
     return {'started':True}
@@ -204,7 +204,7 @@ def prepare_images(manager, key,from_mmf=False):
             manager.progress(phase='complete',message='Images ready. Create and save a collage next.',speed_mbps=0);return
     def progress(stage='verifying_images',count=0,total=None,received=0,expected=None):
         if manager.stopped():raise ValueError('Image preparation stopped.')
-        labels={'verifying_images':'Verifying existing images','listing':'Reading archive contents','checking_parts':'Checking archive parts','extracting':'Extracting images','recovering':'Recovering images','fetching_images':'Fetching MMF images','moving_images':'Saving release images','complete':'Images extracted'}
+        labels={'verifying_images':'Verifying existing images','listing':'Reading archive contents','checking_parts':'Checking archive parts','extracting':'Extracting images','recovering':'Recovering images','fetching_images':'Fetching '+getattr(manager,'label','MMF')+' images','moving_images':'Saving release images','complete':'Images extracted'}
         manager.progress(phase='extracting',progress_stage=stage,progress_unit='percent' if stage=='checking_parts' else 'bytes',
                          message=labels.get(stage,'Preparing images')+' · '+first['release_folder'],
                          image_count=count,image_total=total,done=count,total=total or 0,bytes=received or 0,expected=expected or 0,speed_mbps=0)
@@ -224,13 +224,13 @@ def prepare_images(manager, key,from_mmf=False):
                 sources=[verified(r['path'],r,base) for r in outputs]
                 images=extract_images(sorted(sources)[0],work/mid,progress,manager.stopped,warnings=warnings)
             if not images and from_mmf:
-                images=fetch_images(manager.client(),[i for i in group if (i.get('repack') or {}).get('id')==mid],work/(mid+'-gallery'),manager.stopped,progress)
+                images=(getattr(manager,'fetch_images',None) or fetch_images)(manager.client(),[i for i in group if (i.get('repack') or {}).get('id')==mid],work/(mid+'-gallery'),manager.stopped,progress)
             for index,image in enumerate(images):
                 progress('moving_images',index,len(images))
                 dest,size,checksum=deliver(image,base,first['folder'],first['release_folder'],mid[:8]+'-'+str(index)+'--'+image.name,lambda n,total:progress('moving_images',index,len(images),n,total),subdirectories=('release_images',),release_directory=first['release_folder'])
                 records.append({'path':str(dest),'size':size,'sha256':checksum})
         manager.put('prepared_images:'+key,{'images':records,'keys':[i['key'] for i in group]})
-        manager.progress(phase='complete',message=('Images ready. Create and save a collage next.' if records else 'No images found in MMF galleries.' if from_mmf else 'No images found in the archives. You can download images from MMF.'),warnings=warnings,speed_mbps=0)
+        manager.progress(phase='complete',message=('Images ready. Create and save a collage next.' if records else 'No images found in '+getattr(manager,'label','MMF')+' galleries.' if from_mmf else 'No images found in the archives. You can download images from '+getattr(manager,'label','MMF')+'.'),warnings=warnings,speed_mbps=0)
 
 
 def start(manager,payload):
@@ -265,7 +265,7 @@ def start(manager,payload):
         save(manager,plan)
         manager.put('stop',False);manager.put('job',{'phase':'starting','action':'package','release_key':key,'message':'Making '+plan['title'],'errors':[]})
         log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
-        try:Popen([sys.executable,'-m','app.mmf_release_prepare',str(manager.root),plan['id'],str(lock.fileno())],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
+        try:Popen([sys.executable,'-m','app.mmf_release_prepare',str(manager.root),plan['id'],str(lock.fileno()),getattr(manager,'provider','mmf')],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
         finally:os.close(log)
     finally:lock.close()
     return {'started':True}
@@ -344,7 +344,10 @@ def execute(manager,plan):
 if __name__=='__main__':
     from app.mmf_manager import MMFManager
     from app.subscription_store import SubscriptionStore
-    manager=MMFManager(SubscriptionStore(Path(sys.argv[1])))
+    if len(sys.argv)>4 and sys.argv[4]=='gumroad':
+        from app.gumroad_manager import GumroadManager
+        manager=GumroadManager(SubscriptionStore(Path(sys.argv[1])))
+    else:manager=MMFManager(SubscriptionStore(Path(sys.argv[1])))
     plan=None
     try:
         if sys.argv[2].startswith('gallery:'):prepare_images(manager,sys.argv[2][8:],from_mmf=True)

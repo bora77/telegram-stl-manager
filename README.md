@@ -292,7 +292,7 @@ The browser checks subscribed creators for available downloads at the interval s
 
 MMF is a beta feature, hidden by default.
 
-**MMF Beta is for testers only: its features are incomplete and buggy, and should not be relied on for regular use.**
+**All Beta features are for testers only: they are incomplete and buggy, and should not be relied on for regular use.**
  Enable it in **Configuration → Beta
 features**, then connect under **MyMiniFactory account**. The manager connects directly to MMF using an MMF username/email and
 password. A separate MMF browser, extension, Playwright or AI agent is not needed
@@ -510,3 +510,33 @@ AI. Bot settings are remembered locally. A missing or changed prompt stops the
 attempt with an error; inspect the bot conversation before retrying, because some
 files or the final command may already have reached it. No real release is sent
 until you submit the dialog.
+
+## Optional Gumroad Beta
+
+All Beta features are incomplete and buggy, for testers only. Gumroad is hidden
+and disabled by default. Enable **Show Gumroad** in **Configuration → Beta
+features**, save, then connect in **Gumroad account** using your Gumroad email
+and password. If you normally use Google sign-in, use **Forgot your password?**
+on [Gumroad login](https://gumroad.com/login) with the same account email to set
+a separate Gumroad password. Enter that password here, not your Google password.
+If asked, enter the emailed or authenticator verification code.
+The password is used only for sign-in; the session is kept locally under
+`data/gumroad/`. No logged-in browser, browser-cookie export, seller API token,
+or additional background service is required. Reconnect if Gumroad expires the
+session. Website verification or endpoint changes can interrupt this Beta.
+
+Use **Gumroad → Artists** to select purchased-library creators, destination
+folders and scope. **Gumroad → Queue** has Download detected, Check for
+downloads, Resume, Stop and Manage artists. Checks run on a separate configurable
+interval while the manager is open in a browser; downloads only start manually.
+Older products are checked again for newly added files. Named products and
+collections keep their names when no release month is supplied; purchase dates
+are never treated as release dates. Membership updates can use their publication
+month. Undated releases remain in scope.
+
+Downloads keep artist filenames in each release's `Gumroad sources` folder,
+extract images into a flat `release_images` folder, and use the shared collage
+and release-packaging workflow. Account sessions, purchase links and history
+stay in the private data directory and must not be included in public packages.
+Gumroad uses authenticated website JSON because its public seller API does not
+expose the purchased library. No additional Python dependency is required.

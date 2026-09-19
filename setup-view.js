@@ -5,7 +5,7 @@ function message(value,error=false){const target=state?.setup_required&&step===1
 const titles=['Telegram & artists','Download location','Preferences','Review & finish'];
 let step=Math.max(0,['#setup-account','#setup-storage','#setup-preferences','#setup-finish'].indexOf(location.hash)),baseline=null,reachable=false,finishing=false;
 const hashes=['#setup-account','#setup-storage','#setup-preferences','#setup-finish'];
-function snapshot(){return JSON.stringify([...document.querySelectorAll('.configuration-content input,.configuration-content select')].filter(el=>el.id==='folder'||el.id==='storage-kind'||el.id==='mmf-beta-enabled'||el.id==='release-pad-destination'||el.closest('[data-setup-step="2"]')&&!el.closest('#mmf-account,#release-pad-picker')&&el.id!=='completion-sound').map(el=>[el.id||el.dataset.dc,el.type==='checkbox'?el.checked:el.value]));}
+function snapshot(){return JSON.stringify([...document.querySelectorAll('.configuration-content input,.configuration-content select')].filter(el=>el.id==='folder'||el.id==='storage-kind'||el.id==='mmf-beta-enabled'||el.id==='release-pad-destination'||el.closest('[data-setup-step="2"]')&&!el.closest('#mmf-account,#gumroad-account,#release-pad-picker')&&el.id!=='completion-sound').map(el=>[el.id||el.dataset.dc,el.type==='checkbox'?el.checked:el.value]));}
 window.setupWizard={snapshot};
 function issues(){
  const result=(state?.missing_setup||[]).map(text=>({text,step:/Telegram|Table of Contents/.test(text)?0:/folder/.test(text)?1:2}));

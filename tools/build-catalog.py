@@ -93,7 +93,7 @@ def app_layout(page):
     library=root/'assets/artist-profiles/index.json'
     revision=str(library.stat().st_mtime_ns) if library.exists() else '0'
     layout = layout.replace('__ARTIST_PROFILES__', (root / 'artist-profiles.js').read_text().replace('__ARTIST_LIBRARY_REVISION__',revision))
-    for name in ('queue', 'artists', 'organize', 'collages', 'config', 'mmf'):
+    for name in ('queue', 'artists', 'organize', 'collages', 'config', 'mmf', 'gumroad'):
         layout = layout.replace('__CURRENT_' + name.upper() + '__', 'aria-current="page"' if name == page else '')
     return layout
 
@@ -106,7 +106,19 @@ def write_page(name, content):
     temporary.replace(root / name)
 
 
+def gumroad_page():
+    template=(root/'templates/mmf.html').read_text()
+    view=(root/'mmf-view.js').read_text()
+    # Provider-specific strings are rendered before the shared navigation is inserted.
+    def adapt(value):
+        return (value.replace('MyMiniFactory · Shared with me, Tribes and Frontiers','Gumroad · Purchased library')
+                .replace('https://www.myminifactory.com/library','https://gumroad.com/library')
+                .replace('MyMiniFactory','Gumroad').replace('MMF','Gumroad').replace('mmf','gumroad'))
+    return adapt(template).replace('__APP_LAYOUT__',app_layout('gumroad')).replace('__Gumroad_VIEW__',adapt(view))
+
+
 pages = {
+    'gumroad.html': gumroad_page(),
     'catalog.html': template.replace("__DATA__", json.dumps(catalog, ensure_ascii=False).replace("<", "\\u003c"))
         .replace("__FOLDERS__", json.dumps(inventory, ensure_ascii=False).replace("<", "\\u003c"))
         .replace("__RULES__", (root / "selection-rules.js").read_text())

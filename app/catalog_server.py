@@ -22,6 +22,8 @@ STORE = SubscriptionStore(ROOT)
 PROFILES = ArtistProfiles(ROOT)
 from app.mmf_manager import MMFManager
 MMF = MMFManager(STORE)
+from app.gumroad_manager import GumroadManager
+GUMROAD = GumroadManager(STORE)
 from app.first_run import FirstRun, ShareResolutionRequired
 SETUP = FirstRun(STORE)
 from app.availability import Availability
@@ -32,8 +34,8 @@ from app.updater import Updater
 def update_busy():
     if AVAILABILITY.running or (SETUP.child and SETUP.child.poll() is None):return True
     queue=STORE.queue()
-    if queue.get('active') or queue.get('organizer_active') or MMF.busy():return True
-    for name in ('worker.lock','organizer-worker.lock','mmf/worker.lock','mmf/upload.lock','collages/worker.lock'):
+    if queue.get('active') or queue.get('organizer_active') or MMF.busy() or GUMROAD.busy():return True
+    for name in ('worker.lock','organizer-worker.lock','mmf/worker.lock','mmf/upload.lock','gumroad/worker.lock','gumroad/upload.lock','collages/worker.lock'):
         path=ROOT/'data'/name
         if path.exists():
             with path.open('a') as lock:
@@ -68,6 +70,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.path='/configuration.html'
         elif path in ('/organize','/organize/'):
             self.path='/organizer.html'
+        elif path in ('/gumroad','/gumroad/'):
+            self.path='/gumroad.html'
         elif path in ('/mmf','/mmf/'):
             self.path='/mmf.html'
         elif path in ('/collages','/collages/'):
@@ -82,6 +86,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 content=(self.root/served_path.lstrip('/')).read_text()
                 enabled=self.store.config().get('mmf_beta_enabled') is True
+                if self.store.config().get('gumroad_beta_enabled'):content=content.replace('id="gumroad-nav-group" hidden','id="gumroad-nav-group"')
                 if enabled:content=content.replace('id="mmf-nav-group" hidden','id="mmf-nav-group"')
             except OSError:
                 self.send_error(404);return None
@@ -107,7 +112,7 @@ class Handler(SimpleHTTPRequestHandler):
         path=urlsplit(self.path).path
         if path=='/api/updates':
             self.reply_json(UPDATER.status());return
-        if SETUP.setup_required and path.startswith('/api/') and path not in ('/api/setup','/api/config','/api/mmf/status'):
+        if SETUP.setup_required and path.startswith('/api/') and path not in ('/api/setup','/api/config','/api/mmf/status','/api/gumroad/status'):
             self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
         if path=='/api/setup':
             self.reply_json(SETUP.state());return
@@ -122,8 +127,8 @@ class Handler(SimpleHTTPRequestHandler):
                 else:self.reply_json(profiles.info(name))
             except (ValueError,OSError) as error:self.reply_json({'error':str(error)},400)
             return
-        if path in ('/api/mmf','/api/mmf/status'):
-            result=MMF.state()
+        if path in ('/api/mmf','/api/mmf/status','/api/gumroad','/api/gumroad/status'):
+            result=(GUMROAD if path.startswith('/api/gumroad') else MMF).state()
             if path.endswith('/status'):
                 result={k:v for k,v in result.items() if k not in ('items','folders','creators')}
             self.reply_json(result);return
@@ -163,7 +168,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         with UPDATER.gate:
-            if UPDATER.reserved and self.path not in ('/api/stop','/api/mmf/stop','/api/organizer/stop'):
+            if UPDATER.reserved and self.path not in ('/api/stop','/api/mmf/stop','/api/gumroad/stop','/api/organizer/stop'):
                 self.reply_json({'error':'An update is pending. Wait for it to finish before starting new tasks.'},409);return
             self.handle_post()
 
@@ -171,9 +176,9 @@ class Handler(SimpleHTTPRequestHandler):
         host=self.headers.get('Host')
         if not self.valid_host() or self.headers.get('Origin') != 'http://'+host:
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
-        if SETUP.setup_required and not self.path.startswith('/api/updates/') and self.path not in ('/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/release-pad/destinations','/api/servers/refresh','/api/servers/retest'):
+        if SETUP.setup_required and not self.path.startswith('/api/updates/') and self.path not in ('/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/gumroad/login','/api/release-pad/destinations','/api/servers/refresh','/api/servers/retest'):
             self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
-        if self.path not in ('/api/updates/check','/api/updates/install','/api/updates/settings','/api/release-pad/destinations','/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/mmf/save','/api/mmf/creators','/api/mmf/check','/api/mmf/download','/api/mmf/redownload','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/images','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/mmf/finish','/api/mmf/release','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/gumroad/save','/api/gumroad/creators','/api/gumroad/check','/api/gumroad/download','/api/gumroad/redownload','/api/gumroad/resume','/api/gumroad/stop','/api/gumroad/prepare','/api/gumroad/images','/api/gumroad/package','/api/gumroad/upload','/api/gumroad/released','/api/gumroad/finish','/api/gumroad/release','/api/updates/check','/api/updates/install','/api/updates/settings','/api/release-pad/destinations','/api/artist-profiles','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/gumroad/login','/api/mmf/save','/api/mmf/creators','/api/mmf/check','/api/mmf/download','/api/mmf/redownload','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/images','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/mmf/finish','/api/mmf/release','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -197,7 +202,20 @@ class Handler(SimpleHTTPRequestHandler):
                 self.reply_json(PROFILES.save(payload));return
             if self.path.startswith('/api/setup/'):
                 action=self.path.rsplit('/',1)[1]
-                result=SETUP.complete(MMF) if action=='complete' else SETUP.start_login() if action=='login' else SETUP.answer(payload) if action=='answer' else SETUP.configure_source(payload) if action=='source' else SETUP.share(payload)
+                result=SETUP.complete(MMF,GUMROAD) if action=='complete' else SETUP.start_login() if action=='login' else SETUP.answer(payload) if action=='answer' else SETUP.configure_source(payload) if action=='source' else SETUP.share(payload)
+                self.reply_json(result);return
+            if self.path.startswith('/api/gumroad/'):
+                action=self.path.rsplit('/',1)[1]
+                if not self.store.config().get('gumroad_beta_enabled') and action!='stop':
+                    raise ValueError('Enable the Gumroad beta in Configuration first.')
+                from app import mmf_release_prepare as prepare, mmf_release_upload as upload, mmf_release_flow as flow
+                if action=='release':result=flow.start(GUMROAD,payload)
+                elif action=='finish':result=prepare.finish_manually(GUMROAD,payload)
+                elif action=='released':result=prepare.confirm_released(GUMROAD,payload)
+                elif action=='upload':result=upload.start(GUMROAD,payload)
+                elif action in ('prepare','images'):result=prepare.start_images(GUMROAD,payload,from_mmf=action=='images')
+                elif action=='package':result=prepare.start(GUMROAD,payload)
+                else:result=(GUMROAD.refresh_creators() if action=='creators' else GUMROAD.login(payload) if action=='login' else GUMROAD.save(payload) if action=='save' else GUMROAD.stop() if action=='stop' else GUMROAD.start(action,due=payload.get('due') is True,release=payload.get('release_key')))
                 self.reply_json(result);return
             if self.path=='/api/mmf/release':
                 from app.mmf_release_flow import start

@@ -5,7 +5,7 @@ import re
 import shutil
 import tempfile
 from app.file_delivery import digest
-from app.release_images import command, listing, safe_component, member_path, split_input_aliases, extract_mapped_member, ExtractionError, RESERVE
+from app.release_images import command, listing, safe_component, member_path, split_input_aliases, extract_mapped_member, ExtractionError, RESERVE, is_archive
 
 VOLUME_BYTES=4000*1024*1024  # 7-Zip's 4000M (MiB) volume size.
 COMPRESSION_LEVEL=7
@@ -53,6 +53,15 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
             if prefix and any(part in ('','.','..') or safe_component(part)!=part for part in prefix.split('/')):raise ExtractionError('Unsafe source folder.')
             if prefix.casefold() in prefixes:raise ExtractionError('Source folders would collide.')
             prefixes.add(prefix.casefold());target_members=members/prefix;target_members.mkdir(parents=True,exist_ok=True)
+            original=Path(spec['path']).resolve(strict=True)
+            if not is_archive(original.name):
+                if is_metadata_file(original.name):
+                    removed.append(original.name);continue
+                if stopped():raise ExtractionError('Packaging stopped; source retained.')
+                target=target_members/safe_component(original.name)
+                shutil.copyfile(original,target)
+                all_entries[(prefix+'/'+target.name).lstrip('/')]=target.stat().st_size
+                continue
             with split_input_aliases(Path(spec['path']).resolve(strict=True),temporary) as (read_source,_):
                 progress('unpacking',0)
                 _,entries=listing(read_source,temporary,stopped)

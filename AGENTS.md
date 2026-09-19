@@ -19,3 +19,7 @@ notes. Report validation to Bora in the session instead.
 Routine releases do not require VM tests. Use focused application tests and
 package-content checks; reserve Windows/Docker VM runs for installer, updater,
 platform or dependency changes, or a specific unresolved platform issue.
+
+Keep the Windows test VM shut down when it is not being used for an explicit
+test. Start it only when testing requires it, and shut it down gracefully when
+the test is finished to release host memory.

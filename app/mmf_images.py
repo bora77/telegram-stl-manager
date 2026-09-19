@@ -18,7 +18,7 @@ def image_url(url):
     if u.scheme!='https' or u.username or u.password or u.port not in (None,443):return None
     if not (host=='assets.myminifactory.com' or re.fullmatch(r'dl\d+\.myminifactory\.com',host)):return None
     if not re.fullmatch(r'/(?:object-assets|object-images)/[^/]+/images/[^/]+',u.path):return None
-    path=re.sub(r'/\d+[xX]\d+-','/',u.path)
+    path=urllib.parse.quote(re.sub(r'/\d+[xX]\d+-','/',u.path),safe="/%:@!$&'()*+,;=-._~")
     return urllib.parse.urlunsplit(('https',host,path,'',''))
 
 
@@ -50,8 +50,9 @@ class Gallery(HTMLParser):
 
 class ImageRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
-        if not image_url(newurl):raise MMFError('Unexpected MMF image redirect.')
-        return super().redirect_request(req,fp,code,msg,headers,newurl)
+        normalized=image_url(newurl)
+        if not normalized:raise MMFError('Unexpected MMF image redirect.')
+        return super().redirect_request(req,fp,code,msg,headers,normalized)
 
 
 def fetch_images(client,items,work,stopped=lambda:False,progress=lambda *args:None):

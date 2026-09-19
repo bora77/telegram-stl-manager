@@ -22,7 +22,7 @@ const text=(tag,value)=>{const n=document.createElement(tag);n.textContent=value
 async function request(action,payload){const r=await fetch('/api/mmf'+(action?'/'+action:''),{cache:'no-store',...(payload!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value}
 function notice(value,error=false){$('notice').textContent=value;$('notice').className=error?'error':''}
 function changed(){
- const canonical=rows=>JSON.stringify([...rows].sort((a,b)=>a.id-b.id).map(s=>[s.id,s.folder,s.start_month]));
+ const canonical=rows=>JSON.stringify([...rows].sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(s=>[s.id,s.folder,s.start_month]));
  dirty=canonical(draft)!==canonical(data.settings.subscriptions);$('save').disabled=!dirty||data.active;
  $('selected-count').textContent=`${draft.length} creators selected`;
  $('sub-count').textContent=`${data.settings.subscriptions.length} subscriptions saved · manual downloads only`;
@@ -119,13 +119,13 @@ function releaseModal(group,pack=null){
 }
 function queue(){
  const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?data.release_lifecycle?.[g.key]?.finished:!data.release_lifecycle?.[g.key]?.finished));
- page=Math.min(page,Math.max(0,Math.ceil(rows.length/50)-1));
+ page=Math.min(page,Math.max(0,Math.ceil(rows.length/20)-1));
  const signature=JSON.stringify([data.items,data.preparations,data.collages,data.release_lifecycle,data.active,data.job?.action,data.job?.release_key,data.job?.phase,data.job?.bytes,data.job?.expected,data.job?.image_count,data.job?.image_total,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
- for(const group of rows.slice(page*50,page*50+50)){
+ for(const group of rows.slice(page*20,page*20+20)){
   const details=document.createElement('details');details.className='release-row'+(group.items.some(i=>i.missing_files?.length)?' missing-files':'');details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
   const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';const creatorLabel=text('small',group.creator);creatorLabel.prepend(ArtistProfiles.badge(group.creator,{compact:true}));heading.append(text('strong',group.name),creatorLabel);
   const info=document.createElement('span');info.className='release-info';info.append(text('span',`${group.items.length} ${group.items.length===1?'file':'files'} · ${sizeLabel(group.size)}`));
-  const first=group.items[0];const folderLabel=text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':first.release_month_basis==='delivery_at'?' · from MMF delivery date':''));folderLabel.title=folderLabel.textContent;info.append(folderLabel);
+  const first=group.items[0];const folderLabel=text('small',(first.release_folder||group.name)+(first.release_month_basis==='created_at'?' · from MMF creation date':first.release_month_basis==='delivery_at'?' · from MMF delivery date':first.release_month_basis==='published_at'?' · from publication date':''));folderLabel.title=folderLabel.textContent;info.append(folderLabel);
   const lifecycle=data.release_lifecycle?.[group.key];const status=text('span',releaseStatus(group));status.className='release-status '+(group.items.some(i=>i.missing_files?.length)?'missing':lifecycle?.finished?'recorded':'');summary.append(heading,info,status);details.append(summary);
   if(first.release_folder){
    const prep=data.preparations?.[group.key],issued=new Set(prep?.keys||[]),fresh=group.items.filter(i=>i.completed&&!issued.has(i.key));
@@ -177,7 +177,7 @@ function queue(){
   retry.onclick=()=>{expandedReleases.add(group.key);act('redownload',{release_key:group.key})};retryActions.append(retry);details.append(retryActions);
 $('queue').append(details)
  }
- $('page').textContent=rows.length?`${page+1} / ${Math.ceil(rows.length/50)} · ${rows.length} releases`:'No releases to show';$('previous').disabled=page===0;$('next').disabled=(page+1)*50>=rows.length;
+ $('page').textContent=rows.length?`${page+1} / ${Math.ceil(rows.length/20)} · ${rows.length} releases`:'No releases to show';$('previous').disabled=page===0;$('next').disabled=(page+1)*20>=rows.length;
 }
 function render(reset=false){$('connection').hidden=data.connected;$('sub-count').textContent=`${data.settings.subscriptions.length} subscribed · ${data.creators.length} artists`;
  $('folders').replaceChildren(...data.folders.map(f=>new Option(f,f)));if(reset||!draft.length&&!dirty){draft=structuredClone(data.settings.subscriptions);artists()}

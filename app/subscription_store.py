@@ -28,6 +28,8 @@ class SubscriptionStore:
         data=json.loads(self.config_path.read_text()) if self.config_path.exists() else {'revision':0,'download_directory':str(self.root/'downloads')}
         data.setdefault('download_storage','network' if str(data.get('download_directory','')).startswith(('/mnt/kronos-stl/','/mnt/telegram-stl-share/')) else 'local')
         data.setdefault('mmf_beta_enabled',False)
+        data.setdefault('gumroad_beta_enabled',False)
+        data.setdefault('gumroad_availability_interval_hours',4)
         data.setdefault('release_pad_destination','')
         data.setdefault('download_servers',{})
         data.setdefault('server_check_frequency','cached')
@@ -66,6 +68,10 @@ class SubscriptionStore:
         with self.lock:
             current=self.config()
             if payload.get('revision')!=current['revision']:raise FileExistsError('Settings changed in another tab. Reload before saving.')
+            gumroad_beta=payload.get('gumroad_beta_enabled',current['gumroad_beta_enabled'])
+            if type(gumroad_beta) is not bool:raise ValueError('Choose whether to show the Gumroad beta.')
+            gumroad_interval=payload.get('gumroad_availability_interval_hours',current['gumroad_availability_interval_hours'])
+            if type(gumroad_interval) not in (int,float) or not math.isfinite(gumroad_interval) or not .25<=gumroad_interval<=168:raise ValueError('Choose a Gumroad check interval between 0.25 and 168 hours.')
             mmf_beta=payload.get('mmf_beta_enabled',current['mmf_beta_enabled'])
             if type(mmf_beta) is not bool:raise ValueError('Choose whether to show the MyMiniFactory beta.')
             release_pad=payload.get('release_pad_destination',current['release_pad_destination'])
@@ -101,7 +107,7 @@ class SubscriptionStore:
                 raise ValueError('Choose a release part size between 1 and 65536 MiB.')
             adaptive=payload.get('adaptive_downloads',current['adaptive_downloads'])
             if type(adaptive) is not bool:raise ValueError('Choose whether adaptive parallel downloads are enabled.')
-            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval,'mmf_availability_interval_hours':mmf_interval,'release_compression_level':compression,'release_volume_mib':volume}
+            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'gumroad_beta_enabled':gumroad_beta,'gumroad_availability_interval_hours':gumroad_interval,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval,'mmf_availability_interval_hours':mmf_interval,'release_compression_level':compression,'release_volume_mib':volume}
             self.atomic_write(self.config_path,data)
             return data
 

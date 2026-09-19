@@ -82,7 +82,7 @@ def start(manager,payload):
         save(manager,row)
         log=os.open(manager.directory/'upload.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
         try:
-            subprocess.Popen([sys.executable,'-m','app.mmf_release_upload',str(manager.root),row['id'],str(lock.fileno())],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=subprocess.DEVNULL,start_new_session=True,cwd=manager.root)
+            subprocess.Popen([sys.executable,'-m','app.mmf_release_upload',str(manager.root),row['id'],str(lock.fileno()),getattr(manager,'provider','mmf')],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=subprocess.DEVNULL,start_new_session=True,cwd=manager.root)
         except Exception:
             row.update(state='failed',message='Could not start upload. Re-upload is available.');save(manager,row);raise
         finally:os.close(log)
@@ -190,6 +190,9 @@ def execute(manager,row,client=None):
 if __name__=='__main__':
     from app.subscription_store import SubscriptionStore
     from app.mmf_manager import MMFManager
-    manager=MMFManager(SubscriptionStore(Path(sys.argv[1])))
+    if len(sys.argv)>4 and sys.argv[4]=='gumroad':
+        from app.gumroad_manager import GumroadManager
+        manager=GumroadManager(SubscriptionStore(Path(sys.argv[1])))
+    else:manager=MMFManager(SubscriptionStore(Path(sys.argv[1])))
     try:execute(manager,next(r for r in attempts(manager) if r['id']==sys.argv[2]))
     finally:os.close(int(sys.argv[3]))

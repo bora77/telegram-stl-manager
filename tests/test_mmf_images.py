@@ -12,6 +12,12 @@ class ImagesTests(unittest.TestCase):
         self.assertEqual(p.images(),[image.replace('720X720-','')])
         for u in ('http://assets.myminifactory.com/object-images/a/images/x.jpg','https://evil.com/x.jpg','https://assets.myminifactory.com/avatars/a.jpg'):
             self.assertIsNone(image_url(u))
+    def test_spaces_unicode_and_already_encoded_image_names(self):
+        prefix='https://assets.myminifactory.com/object-images/65c6131756a723.13104515/images/'
+        self.assertEqual(image_url(prefix+'SPACE BUGS.png'),prefix+'SPACE%20BUGS.png')
+        self.assertEqual(image_url(prefix+'SPACE%20BUGS.png'),prefix+'SPACE%20BUGS.png')
+        self.assertEqual(image_url(prefix+'Bär.png'),prefix+'B%C3%A4r.png')
+
     def test_download_validates_image_and_deduplicates_objects(self):
         url='https://assets.myminifactory.com/object-images/abc/images/cover.png'
         class Client:

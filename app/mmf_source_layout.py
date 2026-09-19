@@ -32,13 +32,14 @@ def source_directory(root, unit, paths, reserved=None):
     head=unit[0]
     model=re.sub(r'[\\/<>:"|?*\x00-\x1f]', '-',head.get('object_name') or Path(head['filename']).stem)[:120].strip(' .') or 'Model'
     if re.fullmatch(r'(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])',model):model='Model '+model
-    archive_id=head.get('archive_id') or head.get('object_id') or 'archive'
-    candidates=[root,root/model,root/f'{model} (MMF {archive_id})']
+    archive_id=safe_component(str(head.get('archive_id') or head.get('object_id') or 'archive'))
+    provider='Gumroad' if head.get('provider')=='gumroad' else 'MMF'
+    candidates=[root,root/model,root/f'{model} ({provider} {archive_id})']
     def same(a,b):
         return a==b or (a.is_file() and not a.is_symlink() and b.is_file() and not b.is_symlink()
                        and a.stat().st_size==b.stat().st_size and digest(a)==digest(b))
     for number in range(1,1001):
-        directory=candidates[number-1] if number<=3 else root/f'{model} (MMF {archive_id}, version {number-2})'
+        directory=candidates[number-1] if number<=3 else root/f'{model} ({provider} {archive_id}, version {number-2})'
         if directory.is_symlink() or directory.exists() and not directory.is_dir():continue
         existing={p.name.casefold():p for p in directory.iterdir()} if directory.is_dir() else {}
         selected=[]

@@ -891,7 +891,7 @@ See [CATALOG.md](CATALOG.md) for the application workflow and implementation not
 
 ## Optional MyMiniFactory connection
 
-**MMF Beta is for testers only: its features are incomplete and buggy, and should not be relied on for regular use.**
+**All Beta features are for testers only: they are incomplete and buggy, and should not be relied on for regular use.**
 
 
 Open **Configuration → MyMiniFactory account** in the manager and connect with your MMF username/email and
@@ -911,12 +911,13 @@ Sessions and MMF database/partial files live under `data/mmf/`. Treat this direc
 as private account data and exclude it from shared packages and Git. The app does
 not save your password. Reconnect when MMF expires or invalidates the session.
 
-MMF downloads are automatically repacked after manual start into one 7-Zip set
-per MMF release folder, with volumes limited to 4000M (4000 MiB). The release name
-is used for the archive and destination folder, including names like Welcome Pack. Allow local free space for the original downloads,
-unpacked contents and compressed output. Repacking uses the existing bundled
-7-Zip; no extra library is needed. Original downloads are removed from staging
-only after verified delivery and completion recording.
+MMF downloads save original archives under the release’s `MMF sources` folder
+and automatically extract images. After creating a collage, **Make release**
+builds one 7-Zip set per release, using the configured compression and volume
+size (defaults: level 7 and 4000 MiB). Named releases such as Welcome Pack keep
+their names. Allow local free space for originals, unpacked contents and output.
+Packaging uses the bundled 7-Zip. Local staging files are removed only after
+verified delivery and completion recording; delivered originals remain available.
 
 ## Docker on macOS and Linux
 
@@ -1003,3 +1004,33 @@ finished. Bot delivery requires its @username and conversation settings; the Eve
 quick flow covers this/last month for creators in its initial menu. Use Custom
 conversation for other menus, older months or named collections. See README.md,
 “Choosing a release destination”, before configuring bot automation.
+
+## Optional Gumroad Beta
+
+All Beta features are incomplete and buggy, for testers only. Gumroad is hidden
+and disabled by default. Enable **Show Gumroad** in **Configuration → Beta
+features**, save, then connect in **Gumroad account** using your Gumroad email
+and password. If you normally use Google sign-in, use **Forgot your password?**
+on [Gumroad login](https://gumroad.com/login) with the same account email to set
+a separate Gumroad password. Enter that password here, not your Google password.
+If asked, enter the emailed or authenticator verification code.
+The password is used only for sign-in; the session is kept locally under
+`data/gumroad/`. No logged-in browser, browser-cookie export, seller API token,
+or additional background service is required. Reconnect if Gumroad expires the
+session. Website verification or endpoint changes can interrupt this Beta.
+
+Use **Gumroad → Artists** to select purchased-library creators, destination
+folders and scope. **Gumroad → Queue** has Download detected, Check for
+downloads, Resume, Stop and Manage artists. Checks run on a separate configurable
+interval while the manager is open in a browser; downloads only start manually.
+Older products are checked again for newly added files. Named products and
+collections keep their names when no release month is supplied; purchase dates
+are never treated as release dates. Membership updates can use their publication
+month. Undated releases remain in scope.
+
+Downloads keep artist filenames in each release's `Gumroad sources` folder,
+extract images into a flat `release_images` folder, and use the shared collage
+and release-packaging workflow. Account sessions, purchase links and history
+stay in the private data directory and must not be included in public packages.
+Gumroad uses authenticated website JSON because its public seller API does not
+expose the purchased library. No additional Python dependency is required.

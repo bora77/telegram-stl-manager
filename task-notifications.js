@@ -185,6 +185,18 @@
 /* MMF availability is requested only while a manager page is open. */
 (()=>{let busy=false;async function check(){if(busy||!window.mmfBetaEnabled)return;busy=true;try{const response=await fetch('/api/mmf/status',{cache:'no-store'});if(!response.ok)return;const state=await response.json();const link=document.getElementById('mmf-tab');if(link)link.title=state.counts.available+' MMF files available';if(state.connected&&!state.active&&state.settings.subscriptions.length&&Date.now()/1000>=state.next_check_at)await fetch('/api/mmf/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({due:true})})}catch{}finally{busy=false}}window.addEventListener('mmf-beta-changed',check);window.addEventListener('availability-config-saved',check);check();setInterval(check,60000)})();
 
+/* Gumroad beta is opt-in. Hidden by default, including automatic checks. */
+(()=>{
+ window.gumroadBetaEnabled=false;
+ function apply(config){const enabled=config.gumroad_beta_enabled===true;window.gumroadBetaEnabled=enabled;const tab=document.getElementById('gumroad-nav-group'),account=document.getElementById('gumroad-account');if(tab)tab.hidden=!enabled;if(account)account.hidden=!enabled;window.dispatchEvent(new Event('gumroad-beta-changed'))}
+ async function refresh(){try{const r=await fetch('/api/config',{cache:'no-store'});if(r.ok)apply(await r.json())}catch{}}
+ window.addEventListener('beta-config-saved',e=>apply(e.detail));
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+ refresh();setInterval(refresh,60000);
+})();
+/* Gumroad availability is requested only while a manager page is open. */
+(()=>{let busy=false;async function check(){if(busy||!window.gumroadBetaEnabled)return;busy=true;try{const response=await fetch('/api/gumroad/status',{cache:'no-store'});if(!response.ok)return;const state=await response.json();const link=document.getElementById('gumroad-tab');if(link)link.title=state.counts.available+' Gumroad files available';if(state.connected&&!state.active&&state.settings.subscriptions.length&&Date.now()/1000>=state.next_check_at)await fetch('/api/gumroad/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({due:true})})}catch{}finally{busy=false}}window.addEventListener('gumroad-beta-changed',check);window.addEventListener('availability-config-saved',check);check();setInterval(check,60000)})();
+
 /* Initial setup is also enforced by the server for direct links and APIs. */
 (()=>{
  function apply(state){for(const link of document.querySelectorAll('.app-navigation a:not(#config-tab)')){if(state.setup_required){link.setAttribute('aria-disabled','true');link.tabIndex=-1;link.title='Complete initial setup first'}else{link.removeAttribute('aria-disabled');link.removeAttribute('tabindex');if(link.title==='Complete initial setup first')link.removeAttribute('title')}}}

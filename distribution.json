@@ -115,7 +115,10 @@
     "tests/setup_wizard.cjs",
     "app/mmf_release_flow.py",
     ".tools/tdl-stl/src/app/stl/release_bot.go",
-    "app/mmf_source_layout.py"
+    "app/mmf_source_layout.py",
+    "app/gumroad_client.py",
+    "app/gumroad_manager.py",
+    "tests/test_gumroad.py"
   ],
   "trees": [
     "templates",

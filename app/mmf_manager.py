@@ -66,7 +66,7 @@ def releases(items, base=None):
             item['release_key']=key;item['release_folder']=folder
             item['release_month']=month
             _,item['release_month_basis']=release_date_month(item.get('release') or item.get('object_name') or 'Unnamed release',item.get('release_created_at'))
-            if item['release_month_basis']=='created_at' and item.get('release_date_basis')=='delivery_at':item['release_month_basis']='delivery_at'
+            if item['release_month_basis']=='created_at' and item.get('release_date_basis') in ('delivery_at','published_at'):item['release_month_basis']=item['release_date_basis']
             item['release_display_name']=folder if month else name
     # Distinct source releases with identical/sanitized names must not merge on disk.
     folders={}
@@ -80,9 +80,14 @@ def releases(items, base=None):
 
 
 class MMFManager:
+    provider = "mmf"
+    id_type = int
+    label = 'MMF'
+
     def __init__(self,store):
-        self.store=store;self.root=store.root;self.directory=self.root/'data/mmf'
+        self.store=store;self.root=store.root;self.directory=self.root/'data'/self.provider
         self.directory.mkdir(parents=True,exist_ok=True,mode=0o700)
+        self.directory.chmod(0o700)
         self.session=self.directory/'session.cookies';self.database=self.directory/'manager.sqlite3'
         with self.db() as db:
             db.executescript('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS completed (key TEXT PRIMARY KEY, data TEXT NOT NULL);')
@@ -112,14 +117,14 @@ class MMFManager:
     def idle(self):
         with (self.directory/'worker.lock').open('a') as lock:
             try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            except BlockingIOError:raise FileExistsError('Wait for the current MMF task to finish.')
+            except BlockingIOError:raise FileExistsError('Wait for the current '+self.label+' task to finish.')
             yield
     def state(self):
         settings=self.get('settings',{'revision':0,'subscriptions':[]})
         job=self.get('job',{});active=self.busy()
         if not active and job.get('phase') in ('checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs'):
             job={**job,'phase':'interrupted','message':'Task interrupted. Resume the saved queue.'}
-        checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()['mmf_availability_interval_hours']*3600
+        checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()[self.provider+'_availability_interval_hours']*3600
         known=self.completed()-self.pending_redownload_keys();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])
         from app.mmf_release_prepare import downloaded
         subscribed={str(s['id']) for s in settings.get('subscriptions',[])}
@@ -151,7 +156,7 @@ class MMFManager:
             self.put('creators',[{'id':int(g['id']),'name':g['name']} for g in groups]);self.put('checked_at',0);self.put('auth_required',False)
         return self.state()
     def refresh_creators(self):
-        if not self.session.exists():raise LoginRequired('Connect your MMF account first.')
+        if not self.session.exists():raise LoginRequired('Connect your '+self.label+' account first.')
         # Independent of the transfer lock: discovery reads metadata only and
         # must never replace subscriptions, availability or the running queue.
         with (self.directory/'creators.lock').open('a') as lock:
@@ -162,18 +167,18 @@ class MMFManager:
     def save(self,payload):
         with self.idle():
             previous=self.get('settings',{'revision':0,'subscriptions':[]})
-            if payload.get('revision')!=previous['revision']:raise FileExistsError('MMF settings changed in another tab. Reload first.')
+            if payload.get('revision')!=previous['revision']:raise FileExistsError(self.label+' settings changed in another tab. Reload first.')
             subs=payload.get('subscriptions');creators={str(g['id']):g for g in self.get('creators',[])}
             if not isinstance(subs,list) or len(subs)>1000:raise MMFError('Invalid subscriptions.')
             rows=[];seen=set();base=Path(self.store.config()['download_directory']).resolve()
             for sub in subs:
                 if not isinstance(sub,dict):raise MMFError('Invalid subscription.')
                 cid=str(sub.get('id'));folder=sub.get('folder');start=sub.get('start_month','')
-                if cid not in creators or cid in seen:raise MMFError('Select each MMF creator only once.')
+                if cid not in creators or cid in seen:raise MMFError('Select each '+self.label+' creator only once.')
                 if folder is None or isinstance(folder,str) and not folder.strip():folder=default_creator_folder(creators[cid]['name'])
                 if not isinstance(folder,str) or not folder or folder in ('.','..') or re.search(r'[\\/<>:"|?*\x00-\x1f]',folder) or folder.strip()!=folder or (base/folder).is_symlink():raise MMFError('Choose a creator folder directly inside the download folder.')
                 if not isinstance(start,str) or (start and not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',start)):raise MMFError('Choose a starting month or All (archiving).')
-                seen.add(cid);rows.append({'id':int(cid),'name':creators[cid]['name'],'folder':folder,'start_month':start})
+                seen.add(cid);rows.append({'id':self.id_type(cid),'name':creators[cid]['name'],'folder':folder,'start_month':start})
             self.put('settings',{'revision':previous['revision']+1,'subscriptions':rows});self.put('checked_at',0);self.put('items',[]);self.put('queue',[]);self.put('attempted_at',0)
         return self.state()
     def start(self,action,due=False,release=None):
@@ -181,9 +186,9 @@ class MMFManager:
         lock=(self.directory/'worker.lock').open('a')
         try:
             try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            except BlockingIOError:raise FileExistsError('An MMF task is already running.')
-            if not self.session.exists():raise LoginRequired('Connect your MMF account first.')
-            if due and (self.get('auth_required',False) or time.time()<max(self.get('checked_at',0),self.get('attempted_at',0))+self.store.config()['mmf_availability_interval_hours']*3600):return {'started':False}
+            except BlockingIOError:raise FileExistsError('A '+self.label+' task is already running.')
+            if not self.session.exists():raise LoginRequired('Connect your '+self.label+' account first.')
+            if due and (self.get('auth_required',False) or time.time()<max(self.get('checked_at',0),self.get('attempted_at',0))+self.store.config()[self.provider+'_availability_interval_hours']*3600):return {'started':False}
             settings=self.get('settings',{})
             if not settings.get('subscriptions') and action!='check':return {'started':False}
             if action=='download':
@@ -208,9 +213,9 @@ class MMFManager:
                 self.put('redownload',run);self.put('queue',group);self.put('run_base',self.store.config()['download_directory'])
             if action=='resume' and not self.get('queue',[]):raise MMFError('No saved queue to resume.')
             if action=='check':self.put('attempted_at',time.time())
-            self.put('stop',False);self.put('job',{'phase':'starting','action':action,'message':'Starting MMF task…','errors':[]})
+            self.put('stop',False);self.put('job',{'phase':'starting','action':action,'message':'Starting '+self.label+' task…','errors':[]})
             log=os.open(self.directory/'worker.log',os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
-            try:subprocess.Popen([sys.executable,'-m','app.mmf_manager',str(self.root),action,str(lock.fileno())],pass_fds=(lock.fileno(),),stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True,cwd=self.root)
+            try:subprocess.Popen([sys.executable,'-m','app.'+self.provider+'_manager',str(self.root),action,str(lock.fileno())],pass_fds=(lock.fileno(),),stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True,cwd=self.root)
             finally:os.close(log)
         finally:lock.close()
         return {'started':True}
@@ -310,9 +315,9 @@ class MMFManager:
             for unit in units:
                 unit.sort(key=lambda i:volume_key(i['filename'])[1]);head=unit[0]
                 unit_id=hashlib.sha256(json.dumps(sorted(i['key'] for i in unit)).encode()).hexdigest()
-                source_root=Path(base)/first['folder']/release_folder/'MMF sources'
+                source_root=Path(base)/first['folder']/release_folder/(self.label+' sources')
                 directory=source_directory(source_root,unit,paths)
-                sub=('MMF sources',*directory.relative_to(source_root).parts);outputs=[]
+                sub=(self.label+' sources',*directory.relative_to(source_root).parts);outputs=[]
                 for item in unit:
                     path=paths[item['key']]
                     dest,size,checksum=deliver(path,base,first['folder'],release_folder,path.name,moving,subdirectories=sub,release_directory=release_folder)
@@ -356,12 +361,12 @@ class MMFManager:
             try:
                 current={};paths={};units=source_units(group)
                 for unit in units:
-                    unit_dir=work/('source-'+str(unit[0]['object_id'])+'-'+str(unit[0]['archive_id']));unit_dir.mkdir(exist_ok=True)
+                    unit_dir=work/safe_component('source-'+str(unit[0]['object_id'])+'-'+str(unit[0]['archive_id']));unit_dir.mkdir(exist_ok=True)
                     for item in unit:paths[item['key']]=unit_dir/safe_component(item['filename'])
                 for item in group:
-                    if item['object_id'] not in current:current[item['object_id']]={int(a['id']):a for a in client.downloadables(item['object_id'])['archives']}
+                    if item['object_id'] not in current:current[item['object_id']]={self.id_type(a['id']):a for a in client.downloadables(item['object_id'])['archives']}
                     remote=current[item['object_id']].get(item['archive_id'])
-                    if not remote or int(remote['size'])!=item['size'] or remote.get('updatedAt','')!=item['updated_at']:raise MMFError('MMF file changed after checking. Run Check availability again.')
+                    if not remote or int(remote['size'])!=item['size'] or remote.get('updatedAt','')!=item['updated_at']:raise MMFError(self.label+' file changed after checking. Run Check availability again.')
                     self.progress(phase='downloading',message=item['filename'],done=done,total=len(queue),bytes=0,expected=item['size'],speed_mbps=0)
                     last=[0.0]
                     def transfer(n,total,speed):

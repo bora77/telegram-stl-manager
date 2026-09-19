@@ -1,5 +1,9 @@
 # Version history
 
+## 0.1.25
+
+- Speed up MMF availability checks with four concurrent model requests and per-model progress, while continuing to detect updates to older releases.
+
 ## 0.1.24
 
 - Store MMF originals directly in MMF sources, using readable folders only for filename collisions; preserve duplicate-named archives from the same model.

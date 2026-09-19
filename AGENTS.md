@@ -15,3 +15,7 @@ Public release notes should describe user-facing changes and installation/update
 instructions only. Keep internal test counts, regression fixtures, VM validation,
 tester diagnostics and private-package exclusion reports out of GitHub release
 notes. Report validation to Bora in the session instead.
+
+Routine releases do not require VM tests. Use focused application tests and
+package-content checks; reserve Windows/Docker VM runs for installer, updater,
+platform or dependency changes, or a specific unresolved platform issue.

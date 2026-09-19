@@ -331,6 +331,10 @@ from Telegram history. A changed release is rebuilt as a complete set, which can
 require downloading its unchanged source archives again; other completed releases
 are skipped.
 Failed releases are reported and the run continues with the next release.
+Availability checks fetch up to four model file lists concurrently, with progress
+updated after each response. Older models remain included: MMF model timestamps
+do not reliably reflect changes to their downloadable archives. Failed or stopped
+checks retain the previous availability results.
 
 If a release was published outside the tool, expand it in MMF Queue and choose
 **Make release → Just mark as finished**. Confirmation moves the current file versions to Finished releases

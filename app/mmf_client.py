@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import tempfile
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -44,6 +46,7 @@ class MMFClient:
         self.path=Path(session); self.cookies=http.cookiejar.MozillaCookieJar()
         if self.path.exists(): self.cookies.load(str(self.path),ignore_discard=True,ignore_expires=False)
         self.http=urllib.request.build_opener(Redirects(),urllib.request.HTTPCookieProcessor(self.cookies))
+        self._http_local=threading.local()
     def open(self,path,fields=None,headers=None):
         if not path.startswith('/') or path.startswith('//'): raise MMFError('Invalid MMF endpoint.')
         hdr={'User-Agent':'Telegram-STL-Manager/1.0','Accept':'application/json,text/html',**(headers or {})}
@@ -51,7 +54,7 @@ class MMFClient:
         if fields is not None:
             hdr.update({'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8','Origin':BASE,'Referer':BASE+'/login'})
             data=urllib.parse.urlencode(fields).encode()
-        try: response=self.http.open(urllib.request.Request(BASE+path,data=data,headers=hdr),timeout=30)
+        try: response=getattr(self._http_local,'opener',self.http).open(urllib.request.Request(BASE+path,data=data,headers=hdr),timeout=30)
         except urllib.error.HTTPError as error:
             if error.code in (401,403): raise LoginRequired('MMF rejected access. Reconnect your account; site verification may be required.') from None
             raise MMFError(f'MMF request failed (HTTP {error.code}). Try again later.') from None
@@ -106,6 +109,38 @@ class MMFClient:
         value=self.metadata(f'/api/data-library/myObjects/object-{object_id}/downloadables')
         if not isinstance(value,dict) or not isinstance(value.get('archives'),list):raise MMFError('Unexpected MMF file response.')
         return value
+    def downloadables_many(self,object_ids,stopped=lambda:False):
+        """Bounded fresh metadata checks; never enqueue an entire membership.
+
+        CookieJar locks cookie access internally. Each worker has its own opener;
+        only the owning check saves the shared jar after all requests complete.
+        """
+        pending={};remaining=iter(dict.fromkeys(object_ids))
+        def fetch(oid):
+            if stopped():raise MMFError('Check stopped. Previous availability results retained.')
+            if not hasattr(self._http_local,'opener'):
+                self._http_local.opener=urllib.request.build_opener(Redirects(),urllib.request.HTTPCookieProcessor(self.cookies))
+            return self.downloadables(oid)
+        pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='mmf-check')
+        try:
+            for _ in range(4):
+                oid=next(remaining,None)
+                if oid is not None:pending[pool.submit(fetch,oid)]=oid
+            while pending:
+                if stopped():raise MMFError('Check stopped. Previous availability results retained.')
+                finished,_=wait(pending,timeout=.2,return_when=FIRST_COMPLETED)
+                # Surface failures before scheduling any more requests.
+                results=[(future,pending[future],future.result()) for future in finished]
+                for future,oid,value in results:
+                    del pending[future]
+                    if stopped():raise MMFError('Check stopped. Previous availability results retained.')
+                    yield oid,value
+                for _ in results:
+                    oid=next(remaining,None)
+                    if oid is not None:pending[pool.submit(fetch,oid)]=oid
+        finally:
+            for future in pending:future.cancel()
+            pool.shutdown(wait=True,cancel_futures=True)
     def download(self,item,target,progress,stopped):
         target=Path(target); expected=item['size']; offset=target.stat().st_size if target.exists() else 0
         if offset>expected:raise MMFError('Local partial file exceeds the expected size.')

@@ -442,3 +442,38 @@ class SourceLayoutTests(unittest.TestCase):
             self.assertEqual(changed['repack']['outputs'][0]['sha256'],receipt['sha256'])
             self.assertTrue((manager.directory/'source-layout-migration'/'manager-before.sqlite3').exists())
             self.assertTrue(migrate_legacy_sources(manager,True)['complete'])
+
+class ParallelCheckTests(unittest.TestCase):
+    def test_checks_four_at_a_time_without_duplicate_requests(self):
+        import threading
+        with tempfile.TemporaryDirectory() as tmp:
+            client=MMFClient(Path(tmp)/'session');barrier=threading.Barrier(4);lock=threading.Lock();active=0;peak=0;calls=[]
+            def fetch(oid):
+                nonlocal active,peak
+                with lock:active+=1;peak=max(peak,active);calls.append(oid)
+                barrier.wait(timeout=3)
+                with lock:active-=1
+                return {'archives':[{'id':oid,'updatedAt':'fresh'}]}
+            with patch.object(client,'downloadables',side_effect=fetch):
+                results=dict(client.downloadables_many([*range(1,9),1,2]))
+            self.assertEqual(set(results),set(range(1,9)));self.assertEqual(len(calls),8);self.assertEqual(peak,4)
+            self.assertTrue(all(r['archives'][0]['updatedAt']=='fresh' for r in results.values()))
+
+    def test_stop_does_not_schedule_the_rest_of_the_library(self):
+        import threading
+        with tempfile.TemporaryDirectory() as tmp:
+            client=MMFClient(Path(tmp)/'session');stopped=threading.Event();calls=[]
+            def fetch(oid):calls.append(oid);return {'archives':[]}
+            with patch.object(client,'downloadables',side_effect=fetch):
+                results=client.downloadables_many(range(1,1001),stopped.is_set)
+                next(results);stopped.set()
+                with self.assertRaisesRegex(MMFError,'stopped'):list(results)
+            self.assertLessEqual(len(calls),4)
+
+    def test_failure_does_not_schedule_the_rest_of_the_library(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            client=MMFClient(Path(tmp)/'session');calls=[]
+            def fetch(oid):calls.append(oid);raise MMFError('HTTP 429')
+            with patch.object(client,'downloadables',side_effect=fetch):
+                with self.assertRaisesRegex(MMFError,'429'):list(client.downloadables_many(range(1,1001)))
+            self.assertLessEqual(len(calls),4)

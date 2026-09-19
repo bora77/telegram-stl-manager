@@ -219,6 +219,8 @@ class MMFManager:
     def progress(self,**values):
         state=self.get('job',{});state.update(values);self.put('job',state)
     def check(self):
+        started=time.monotonic()
+        self.progress(phase='checking',message='Loading MMF library…',done=0,total=0)
         client=self.client();groups=client.groups();self.put('creators',[{'id':int(g['id']),'name':g['name']} for g in groups])
         tribe_creators={str(g['id']) for g in groups if 'TRIBE' in g.get('sources',[])}
         objects=getattr(client,'library_objects',None)
@@ -244,14 +246,24 @@ class MMFManager:
         # Keep every entitlement until scope filtering: an old shared entry
         # must not hide the same model in a current Tribe release.
         selected.sort(key=lambda o:({'USER_GROUP':0,'FRONTIER':1,'TRIBE':2}[o['source']],str(o.get('release',''))))
-        downloadables={}
-        for number,obj in enumerate(selected,1):
+        downloadables={};models={int(obj['originalId']):obj for obj in selected}
+        self.progress(phase='checking',message=f'Checking {len(models)} MMF models…',done=0,total=len(models))
+        fetch_many=getattr(client,'downloadables_many',None)
+        responses=fetch_many(models,self.stopped) if callable(fetch_many) else ((oid,client.downloadables(oid)) for oid in models)
+        try:
+            for number,(oid,response) in enumerate(responses,1):
+                if self.stopped():raise MMFError('Check stopped. Previous availability results retained.')
+                downloadables[oid]=response['archives']
+                obj=models[oid];sub=subs[str(obj['creatorId'])]
+                self.progress(phase='checking',message=f"Checked {sub['name']} · {obj['name']}",done=number,total=len(models))
+        finally:
+            close=getattr(responses,'close',None)
+            if close:close()
+        for obj in selected:
             if self.stopped():raise MMFError('Check stopped. Previous availability results retained.')
             source=obj['source'];cid=str(obj['creatorId']);owner=str(obj.get('campaignId')) if source=='FRONTIER' else cid
             sub=subs[cid];release=labels.get((source,owner,str(obj.get('release'))),{});label=release.get('label') or release.get('name') or ''
-            self.progress(phase='checking',message=f"Checking {sub['name']} · {obj['name']}",done=number-1,total=len(selected))
             oid=int(obj['originalId'])
-            if oid not in downloadables:downloadables[oid]=client.downloadables(oid)['archives']
             for archive in downloadables[oid]:
                 size=int(archive['size']);filename=archive['name']
                 if size<=0 or not isinstance(filename,str):continue
@@ -288,7 +300,7 @@ class MMFManager:
         message=f'Check complete · {count} releases in scope.'
         if excluded:message+=f' {excluded} older releases excluded by the starting month. Select All (archiving) to include them.'
         if not subs:message='Artist list refreshed from Shared with me, Tribes and Frontiers. Select artists to check their files.'
-        self.progress(phase='complete',message=message,done=len(selected),total=len(selected))
+        self.progress(phase='complete',message=message,done=len(models),total=len(models),check_seconds=round(time.monotonic()-started,2),checked_models=len(models))
     def deliver_originals(self,group,paths,units,base,identity,nonce):
         first=group[0];release_folder=first['release_folder'];records=[];staged_images=[]
         def moving(n,total):

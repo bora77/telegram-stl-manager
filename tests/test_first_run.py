@@ -74,7 +74,7 @@ class FirstRunTests(unittest.TestCase):
         scope=SourceScope(123456789,10);text='😀 Artist One';name='Artist One'
         raw={'ID':10,'PeerID':{'ChannelID':scope.chat_id},'Message':text,'Entities':[{'Offset':3,'Length':len(name),'URL':scope.prefix+'20'},{'Offset':3,'Length':len(name),'URL':'https://t.me/c/999/30'}]}
         result=parse_toc({'id':scope.chat_id,'messages':[{'raw':raw}]},scope)
-        self.assertEqual(result['creators'],[{'name':name,'topic_url':scope.prefix+'20','within_approved_group':True}])
+        self.assertEqual(result['creators'],[{'name':name,'topic_url':scope.prefix+'20','within_approved_group':True,'tags':[] }])
         with self.assertRaises(ValueError):parse_toc({'id':999,'messages':[{'raw':raw}]},scope)
         with self.assertRaises(ValueError):parse_toc({'id':scope.chat_id,'messages':[]},scope)
     def test_toc_topic_includes_followup_posts_but_not_other_topics(self):

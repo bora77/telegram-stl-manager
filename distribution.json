@@ -118,7 +118,9 @@
     "app/mmf_source_layout.py",
     "app/gumroad_client.py",
     "app/gumroad_manager.py",
-    "tests/test_gumroad.py"
+    "tests/test_gumroad.py",
+    "app/creator_tags.py",
+    "tests/test_creator_tags.py"
   ],
   "trees": [
     "templates",

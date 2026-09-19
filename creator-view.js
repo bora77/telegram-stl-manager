@@ -1,5 +1,22 @@
 function element(tag,text){const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el}
 const subscriptionFilter=document.getElementById('subscription-filter');
+const selectedTags=new Set(),tagPicker=document.getElementById('tag-picker'),tagSearch=document.getElementById('tag-search');
+const tagCounts=new Map();for(const artist of all)for(const tag of artist.tags||[])tagCounts.set(tag,(tagCounts.get(tag)||0)+1);
+function tagOptions(){
+ const options=document.getElementById('tag-options');options.replaceChildren();let count=0;
+ for(const [tag,total] of [...tagCounts].sort((a,b)=>a[0].localeCompare(b[0]))){
+  if(!tag.toLocaleLowerCase().includes(tagSearch.value.toLocaleLowerCase()))continue;
+  count++;const label=element('label'),input=element('input');label.className='tag-option';input.type='checkbox';input.checked=selectedTags.has(tag);input.setAttribute('aria-label',tag);
+  input.onchange=()=>{if(input.checked)selectedTags.add(tag);else selectedTags.delete(tag);updateTagSummary();render(true)};
+  label.append(input,element('span',tag),element('small',String(total)));options.append(label);
+ }
+ document.getElementById('tag-empty').hidden=!!count;
+}
+function updateTagSummary(){document.getElementById('tag-summary').textContent=selectedTags.size?`${selectedTags.size} tag${selectedTags.size===1?'':'s'} selected`:'All tags';document.getElementById('clear-tags').disabled=!selectedTags.size}
+tagSearch.oninput=tagOptions;document.getElementById('clear-tags').onclick=()=>{selectedTags.clear();updateTagSummary();tagOptions();render(true)};
+document.addEventListener('click',event=>{if(!tagPicker.contains(event.target))tagPicker.open=false});document.addEventListener('keydown',event=>{if(event.key==='Escape'&&tagPicker.open){tagPicker.open=false;document.getElementById('tag-summary').focus()}});
+updateTagSummary();tagOptions();
+
 function setSaveStatus(message,error=false){
   const notice=document.getElementById('save-status');
   notice.classList.toggle('save-error',error);
@@ -28,7 +45,7 @@ function subscriptionMatches(url, mode, saved){return !mode||(mode==='subscribed
 function render(reset=false){
   if(reset)offset=0;
   const saved=new Set(savedSubscriptions.map(r=>r.topic_url)),q=search.value.toLocaleLowerCase();
-  filtered=all.filter(r=>r.name.toLocaleLowerCase().includes(q)&&subscriptionMatches(r.topic_url,subscriptionFilter.value,saved));
+  filtered=all.filter(r=>r.name.toLocaleLowerCase().includes(q)&&subscriptionMatches(r.topic_url,subscriptionFilter.value,saved)&&(!selectedTags.size||(r.tags||[]).some(tag=>selectedTags.has(tag))));
   if(offset>=filtered.length)offset=Math.max(0,Math.floor((filtered.length-1)/50)*50);
   const body=document.getElementById('rows');body.replaceChildren();
   for(const r of filtered.slice(offset,offset+50)){
@@ -52,14 +69,13 @@ function render(reset=false){
     const artistHeading=element('div');artistHeading.className='artist-heading';
     artistHeading.append(ArtistProfiles.badge(r.name),element('strong',r.name));creator.append(artistHeading);
     const sourceDetails=[{label:'Telegram topic',href:r.topic_url}];
+    if(r.tags?.length)sourceDetails.push({label:'Tags',text:r.tags.join(', ')});
     if(r.aliases?.length)sourceDetails.push({label:'Other readings',text:r.aliases.map(a=>a.name).join(', ')});
     const evidenceUrl=r.toc_source_url||r.evidence;
     if(evidenceUrl)sourceDetails.push({label:r.toc_source_url?'Table of Contents':'Source screenshot',href:evidenceUrl,text:r.toc_source_url?'View TOC entry':'View source screenshot'});
     const infoCell=element('td');infoCell.className='artist-info-cell';infoCell.append(ArtistProfiles.infoButton(r.name,sourceDetails));
     const folder=element('input');folder.type='text';folder.setAttribute('list','incoming-folders');folder.setAttribute('aria-label',r.name+' creator folder');folder.placeholder='Default: '+SelectionRules.defaultFolder(r.name);folder.value=draft?draft.creator_folder:SelectionRules.suggest(r.name,inventory.folders);folder.disabled=!draft;
-    const destination=element('small');
-    function updateDestination(){destination.textContent=folder.value?folder.value+'/release folder/filename · '+(inventory.folders.includes(folder.value)?'existing creator folder':'new creator folder'):'';destination.hidden=!destination.textContent}
-    folder.oninput=()=>{draft.creator_folder=folder.value;persist();updateDestination()};updateDestination();folderCell.append(folder,destination);
+    folder.oninput=()=>{draft.creator_folder=folder.value;persist()};folderCell.append(folder);
     if(draft?.legacy_directory&&!draft.creator_folder)folderCell.append(element('small','Previous folder: '+draft.legacy_directory+' — please reassign.'));
     const scope=element('select');scope.setAttribute('aria-label',r.name+' download scope');
     for(const [value,label] of [['from_month','From month/year'],['all_and_future','All (archiving)']])scope.add(new Option(label,value));

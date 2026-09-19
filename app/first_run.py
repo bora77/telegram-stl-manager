@@ -2,6 +2,7 @@
 import contextlib,fcntl,json,os,pty,re,select,subprocess,sys,threading,time
 from pathlib import Path
 from app.source_scope import SourceScope, load_source
+from app.creator_tags import tags_from_text, normalize_catalog
 from app.telegram_cli import CLI_STATE
 
 ANSI=re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)')
@@ -9,6 +10,7 @@ ANSI=re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)')
 def parse_toc(data,scope):
     if data.get('id')!=scope.chat_id:raise ValueError('Table of Contents belongs to a different source.')
     rows={}
+    toc_ids={m.get('raw',{}).get('ID') for m in data.get('messages',[]) if m.get('raw',{}).get('ID')==scope.toc_message_id or ((m.get('raw',{}).get('ReplyTo') or {}).get('ReplyToTopID') or (m.get('raw',{}).get('ReplyTo') or {}).get('ReplyToMsgID'))==scope.toc_message_id}
     for message in data.get('messages',[]):
         raw=message.get('raw',{})
         reply=raw.get('ReplyTo') or {}
@@ -20,9 +22,11 @@ def parse_toc(data,scope):
             url=entity.get('URL');start=entity.get('Offset');length=entity.get('Length')
             if not url or type(start)!=int or type(length)!=int or start<0 or length<=0:continue
             name=encoded[start*2:(start+length)*2].decode('utf-16-le').strip()
-            if scope.topic_id(url) and name and url!=scope.home_url:rows[url]={'name':name,'topic_url':url,'within_approved_group':True}
+            if scope.topic_id(url) and scope.topic_id(url) not in toc_ids and name and url!=scope.home_url:
+                suffix=encoded[(start+length)*2:].decode('utf-16-le').split('\n',1)[0]
+                rows[url]={'name':name,'topic_url':url,'within_approved_group':True,'tags':tags_from_text(suffix)}
     if not rows:raise ValueError('No creator topic links were found in that TOC. Check the message link.')
-    return {'source':{'name':'Configured Table of Contents','url':scope.home_url},'creators':sorted(rows.values(),key=lambda x:x['name'].casefold())}
+    return normalize_catalog({'source':{'name':'Configured Table of Contents','url':scope.home_url},'creators':sorted(rows.values(),key=lambda x:x['name'].casefold())})
 
 def parse_share_path(value):
     """Accept pasted UNC folders, including Explorer's trailing separator."""

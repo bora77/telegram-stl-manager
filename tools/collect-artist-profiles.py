@@ -26,11 +26,13 @@ gate=threading.Lock();next_request=0;blocked=set()
 
 class Page(HTMLParser):
     def __init__(self,text):
-        super().__init__();self.meta={};self.links=[];self.avatar=None;self.feed(text)
+        super().__init__();self.meta={};self.links=[];self.avatar=None;self.canonical=None;self.mmf_avatar=None;self.feed(text)
     def handle_starttag(self,t,attrs):
         a=dict(attrs)
         if t=='meta':self.meta[a.get('property',a.get('name',''))]=a.get('content','')
         if t=='a' and a.get('href'):self.links.append(a['href'])
+        if t=='link' and a.get('rel')=='canonical':self.canonical=a.get('href')
+        if t=='img' and 'profileimage' in a.get('class','').split():self.mmf_avatar=(a.get('src') or '').strip()
         if t=='img' and a.get('data-testid')=='ProfileImage':self.avatar=a.get('src')
 
 def platform(url):
@@ -83,6 +85,32 @@ def linked_profiles(page,name):
         if path is not None:result[label]=urllib.parse.urlunsplit((u.scheme,u.netloc,path,'',''))
     return result
 
+def mmf_avatar(page,name):
+    identity=Page('')
+    identity.links=[page.canonical or '']
+    if 'MyMiniFactory' not in linked_profiles(identity,name):
+        raise ValueError('MMF creator profile does not match')
+    avatar=page.mmf_avatar or page.meta.get('og:image','')
+    parsed=urllib.parse.urlsplit(avatar)
+    if re.fullmatch(r'images\d*\.myminifactory\.com',parsed.hostname or '') and '/plain/' in parsed.path:
+        avatar=avatar.split('/plain/',1)[1]
+    parsed=urllib.parse.urlsplit(avatar)
+    if (parsed.scheme!='https' or parsed.username or parsed.password
+        or not re.fullmatch(r'dl\d*\.myminifactory\.com',parsed.hostname or '')
+        or not parsed.path.startswith('/public-assets/profile-images/')):
+        raise ValueError('Unrecognized MMF profile image')
+    if parsed.path.rsplit('/',1)[-1].lower().startswith('profile-default.'):
+        raise ValueError('MMF profile uses the default placeholder')
+    return avatar
+
+def sources_for(name,previous=None):
+    known=(previous or {}).get('links',{})
+    sources=[('MyMiniFactory',known.get('MyMiniFactory','https://www.myminifactory.com/users/'+normalized(name)))]
+    sources.extend([('Patreon',known.get('Patreon','https://www.patreon.com/'+normalized(name))),
+                    ('Linktree',known.get('Linktree','https://linktr.ee/'+normalized(name)))])
+    return sources
+
+
 def collect(name,sources=None):
     key=artist_key(name);record={'name':name,'links':{},'link_sources':{},'status':'not_found',
         'checked_at':datetime.now(timezone.utc).isoformat(),'attempts':[]}
@@ -105,11 +133,15 @@ def collect(name,sources=None):
                 clean=text.replace('\\"','"').replace('\\u0026','&')
                 m=re.search(r'"avatar_photo_image_urls"\s*:\s*(\{[^{}]+\})',clean)
                 avatar=json.loads(m[1]).get('default') if m else None
-            else:
+            elif label=='MyMiniFactory':
+                avatar=mmf_avatar(page,name)
+            elif label=='Linktree':
                 links=linked_profiles(page,name)
                 if not any(k in links for k in ('Patreon','MyMiniFactory','Cults','Thangs','Only-Games')):
                     raise ValueError('No matching creator storefront cross-link')
                 avatar=page.avatar
+            else:
+                raise ValueError('Unsupported image source')
             record['links'][label]=url
             found=linked_profiles(page,name)
             record['links'].update(found)
@@ -117,7 +149,7 @@ def collect(name,sources=None):
             record['status']='links_found'
             if avatar and not image:
                 u=urllib.parse.urlsplit(avatar);host=u.hostname or ''
-                if u.scheme!='https' or not (host.endswith('.patreonusercontent.com') or host=='ugc.production.linktr.ee'):
+                if u.scheme!='https' or not (host.endswith('.patreonusercontent.com') or host=='ugc.production.linktr.ee' or label=='MyMiniFactory' and avatar==mmf_avatar(page,name)):
                     raise ValueError('Unrecognized avatar host')
                 try:
                     image=image_bytes(fetch(avatar,5_000_000));record['source']=url
@@ -141,7 +173,7 @@ def main():
     if args.limit:todo=todo[:args.limit]
     print(f'Catalog: {len(names)} artists; collecting {len(todo)}',flush=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-        for i,(key,record) in enumerate(pool.map(collect,todo),1):
+        for i,(key,record) in enumerate(pool.map(lambda name: collect(name,sources_for(name,data.get(artist_key(name)))),todo),1):
             previous=data.get(key,{})
             # A blocked page or temporary lookup failure must not discard a
             # previously collected image, reviewed alias, or known storefront.

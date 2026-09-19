@@ -53,6 +53,24 @@ class LinkTests(unittest.TestCase):
         mod=self.module()
         page=mod.Page('<a href="https://www.myminifactory.com/users/ExampleArtist">Shop</a><a href="https://www.patreon.com/other">Other</a><a href="javascript:alert(1)">Bad</a><a href="https://evilmyminifactory.com/ExampleArtist">Fake</a><a href="https://www.patreon.com/ExampleArtist/posts/sale-123">Post</a>')
         self.assertEqual(mod.linked_profiles(page,'Example Artist'),{'MyMiniFactory':'https://www.myminifactory.com/users/ExampleArtist','Patreon':'https://www.patreon.com/ExampleArtist'})
+    def test_mmf_uses_creator_image_not_signed_in_avatar(self):
+        mod=self.module()
+        original='https://dl4.myminifactory.com/public-assets/profile-images/logo.png'
+        page=mod.Page('<link rel="canonical" href="https://www.myminifactory.com/users/ExampleArtist">'
+                      '<img alt="User avatar" src="https://example.com/account.png">'
+                      '<img class="profileimage" src=" https://images2.myminifactory.com/insecure/rt:fill-down/w:400/plain/'+original+'">')
+        self.assertEqual(mod.mmf_avatar(page,'Example Artist'),original)
+        with self.assertRaises(ValueError):mod.mmf_avatar(page,'Other Artist')
+        page.mmf_avatar='https://dl4.myminifactory.com/public-assets/profile-images/profile-default.jpg'
+        with self.assertRaisesRegex(ValueError,'placeholder'):mod.mmf_avatar(page,'Example Artist')
+        page.mmf_avatar='https://evilmyminifactory.com/public-assets/profile-images/logo.png'
+        with self.assertRaises(ValueError):mod.mmf_avatar(page,'Example Artist')
+
+    def test_known_mmf_profile_is_tried_first(self):
+        mod=self.module()
+        url='https://www.myminifactory.com/users/ExampleArtist'
+        self.assertEqual(mod.sources_for('Example Artist',{'links':{'MyMiniFactory':url}})[0],('MyMiniFactory',url))
+
     def test_creator_formats_match_but_wrong_identity_and_context_do_not(self):
         mod=self.module();out=io.BytesIO();Image.new('RGB',(100,100),'blue').save(out,'PNG');blob=out.getvalue()
         for title,context,expected in [('Example Artist — STL miniatures','3D printing',True),('Get more from Example Artist Miniatures on Patreon','Miniatures',True),('Other Artist — STL models','3D printing',False),('Example Artist — Photography','Portrait photography',False)]:

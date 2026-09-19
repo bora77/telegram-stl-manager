@@ -540,3 +540,15 @@ and release-packaging workflow. Account sessions, purchase links and history
 stay in the private data directory and must not be included in public packages.
 Gumroad uses authenticated website JSON because its public seller API does not
 expose the purchased library. No additional Python dependency is required.
+
+### Artist tags
+
+Telegram Artists includes a searchable multi-select **Tags** filter. Tags come
+from bracketed descriptions in the configured Table of Contents, with duplicate
+spellings normalized and administrative notes excluded. Selecting several tags
+shows artists matching **any** of them; name search and subscription filters
+still apply. Use **Clear** to show all tags again. Each artist’s Info panel lists
+its tags. Every TOC import reapplies the saved normalization rules, including
+`5E → Dungeons&Dragons` and `WH40K → 40K`, so source spelling changes do not
+reintroduce merged tags. Imports refresh assignments and counts, indexed locally in
+`data/creator-tags.sqlite3` and are not included in public packages.

@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from app.source_scope import load_source
+from app.creator_tags import normalize_catalog, sync_database
 
 root = Path(__file__).resolve().parent.parent
 roadmap = (root / 'TODO.md').read_text().split('## Upcoming features\n', 1)[1].split('\n## ', 1)[0]
@@ -24,6 +25,8 @@ for block in re.split(r'^## ', (root / 'CHANGELOG.md').read_text(), flags=re.M)[
 version=(root/'VERSION').read_text().strip()
 if not re.fullmatch(r'\d+\.\d+\.\d+',version):raise ValueError('Invalid application version.')
 catalog = json.loads((root / "data/creators.json").read_text())
+normalize_catalog(catalog)
+sync_database(root,catalog)
 inventory = json.loads((root / "data/incoming-folders.json").read_text())
 if catalog['creators']:
     source = load_source(root)
@@ -31,9 +34,9 @@ if catalog['creators']:
         raise ValueError('A creator is outside the privately configured source.')
 with (root / "data/creators.csv").open("w", newline="") as stream:
     writer = csv.writer(stream)
-    writer.writerow(["creator", "status", "categories", "topic_url", "approved_group", "ocr_confidence", "needs_review"])
+    writer.writerow(["creator", "status", "tags", "topic_url", "approved_group", "ocr_confidence", "needs_review"])
     for r in catalog["creators"]:
-        writer.writerow([r["name"],r.get("status", ""),", ".join(r.get("categories", [])),r["topic_url"],r["within_approved_group"],r.get("ocr_confidence", ""),r.get("needs_review", False)])
+        writer.writerow([r["name"],r.get("status", ""),", ".join(r.get("tags", [])),r["topic_url"],r["within_approved_group"],r.get("ocr_confidence", ""),r.get("needs_review", False)])
 template = r'''<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Telegram STL manager · Subscriptions &amp; Downloads</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -45,14 +48,14 @@ template = r'''<!doctype html>
 <main class="app-main">__APP_LAYOUT__
 <section id="artists-view" aria-labelledby="artists-tab" hidden>
 <div class="artist-controls">
-<div class="filters"><label>Search creators<input id="search" type="search" placeholder="Creator name"></label><label>Subscription<select id="subscription-filter" disabled><option value="">All creators</option><option value="subscribed">Subscribed</option><option value="not_subscribed">Not subscribed</option></select></label></div>
+<div class="filters"><label>Search creators<input id="search" type="search" placeholder="Creator name"></label><label>Subscription<select id="subscription-filter" disabled><option value="">All creators</option><option value="subscribed">Subscribed</option><option value="not_subscribed">Not subscribed</option></select></label><div class="tag-filter"><span id="tag-filter-label">Tags</span><details id="tag-picker"><summary id="tag-summary" aria-labelledby="tag-filter-label tag-summary">All tags</summary><div class="tag-menu"><input id="tag-search" type="search" placeholder="Find a tag" aria-label="Find a tag"><div class="tag-menu-heading"><small>Match any selected tag</small><button id="clear-tags" type="button">Clear</button></div><div id="tag-options" role="group" aria-label="Artist tags"></div><small id="tag-empty" hidden>No matching tags</small></div></details></div></div>
 <div class="subscription-toolbar"><div><span id="selected-count"></span><small id="saved-summary"></small></div><div class="subscription-buttons"><button id="save-subscriptions" disabled>Save subscriptions</button></div></div>
 <style>#save-status.save-error{color:#a12632;background:#fff0f1;border:1px solid #e4acb3;border-left:5px solid #bd283b;border-radius:8px;padding:12px 16px;font-weight:600;overflow-wrap:anywhere}</style>
 <p id="save-status" aria-live="polite"></p><datalist id="incoming-folders"></datalist>
 </div>
 <style>
 .artist-controls{background:white;border:1px solid #e3dfe9;border-radius:16px;padding:24px;margin:24px 0}
-.artist-controls .filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;margin:0}
+.artist-controls .filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start;margin:0}
 .artist-controls label{min-width:0;gap:8px;font-size:13px}
 .artist-controls input,.artist-controls select{width:100%;min-width:0;height:44px;padding:11px 14px;font-size:14px}
 .artist-controls .subscription-toolbar{margin-top:20px;padding:0;background:transparent;border-radius:0}
@@ -60,6 +63,8 @@ template = r'''<!doctype html>
 .artist-controls button{height:44px;padding:11px 14px;font-size:14px}
 .artist-controls button:disabled,#save-subscriptions:disabled{background:#f3f1f6;color:#908896;border-color:#e3dfe9;cursor:default}
 .artist-controls #save-status:empty{display:none}
+.tag-filter{min-width:0;font-size:13px;color:#655f70}.tag-filter>span{display:block;margin-bottom:8px}.tag-filter details{position:relative}.tag-filter summary{display:flex;align-items:center;justify-content:space-between;height:44px;margin:0;border:1px solid #d8d3e0;border-radius:8px;padding:11px 14px;font-size:14px;background:white;color:#272332;list-style:none}.tag-filter summary:after{content:"▾"}.tag-filter summary::-webkit-details-marker{display:none}.tag-menu{position:absolute;z-index:20;top:50px;left:0;right:0;min-width:240px;padding:14px;background:white;border:1px solid #d8d3e0;border-radius:12px;box-shadow:0 8px 24px #30204022}.tag-menu-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:8px 0}.tag-menu-heading small{margin:0}.artist-controls #clear-tags{height:30px;padding:4px 10px}#tag-options{max-height:280px;overflow:auto}.artist-controls .tag-option{display:flex;flex-direction:row;align-items:center;gap:9px;padding:7px 2px;font-size:14px;cursor:pointer}.artist-controls .tag-option input{width:18px;height:18px;min-width:18px;padding:0;margin:0}.tag-option span{flex:1}.tag-option small{margin:0}.tag-option:has(input:checked){color:#654091;font-weight:600}
+
 .subscription-toggle{position:relative;display:inline-flex;align-items:center;width:48px;height:44px;vertical-align:middle;cursor:pointer}
 .subscription-toggle input[type=checkbox]{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;cursor:pointer}
 .subscription-track{position:relative;display:block;width:48px;height:28px;border:1px solid #aaa0b5;border-radius:999px;background:#b7aebe;pointer-events:none}

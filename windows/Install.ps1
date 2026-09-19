@@ -1,6 +1,11 @@
 param([switch]$MachineSetup)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'Continue'
+# Acknowledge before any installation changes, including elevated prerequisites.
+Add-Type -AssemblyName System.Windows.Forms
+$Notice = Get-Content (Join-Path $PSScriptRoot 'USAGE-NOTICE.txt') -Raw -Encoding UTF8
+$Consent = [System.Windows.Forms.MessageBox]::Show($Notice + "`r`n`r`nI have read and understood this notice and agree to continue.", 'Telegram STL Manager - Required acknowledgment', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning, [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+if ($Consent -ne [System.Windows.Forms.DialogResult]::Yes) { exit 1 }
 # Only machine prerequisites run elevated. WSL registration and shortcuts remain
 # owned by the original user, even when UAC asks for another admin's credentials.
 if ($MachineSetup) {

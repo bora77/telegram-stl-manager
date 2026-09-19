@@ -7,6 +7,22 @@ from app.subscription_store import SubscriptionStore
 from tests.test_support import configure_source
 
 class SetupCompletionTests(unittest.TestCase):
+    def test_usage_acknowledgment_is_explicit_persistent_and_blocks_completion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);store=SubscriptionStore(configure_source(root))
+            (root/'data/setup-required').touch()
+            manager=FirstRun(store)
+            self.assertTrue(manager.consent_required())
+            for value in (None,False,'true',1):
+                with self.assertRaises(ValueError):manager.acknowledge({'accepted':value})
+            with self.assertRaisesRegex(ValueError,'acknowledge'):manager.complete()
+            state=manager.acknowledge({'accepted':True})
+            self.assertFalse(state['consent_required'])
+            record=json.loads((root/'data/usage-acknowledgment.json').read_text())
+            self.assertEqual(len(record['notice_sha256']),64)
+            self.assertGreater(record['accepted_at'],0)
+            self.assertFalse(FirstRun(store).consent_required())
+
     def test_new_setup_requires_login_catalog_settings_and_destination(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);store=SubscriptionStore(configure_source(root))
@@ -14,6 +30,7 @@ class SetupCompletionTests(unittest.TestCase):
             manager=FirstRun(store)
             self.assertTrue(manager.setup_required)
             with self.assertRaises(ValueError):manager.complete()
+            manager.acknowledge({'accepted':True})
             manager.phase='connected'
             store.atomic_write(root/'data/creators.json',{'creators':[{'name':'Example'}]})
             store.save_config({'revision':0,'download_directory':str(root),'download_storage':'local'})
@@ -30,7 +47,7 @@ class SetupCompletionTests(unittest.TestCase):
             store.atomic_write(root/'data/creators.json',{'creators':[{'name':'Example'}]})
             (root/'data/setup-required').touch();(root/'data/setup-settings-reviewed').touch()
             store.save_config({'revision':0,'download_directory':str(root),'mmf_beta_enabled':True})
-            manager=FirstRun(store);manager.phase='connected'
+            manager=FirstRun(store);manager.acknowledge({'accepted':True});manager.phase='connected'
             with self.assertRaisesRegex(ValueError,'MyMiniFactory'):manager.complete()
             store.save_config({'revision':1,'download_directory':str(root),'mmf_beta_enabled':False})
             with patch('app.file_delivery.mount_identity',side_effect=ValueError('Share disconnected')):
@@ -43,7 +60,7 @@ class SetupCompletionTests(unittest.TestCase):
             store.atomic_write(root/'data/creators.json',{'creators':[{'name':'Example'}]})
             (root/'data/setup-required').touch();(root/'data/setup-settings-reviewed').touch()
             store.save_config({'revision':0,'download_directory':str(root)})
-            manager=FirstRun(store);manager.phase='connected'
+            manager=FirstRun(store);manager.acknowledge({'accepted':True});manager.phase='connected'
             original=Path.is_dir
             def check(path):
                 if path==root:raise PermissionError('Share unavailable')

@@ -44,6 +44,16 @@ class FirstRun:
     def __init__(self,store):
         self.store=store;self.root=store.root;self.lock=threading.RLock();self.child=None;self.master=None;self.phase='connected' if (self.root/'data/telegram-connected').exists() else 'idle';self.challenge=0;self.answer_pending=False;self.guard=None
         self.setup_required=not (self.root/'data/setup-complete').exists() and ((self.root/'data/setup-required').exists() or not self.configured_catalog())
+    def consent_required(self):
+        return self.setup_required and not (self.root/'data/usage-acknowledgment.json').is_file()
+    def acknowledge(self,payload):
+        if payload.get('accepted') is not True:
+            raise ValueError('Read and acknowledge the usage notice before continuing.')
+        notice=(Path(__file__).resolve().parent.parent/'USAGE-NOTICE.txt').read_text()
+        import hashlib
+        with self.lock:
+            self.store.atomic_write(self.root/'data/usage-acknowledgment.json',{'accepted_at':time.time(),'notice_sha256':hashlib.sha256(notice.encode()).hexdigest()})
+        return self.state()
     def configured_catalog(self):
         try:
             load_source(self.root)
@@ -52,6 +62,7 @@ class FirstRun:
     def missing_setup(self):
         if not self.setup_required:return []
         missing=[]
+        if self.consent_required():missing.append("Read and acknowledge the usage notice.")
         if self.phase!='connected':missing.append('Connect your Telegram account.')
         if not self.configured_catalog():missing.append('Import artists from your Table of Contents.')
         settings=self.store.config()
@@ -88,7 +99,7 @@ class FirstRun:
     def state(self):
         try:source=load_source(self.root).home_url
         except ValueError:source=''
-        return {'setup_required':self.setup_required,'missing_setup':self.missing_setup(),'application':'telegram-stl-manager','version':(self.root/'VERSION').read_text().strip() if (self.root/'VERSION').exists() else 'unknown','source':source,'login':self.phase,'challenge':self.challenge,'share_supported':Path('/etc/telegram-stl-managed').exists(),'share':json.loads((self.root/'data/setup-share.json').read_text()) if (self.root/'data/setup-share.json').exists() else {},'creators':len(json.loads((self.root/'data/creators.json').read_text()).get('creators',[]))}
+        return {'consent_required':self.consent_required(),'usage_notice':(Path(__file__).resolve().parent.parent/'USAGE-NOTICE.txt').read_text() if self.consent_required() else '', 'setup_required':self.setup_required,'missing_setup':self.missing_setup(),'application':'telegram-stl-manager','version':(self.root/'VERSION').read_text().strip() if (self.root/'VERSION').exists() else 'unknown','source':source,'login':self.phase,'challenge':self.challenge,'share_supported':Path('/etc/telegram-stl-managed').exists(),'share':json.loads((self.root/'data/setup-share.json').read_text()) if (self.root/'data/setup-share.json').exists() else {},'creators':len(json.loads((self.root/'data/creators.json').read_text()).get('creators',[])) if (self.root/'data/creators.json').exists() else 0}
     def start_login(self):
         with self.lock,self.idle():
             if self.child and self.child.poll() is None:raise ValueError('Telegram sign-in is already open.')

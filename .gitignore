@@ -54,6 +54,7 @@
 
 !/VERSION
 !/COPYRIGHT.txt
+!/USAGE-NOTICE.txt
 
 !/docker/
 !/docker/**

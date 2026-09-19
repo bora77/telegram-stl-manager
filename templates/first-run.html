@@ -1,4 +1,15 @@
 <style>
+#usage-consent{width:min(640px,calc(100vw - 40px));max-height:85vh;box-sizing:border-box;border:1px solid #ddd0ed;border-radius:16px;padding:24px;color:#352944;background:white;overflow:auto}#usage-consent::backdrop{background:rgba(25,15,35,.65)}#usage-consent p{line-height:1.6}#usage-consent label{display:flex;align-items:flex-start;gap:12px}#usage-consent input{width:auto;flex:none;margin-top:5px}#usage-consent-error{color:#a12632}
+</style>
+<dialog id="usage-consent" aria-labelledby="usage-consent-title" aria-describedby="usage-consent-text">
+<h2 id="usage-consent-title">Before you configure the manager</h2>
+<p id="usage-consent-text">Loading the required usage notice…</p>
+<label><input type="checkbox" id="usage-consent-check">I have read and understood this notice and accept responsibility for my use of the tool.</label>
+<p id="usage-consent-error" role="status"></p>
+<button type="button" id="usage-consent-accept" disabled>Acknowledge and continue</button>
+<p>You can decline by closing this browser tab. Setup will remain locked.</p>
+</dialog>
+<style>
 #setup-controls[hidden]{display:none!important}.setup-step-hidden{display:none!important}.setup-navigation{display:flex;gap:8px;flex-wrap:wrap}.setup-navigation button{flex:1 1 150px;margin:0;background:#eee8f5;color:#5a397f}.setup-navigation button[aria-current="step"]{background:#7651a6;color:white}.setup-controls{display:flex;justify-content:space-between;gap:12px}.setup-controls button{margin-top:0}#setup-missing{color:#a12632;padding-left:22px}#setup-missing li{margin:12px 0}#setup-missing button{margin:0 0 0 8px;padding:5px 10px}#setup-finish-status{color:#a12632;overflow-wrap:anywhere}.setup-ok{color:#21633f}#setup-step-title:focus{outline:none}
 .toc-guide{margin:24px 0 18px;padding:20px 22px;background:#f7f4fb;border:1px solid #e4dced;border-radius:12px}.toc-guide h3{margin:0 0 10px;font-size:17px}.toc-guide p{margin:8px 0}.toc-guide ol{padding-left:22px;margin:14px 0;line-height:1.65}.toc-guide li{padding-left:4px;margin:10px 0}.toc-guide .toc-tip{font-size:14px;color:#665571}.toc-guide strong{color:#443451}
 </style>

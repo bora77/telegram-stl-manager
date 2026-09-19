@@ -1,6 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
+if [[ ! -f support/installation-acknowledged ]]; then
+    cat support/app/USAGE-NOTICE.txt
+    printf '\nType I AGREE to acknowledge this notice and continue, or anything else to cancel: '
+    IFS= read -r stl_consent || exit 1
+    [[ "$stl_consent" == 'I AGREE' ]] || { echo 'Startup cancelled.'; exit 1; }
+    date -u > support/installation-acknowledged
+fi
 export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:$HOME/.docker/bin"
 trap 'echo "Startup failed. Read the error above."; read -r -p "Press Return to close… " || true' ERR
 command -v docker >/dev/null || { echo 'Install and start Docker Desktop (Mac), or Docker Engine with Compose (Linux), first.'; false; }

@@ -552,3 +552,27 @@ its tags. Every TOC import reapplies the saved normalization rules, including
 `5E → Dungeons&Dragons` and `WH40K → 40K`, so source spelling changes do not
 reintroduce merged tags. Imports refresh assignments and counts, indexed locally in
 `data/creator-tags.sqlite3` and are not included in public packages.
+
+### Required usage acknowledgment
+
+Before installation changes begin, read the usage notice and explicitly acknowledge
+it (Windows: choose **Yes** in the dialog; Linux installer and Docker launcher:
+type **I AGREE**). Declining stops installation. Windows may ask again when it
+starts elevated prerequisite setup or resumes after a restart. Docker remembers
+the installation acknowledgment for that extracted package.
+
+First-time browser configuration separately displays the same notice in a required
+modal. Read it, tick the acknowledgment checkbox, and select **Acknowledge and
+continue**. Closing the tab declines; setup stays locked. The acknowledgment is
+saved locally with its time and notice fingerprint. AI installation agents must
+leave these acknowledgments to the user and must not accept on their behalf.
+The tool supplies no illegal software, accounts, credentials or third-party access
+rights. It uses users’ own accounts (for example, MyMiniFactory) to download content
+they have purchased, licensed or otherwise have permission to access; this does
+not automatically grant redistribution rights. Private Telegram uploads are intended
+for personal cloud backup where permitted by law and the content licence. Sharing
+with others requires redistribution permission or another lawful basis; “free” or
+“freeware” alone does not establish that permission.
+The notice covers lawful use, unauthorized sharing of copyrighted material,
+possible file loss or damage, independent backups, acceptance of the free-of-charge
+software "AS IS" without warranties, and liability limits subject to applicable law. See `USAGE-NOTICE.txt` for the full text.

@@ -17,7 +17,16 @@ function issues(){
  if($('storage-kind')?.value==='network'&&!$('setup-share').hidden&&(['path','user','domain'].some((key,i)=>$('setup-share-'+key).value!==String(state?.share?.[['path','username','domain'][i]]||''))||$('setup-share-password').value))result.push({text:'Connect and save the network share details you entered.',step:1});
  return result;
 }
+function renderConsent(){
+ const dialog=$('usage-consent');if(!dialog)return;
+ if(!state||state.consent_required){
+  if(state?.usage_notice)$('usage-consent-text').textContent=state.usage_notice;
+  $('usage-consent-accept').disabled=!state?.consent_required||!$('usage-consent-check').checked;
+  if(!dialog.open)dialog.showModal();
+ }else if(dialog.open)dialog.close();
+}
 function renderWizard(){
+ renderConsent();
  if(!$('setup-review'))return;
  const active=!!state?.setup_required;
  $('setup-checklist').hidden=!active;$('setup-review').hidden=!active;$('setup-controls').hidden=!active;
@@ -39,6 +48,14 @@ window.addEventListener('configuration-saved',event=>{baseline=event.detail;refr
 document.addEventListener('input',renderWizard);document.addEventListener('change',renderWizard);
 document.addEventListener('invalid',event=>{if(state?.setup_required){const panel=event.target.closest('[data-setup-step]');if(panel)showStep(Number(panel.dataset.setupStep))}},true);
 document.addEventListener('DOMContentLoaded',()=>{
+ $('usage-consent').addEventListener('cancel',event=>event.preventDefault());
+ $('usage-consent-check').onchange=renderConsent;
+ $('usage-consent-accept').onclick=async()=>{
+  if(!$('usage-consent-check').checked)return;
+  $('usage-consent-accept').disabled=true;
+  try{state=await call('acknowledge',{accepted:true});$('usage-consent-error').textContent='';renderWizard()}
+  catch(e){$('usage-consent-error').textContent=e.message;renderConsent()}
+ };
  $('first-run').dataset.setupStep='0';
  document.querySelectorAll('[data-setup-go]').forEach(el=>el.onclick=()=>showStep(Number(el.dataset.setupGo)));
  $('setup-back').onclick=()=>showStep(step-1);

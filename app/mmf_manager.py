@@ -122,7 +122,7 @@ class MMFManager:
     def state(self):
         settings=self.get('settings',{'revision':0,'subscriptions':[]})
         job=self.get('job',{});active=self.busy()
-        if not active and job.get('phase') in ('checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs'):
+        if not active and job.get('phase') in ('checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs','cleaning_stls'):
             job={**job,'phase':'interrupted','message':'Task interrupted. Resume the saved queue.'}
         checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()[self.provider+'_availability_interval_hours']*3600
         known=self.completed()-self.pending_redownload_keys();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])
@@ -149,7 +149,8 @@ class MMFManager:
         resumable=any(i['key'] not in known for i in self.get('queue',[]))
         from app.mmf_release_prepare import preparation_status, release_lifecycle, release_collages
         prepared=preparation_status(self)
-        return {'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
+        managed=self.store.history.managed_releases({i['release_key']:Path(self.store.config()['download_directory'])/i['folder']/i['release_folder'] for i in items if i.get('folder') and i.get('release_folder')})
+        return {'managed_releases':managed,'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
     def login(self,payload):
         with self.idle():
             groups=self.client().login(payload.get('username'),payload.get('password'))
@@ -193,10 +194,18 @@ class MMFManager:
             if not settings.get('subscriptions') and action!='check':return {'started':False}
             if action=='download':
                 if not self.get('checked_at',0):raise MMFError('Check availability before starting downloads.')
-                known=self.completed();groups=releases(self.get('items',[]),self.store.config()['download_directory']);queue=[i for group in groups.values() if any(i['key'] not in known for i in group) for i in group]
+                known=self.completed();groups=releases(self.get('items',[]),self.store.config()['download_directory'])
+                if release is not None:
+                    if not isinstance(release,str) or not re.fullmatch(r'[a-f0-9]{64}',release) or release not in groups:
+                        raise MMFError('Choose an available release to download.')
+                    group=groups[release]
+                    subscribed={str(s['id']) for s in settings['subscriptions']}
+                    if any(str(i['creator_id']) not in subscribed for i in group):raise MMFError('This release is not available for a subscribed artist.')
+                    groups={release:group}
+                queue=[i for group in groups.values() if any(i['key'] not in known for i in group) for i in group]
                 if not queue:raise MMFError('No files are available in the selected scope.')
                 self.put('redownload',{})
-                self.put('download_checked_at',self.get('checked_at',0));self.put('queue',queue);self.put('run_base',self.store.config()['download_directory'])
+                self.put('download_checked_at',self.get('checked_at',0) if release is None else 0);self.put('queue',queue);self.put('run_base',self.store.config()['download_directory'])
             if action=='redownload':
                 if not isinstance(release,str) or not re.fullmatch(r'[a-f0-9]{64}',release):raise MMFError('Choose a valid release to re-download.')
                 from app.mmf_release_prepare import downloaded
@@ -213,7 +222,7 @@ class MMFManager:
                 self.put('redownload',run);self.put('queue',group);self.put('run_base',self.store.config()['download_directory'])
             if action=='resume' and not self.get('queue',[]):raise MMFError('No saved queue to resume.')
             if action=='check':self.put('attempted_at',time.time())
-            self.put('stop',False);self.put('job',{'phase':'starting','action':action,'message':'Starting '+self.label+' task…','errors':[]})
+            self.put('stop',False);self.put('job',{'phase':'starting','action':action,'release_key':release,'message':'Starting '+self.label+' task…','errors':[]})
             log=os.open(self.directory/'worker.log',os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
             try:subprocess.Popen([sys.executable,'-m','app.'+self.provider+'_manager',str(self.root),action,str(lock.fileno())],pass_fds=(lock.fileno(),),stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True,cwd=self.root)
             finally:os.close(log)

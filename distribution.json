@@ -121,7 +121,9 @@
     "tests/test_gumroad.py",
     "app/creator_tags.py",
     "tests/test_creator_tags.py",
-    "USAGE-NOTICE.txt"
+    "USAGE-NOTICE.txt",
+    "app/stl_cleaner.py",
+    "tests/test_stl_cleaner.py"
   ],
   "trees": [
     "templates",

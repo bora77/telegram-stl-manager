@@ -49,6 +49,26 @@ class DownloadHistory:
                 completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY(operation_id,source_path))''')
 
+    def managed_releases(self, directories):
+        """Read shared archive history by exact release directory, across providers."""
+        wanted={str(Path(path)):key for key,path in directories.items()}
+        result={}
+        with self.connect() as db:
+            rows=db.execute("SELECT original_destination,filename,bytes_total,image_status,image_count FROM downloads WHERE state='downloaded' AND original_destination IS NOT NULL ORDER BY completed_at DESC,id DESC").fetchall()
+        seen=set()
+        for row in rows:
+            path=Path(row['original_destination']);key=wanted.get(str(path.parent))
+            if key is None or str(path) in seen:continue
+            seen.add(str(path))
+            try:present=path.is_file() and (row['bytes_total'] is None or path.stat().st_size==row['bytes_total'])
+            except OSError:present=False
+            entry=result.setdefault(key,{'archives':[],'available':True,'images_checked':True,'image_count':0})
+            entry['archives'].append({'filename':row['filename'],'present':present})
+            entry['available'] &= present
+            entry['images_checked'] &= row['image_status'] in ('complete','complete_with_warnings')
+            entry['image_count']=max(entry['image_count'],row['image_count'] or 0)
+        return result
+
     @property
     def source(self):
         if self._source is None:self._source=load_source(self.path.parent.parent)

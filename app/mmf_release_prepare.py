@@ -262,6 +262,9 @@ def start(manager,payload):
         plan['delivery']=payload.get('delivery')
         plan.setdefault('compression_level',config.get('release_compression_level',7))
         plan.setdefault('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
+        plan['stl_cleaner']=config.get('release_stl_cleaner','off')
+        plan['cotton_level']=config.get('release_cotton_level',0)
+        plan['cotton_directory']=config.get('release_cotton_directory','')
         save(manager,plan)
         manager.put('stop',False);manager.put('job',{'phase':'starting','action':'package','release_key':key,'message':'Making '+plan['title'],'errors':[]})
         log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
@@ -284,10 +287,24 @@ def execute(manager,plan):
     config=manager.store.config()
     compression=plan.get('compression_level',config.get('release_compression_level',7))
     volume_bytes=plan.get('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
+    cleaner=plan.get('stl_cleaner',config.get('release_stl_cleaner','off'))
+    cotton_level=plan.get('cotton_level',config.get('release_cotton_level',0))
+    cotton_directory=plan.get('cotton_directory',config.get('release_cotton_directory',''))
     work=manager.directory/'release-preparation'/plan['id'];work.mkdir(parents=True,exist_ok=True)
     def progress(phase,percent):
         if manager.stopped():raise ValueError('Preparation stopped. Use the same preparation button to resume.')
-        manager.progress(phase=phase,message=plan['title'],bytes=percent,expected=100)
+        manager.progress(phase=phase,message=plan['title'],bytes=percent,expected=100,progress_unit='percent',cleaner_file=None,cleaner_total=None)
+    last_clean=[0,None]
+    cleaner_started=[time.monotonic()]
+    def cleaning_progress(filename,index,total,percent):
+        if manager.stopped():raise ValueError('STL cleaning stopped. Resume preparation to retry.')
+        now=time.monotonic()
+        if filename!=last_clean[1]:cleaner_started[0]=now
+        if filename==last_clean[1] and now-last_clean[0]<.25 and percent!=100:return
+        last_clean[:]=[now,filename]
+        overall=100*(index+(percent or 0)/100)/total
+        manager.progress(phase='cleaning_stls',message='Cleaning STL · '+filename,bytes=round(overall,1),expected=100,progress_unit='percent',
+                         cleaner_file=filename,cleaner_index=index+1,cleaner_total=total,cleaner_done=index+(percent==100),cleaner_file_percent=percent,cleaner_seconds=round(now-cleaner_started[0],1))
     with release_lock(manager.root,plan['base'],plan['folder'],plan['release_folder'],manager.stopped):
         release_archive=Path(plan['base'])/plan['folder']/plan['release_folder']/'release.7z'
         require_release_collage(release_archive,action='making the release')
@@ -306,7 +323,7 @@ def execute(manager,plan):
                 head=selected[mid][0]
                 sources.append({'path':outputs[0],'folder':safe_component(head['object_name'])+'/'+archive_name(head['filename'])[:-3]+'-'+mid[:8]})
                 continue
-            if len(manifests)==1 and manifest.get('compression_level')==compression and manifest.get('policy_version')==POLICY_VERSION and set(manifest.get('source_keys',[]))==set(plan['keys']) and all(re.search(r'\.7z(?:\.\d{3,})?$',p.name,re.I) and p.stat().st_size<=volume_bytes for p in outputs):
+            if cleaner=='off' and len(manifests)==1 and manifest.get('stl_cleaner',{}).get('mode','off')=='off' and manifest.get('compression_level')==compression and manifest.get('policy_version')==POLICY_VERSION and set(manifest.get('source_keys',[]))==set(plan['keys']) and all(re.search(r'\.7z(?:\.\d{3,})?$',p.name,re.I) and p.stat().st_size<=volume_bytes for p in outputs):
                 reusable=outputs
             include=[]
             for item in selected[mid]:
@@ -319,7 +336,7 @@ def execute(manager,plan):
             packed=reusable
             manager.progress(phase='moving',message='Reusing verified archive · '+plan['title'],bytes=0,expected=0)
         else:
-            packed=repack(sources[0]['path'],work/'packed',plan['id'],progress,manager.stopped,compression_level=compression,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'])
+            packed=repack(sources[0]['path'],work/'packed',plan['id'],progress,manager.stopped,compression_level=compression,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress)
         for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
             images.setdefault(record['path'],record)
         fallback=[]
@@ -336,7 +353,7 @@ def execute(manager,plan):
         for path in fallback:
             deliver(path,plan['base'],plan['folder'],plan['release_folder'],path.name,moving,subdirectories=('release_images',),release_directory=plan['release_folder'])
         require_release_collage(release_archive,action='making the release')
-        plan.update(state='complete',compression_level=compression,volume_bytes=volume_bytes,outputs=outputs,directory=str(Path(plan['base'])/plan['folder']/plan['release_folder']/Path(*sub)),completed_at=time.time(),collage_included=True)
+        plan.update(state='complete',stl_cleaner=cleaner,cotton_level=cotton_level,compression_level=compression,volume_bytes=volume_bytes,outputs=outputs,directory=str(Path(plan['base'])/plan['folder']/plan['release_folder']/Path(*sub)),completed_at=time.time(),collage_included=True)
         save(manager,plan)
         manager.progress(phase='complete',message=plan['title']+' prepared',bytes=100,expected=100)
 

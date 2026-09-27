@@ -150,8 +150,9 @@ el('open-release').onclick=async()=>{
   c.savedSignature=signature(result.selection);c.draft.images=c.draft.images.map(id=>id&&c.byId.has(id)&&!c.byId.get(id).reason?id:null);context=c;
   for(const key of ['layout','shape','theme'])el(key).value=c.draft[key];el('slot-count').value=c.draft.images.length;el('collage-title').value=c.draft.title;
   el('image-search').value='';el('archive-filter').replaceChildren(new Option('All archives',''),...[...new Set(c.images.map(i=>i.archive))].sort().map(a=>new Option(a,a)));
-  const source=new URLSearchParams(location.search),selectedArchive=source.get('folder')===folder&&source.get('month')===month?source.get('archive'):null;
-  if(selectedArchive){if(![...el('archive-filter').options].some(o=>o.value===selectedArchive))el('archive-filter').append(new Option(selectedArchive,selectedArchive));el('archive-filter').value=selectedArchive}
+  const source=new URLSearchParams(location.search),requestedArchive=source.get('folder')===folder&&source.get('month')===month?source.get('archive'):null;
+  const selectedArchive=c.images.some(image=>image.archive===requestedArchive)?requestedArchive:null;
+  if(selectedArchive)el('archive-filter').value=selectedArchive;
   el('collage-grid').querySelectorAll('.slot').forEach(n=>n.remove());el('canvas-title').textContent='';
   const artist=folder.replace(/^[-! ]+/,'').trim()||folder,date=month.match(/(?:^|[^0-9])(20[0-9]{2}-(?:0[1-9]|1[0-2]))(?:$|[^0-9])/);
   const label=date?date[1]:month.toLowerCase().startsWith(artist.toLowerCase()+' ')?month.slice(artist.length).replace(/^[ _-]+/,''):month;

@@ -7,6 +7,7 @@ to remove it from the upcoming list on the next page build.
 
 - [ ] **STL ↔ DRC conversion** — Optional conversion in both directions while organizing releases, with configurable compression and precision.
 - [ ] **PDF washer in the organizer** — Optional cleaning of supported PDF stamps, using the RC-based cleaner and preserving original archives.
+- [ ] **PDF and image timestamp privacy** — During reprocessing of downloads from MMF and other platforms, remove embedded creation and modification timestamps from PDFs and images (including EXIF/XMP and format-specific metadata). Normalize filesystem and archive-entry timestamps where removal is not supported. Preserve file contents and rendering, and verify the resulting metadata to reduce timestamp-based user tracking.
 - [ ] **Linux and Docker updates** — Install updates from the app while keeping accounts, settings and download history.
 
 ## Completed

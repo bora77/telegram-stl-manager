@@ -9,7 +9,7 @@ from app.release_images import command, listing, safe_component, member_path, sp
 
 VOLUME_BYTES=4000*1024*1024  # 7-Zip's 4000M (MiB) volume size.
 COMPRESSION_LEVEL=7
-POLICY_VERSION=5
+POLICY_VERSION=7
 
 
 def is_metadata_file(name):
@@ -26,15 +26,22 @@ def archive_name(filename):
     return safe_component(stem)+'.7z'
 
 
-def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None):
+def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None):
     if type(compression_level) is not int or compression_level not in (0,1,3,5,7,9):raise ValueError('Invalid compression level.')
     if type(volume_bytes) is not int or volume_bytes<=0:raise ValueError('Invalid volume size.')
+    if stl_cleaner not in ('off','delicates','cotton'):raise ValueError('Unknown STL cleaner.')
+    cleaner_policy={'mode':stl_cleaner,'cotton_level':cotton_level if stl_cleaner=='cotton' else None}
+    executable=None
+    if stl_cleaner=='cotton':
+        from app.stl_cleaner import cotton_executable
+        executable=cotton_executable(Path(__file__).resolve().parent.parent,cotton_level,cotton_directory)
+        cleaner_policy['executable_sha256']=digest(executable)
     source=Path(source).resolve(strict=True);work=Path(work).resolve();work.mkdir(parents=True,exist_ok=True)
     receipt=work/'repack.json';name=safe_component(release_name)+'.7z' if release_name else archive_name(source.name)
     sources=sources or [{'path':source,'folder':''}]
     if receipt.exists():
         saved=json.loads(receipt.read_text())
-        if saved.get('identity')==identity and saved.get('volume_bytes')==volume_bytes and saved.get('compression_level')==compression_level and saved.get('policy_version')==POLICY_VERSION and saved.get('name')==name:
+        if saved.get('identity')==identity and saved.get('volume_bytes')==volume_bytes and saved.get('compression_level')==compression_level and saved.get('policy_version')==POLICY_VERSION and saved.get('name')==name and saved.get('stl_cleaner')==cleaner_policy:
             outputs=[]
             for item in saved['outputs']:
                 filename=item['name']
@@ -108,8 +115,26 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
             except Exception as error:raise ExtractionError('PDF processing failed for '+member_name+': '+str(error)) from error
             all_entries[member_name]=path.stat().st_size
             pdfs.append({'name':member_name,'before':before,'after':{'size':path.stat().st_size,'sha256':digest(path)},**result})
+        cleaned=[]
+        if stl_cleaner!='off':
+            from app.stl_cleaner import clean_stl, clean_cotton
+            nested=[name for name in all_entries if is_archive(Path(name).name)]
+            if nested:
+                raise ExtractionError('STL cleaning cannot process nested archives without changing their format: '+nested[0]+'. Unpack nested archives first or turn cleaning off; source retained.')
+            stls=[name for name in all_entries if Path(name).suffix.lower()=='.stl']
+            for index,member_name in enumerate(stls):
+                if stopped():raise ExtractionError('STL cleaning stopped; source retained.')
+                path=members/member_name;before={'size':path.stat().st_size,'sha256':digest(path)}
+                def update(percent):
+                    if cleaner_progress:cleaner_progress(member_name,index,len(stls),percent)
+                    else:progress('cleaning_stls',int(100*(index+(percent or 0)/100)/len(stls)))
+                update(0)
+                try:result=clean_stl(path,update,stopped) if stl_cleaner=='delicates' else clean_cotton(path,executable,update,stopped)
+                except Exception as error:raise ExtractionError('STL cleaning failed for '+member_name+': '+str(error)) from error
+                all_entries[member_name]=path.stat().st_size
+                cleaned.append({'name':member_name,'before':before,'after':{'size':path.stat().st_size,'sha256':digest(path)},**result})
         progress('repacking',0)
-        command(['a','-t7z','-mx='+str(compression_level),'-mmt=2','-ms=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
+        command(['a','-t7z','-mx='+str(compression_level),'-mmt=2','-ms=off','-mtc=off','-mta=off','-mtm=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
         parts=sorted(output.iterdir())
         if not parts or any(p.stat().st_size>volume_bytes for p in parts):raise ExtractionError('Repacked volume size exceeds the configured limit.')
         if len(parts)==1 and parts[0].name==name+'.001':parts[0].rename(output/name);parts=[output/name]
@@ -120,6 +145,6 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
         outputs=[];records=[]
         for path in parts:
             checksum=digest(path);target=work/path.name;path.replace(target);outputs.append(target);records.append({'name':target.name,'size':target.stat().st_size,'sha256':checksum})
-        state={'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':compression_level,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
+        state={'stl_cleaner':cleaner_policy,'cleaned_stls':cleaned,'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':compression_level,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
         staged=work/'repack.json.tmp';staged.write_text(json.dumps(state));staged.replace(receipt)
         return outputs

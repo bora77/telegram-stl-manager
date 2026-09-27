@@ -40,6 +40,9 @@ class SubscriptionStore:
         data.setdefault('mmf_availability_interval_hours',4)
         data.setdefault('release_compression_level',7)
         data.setdefault('release_volume_mib',4000)
+        data.setdefault('release_stl_cleaner','off')
+        data.setdefault('release_cotton_level',0)
+        data.setdefault('release_cotton_directory','')
         return data
 
     def atomic_write(self, path, data):
@@ -99,6 +102,15 @@ class SubscriptionStore:
             mmf_interval=payload.get('mmf_availability_interval_hours',current['mmf_availability_interval_hours'])
             if type(mmf_interval) not in (int,float) or not math.isfinite(mmf_interval) or not .25<=mmf_interval<=168:
                 raise ValueError('Choose an MMF check interval between 0.25 and 168 hours.')
+            cleaner=payload.get('release_stl_cleaner',current['release_stl_cleaner'])
+            cotton_level=payload.get('release_cotton_level',current['release_cotton_level'])
+            cotton_directory=payload.get('release_cotton_directory',current['release_cotton_directory'])
+            if cleaner not in ('off','delicates','cotton'):raise ValueError('Choose Off, Delicates or Cotton for STL cleaning.')
+            if type(cotton_level) is not int or cotton_level not in range(6):raise ValueError('Choose Cotton a0 through a5.')
+            if not isinstance(cotton_directory,str) or '\x00' in cotton_directory:raise ValueError('Invalid Cotton folder.')
+            if cleaner=='cotton':
+                from app.stl_cleaner import cotton_executable
+                cotton_executable(self.root,cotton_level,cotton_directory)
             compression=payload.get('release_compression_level',current['release_compression_level'])
             volume=payload.get('release_volume_mib',current['release_volume_mib'])
             if type(compression) is not int or compression not in (0,1,3,5,7,9):
@@ -107,7 +119,7 @@ class SubscriptionStore:
                 raise ValueError('Choose a release part size between 1 and 65536 MiB.')
             adaptive=payload.get('adaptive_downloads',current['adaptive_downloads'])
             if type(adaptive) is not bool:raise ValueError('Choose whether adaptive parallel downloads are enabled.')
-            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'gumroad_beta_enabled':gumroad_beta,'gumroad_availability_interval_hours':gumroad_interval,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval,'mmf_availability_interval_hours':mmf_interval,'release_compression_level':compression,'release_volume_mib':volume}
+            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'gumroad_beta_enabled':gumroad_beta,'gumroad_availability_interval_hours':gumroad_interval,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval,'mmf_availability_interval_hours':mmf_interval,'release_compression_level':compression,'release_volume_mib':volume,'release_stl_cleaner':cleaner,'release_cotton_level':cotton_level,'release_cotton_directory':cotton_directory}
             self.atomic_write(self.config_path,data)
             return data
 

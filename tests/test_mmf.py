@@ -358,6 +358,48 @@ class ReleasePackagingTests(MMFTests):
             with self.assertRaises(DeliveryError):deliver(source,self.root,'Creator',None,'file',release_directory=name)
         with self.assertRaises(DeliveryError):deliver(source,self.root,'Creator','Welcome Pack','file')
 
+    def test_shared_managed_release_history_is_separate_from_mmf_file_versions(self):
+        from app.mmf_manager import releases
+        self.store.atomic_write(self.store.config_path,{**self.store.config(),'download_directory':str(self.root)})
+        item=dict(self.item);releases([item],self.root)
+        directory=self.root/item['folder']/item['release_folder'];directory.mkdir(parents=True)
+        archive=directory/'organized.7z';archive.write_bytes(b'archive')
+        with self.store.history.connect() as db:
+            db.execute("INSERT INTO downloads (source_chat_id,source_message_id,creator,topic_url,filename,release_month,original_destination,state,bytes_total,image_status,image_count) VALUES (?,?,?,?,?,?,?,?,?,?,?)",('test',1,item['creator'],'test','organized.7z','2025-01',str(archive),'downloaded',7,'complete',38))
+        self.manager.put('items',[item])
+        state=self.manager.state();managed=state['managed_releases'][item['release_key']]
+        self.assertTrue(managed['available']);self.assertTrue(managed['images_checked']);self.assertEqual(managed['image_count'],38)
+        self.assertFalse(state['items'][0]['completed'])
+        archive.unlink()
+        self.assertFalse(self.manager.state()['managed_releases'][item['release_key']]['available'])
+        self.assertEqual(self.store.history.managed_releases({'other':self.root/'unrelated'}),{})
+
+    def test_individual_download_selects_only_requested_release(self):
+        from app.mmf_manager import releases
+        first=dict(self.item)
+        added={**first,'archive_id':34,'filename':'new.zip'};added['key']=version_key(added)
+        other={**first,'archive_id':35,'release_id':'other','release':'Welcome Pack'};other['key']=version_key(other)
+        items=[first,added,other];groups=releases(items,self.root);selected=first['release_key']
+        self.assertNotEqual(selected,other['release_key'])
+        self.manager.put('items',items);self.manager.put('settings',{'subscriptions':[{'id':1}]});self.manager.put('checked_at',1)
+        self.manager.session.touch()
+        with self.manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',(first['key'],'{}'))
+        with patch.object(self.store,'config',return_value={'download_directory':str(self.root)}),patch('app.mmf_manager.subprocess.Popen'):
+            self.manager.start('download',release=selected)
+        self.assertEqual({i['key'] for i in self.manager.get('queue')},{first['key'],added['key']})
+        self.assertEqual(self.manager.get('job')['release_key'],selected)
+        self.assertEqual(self.manager.get('download_checked_at'),0)
+        self.assertEqual(len(self.manager.get('items')),3)
+
+    def test_invalid_individual_download_does_not_launch_or_replace_queue(self):
+        self.manager.put('items',[self.item]);self.manager.put('settings',{'subscriptions':[{'id':1}]});self.manager.put('checked_at',1)
+        self.manager.put('queue',[self.item]);self.manager.session.touch()
+        with patch('app.mmf_manager.subprocess.Popen') as launch:
+            for release in ('invalid','0'*64):
+                with self.assertRaises(MMFError):self.manager.start('download',release=release)
+            launch.assert_not_called()
+        self.assertEqual(self.manager.get('queue'),[self.item])
+
     def test_updated_release_queue_includes_unchanged_sources(self):
         first={**self.item,'release':'Welcome Pack','release_id':'welcome','month':None}
         added={**first,'archive_id':34,'filename':'new.zip'};added['key']=version_key(added)

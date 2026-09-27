@@ -146,3 +146,38 @@ with others requires redistribution permission or another lawful basis; “free�
 The notice covers lawful use, unauthorized sharing of copyrighted material,
 possible file loss or damage, independent backups, acceptance of the free-of-charge
 software "AS IS" without warranties, and liability limits subject to applicable law. See `USAGE-NOTICE.txt` for the full text.
+
+### Optional STL cleaning during Make release
+
+In **Configuration → Release packaging → STL cleaner during Make release**,
+choose **Off** (default), **Delicates-style**, or **Cotton**, then save. Cleaning
+runs on all unpacked `.stl` files, including uppercase extensions, during Make
+release for MMF and other supported store downloads. Downloaded source archives
+are retained unchanged. Each Make release snapshots the saved cleaning choice; a manually started retry
+uses the current saved cleaning settings.
+
+Delicates-style is a portable implementation inspired by STL Washer Delicates
+1.6.1. It clears headers, normals and attributes, shuffles triangles, translates
+the mesh and perturbs coordinates slightly. It fixes the original centring and
+unsafe-write behavior. It requires no new dependency. Cotton uses the separately
+supplied STL Washer Cotton executables, variants `a0`–`a5`; these are **not bundled**
+with public packages. Extract trusted Linux binaries matching the app's x64 or
+ARM64 architecture into a folder accessible inside its Linux/WSL/container
+environment, mark the executables runnable (`chmod u+x stlwasher-cotton-a*`), and
+enter that folder in **Cotton executable folder**. Alternatively place them under
+`data/stl-cleaners/x64` or `data/stl-cleaners/arm64` in the application directory
+and leave the override blank. Windows drive paths must be expressed as WSL paths;
+Docker paths must refer to a folder mounted inside the container. Missing or
+incompatible Cotton binaries block enabling Cotton with an actionable error.
+
+Cotton also reduces triangle counts and can remove substantial fine detail.
+Both modes alter geometry and placement and can break alignment between separate
+parts and supports. No watermark-removal guarantee is made. Processing uses staged
+copies, supports cancellation, and rejects empty or structurally invalid/non-finite
+output before replacement. This validates file structure, not printability. The
+queue shows the current filename, file count and progress; Cotton exposes only
+file-level progress and elapsed time, while Delicates also reports progress within
+a file. Archives nested inside downloaded archives block cleaning with an explanatory
+error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
+archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
+omit member timestamps; original downloads are not rewritten.

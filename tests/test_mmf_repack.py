@@ -17,6 +17,16 @@ class RepackTests(unittest.TestCase):
             archive.writestr('Supported/Original Model.stl',os.urandom(12000))
             archive.writestr('Unsupported/Original Model.stl',os.urandom(9000))
         return source
+    def test_release_archive_omits_member_timestamps(self):
+        source=self.source();before=source.read_bytes()
+        outputs=repack(source,self.root/'timestamps','timestamps')
+        details=command(['l','-slt','--',str(outputs[0])],self.root,lambda:False)
+        members=details.split('----------',1)[1]
+        for line in members.splitlines():
+            if line.startswith(('Created =','Modified =','Accessed =')):
+                self.assertEqual(line.split('=',1)[1].strip(),'')
+        self.assertEqual(source.read_bytes(),before)
+
     def test_names_small_archive_and_receipt(self):
         source=self.source();outputs=repack(source,self.root/'work','version')
         self.assertEqual([p.name for p in outputs],['Artist Original Release.7z'])

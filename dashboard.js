@@ -20,7 +20,7 @@ document.getElementById('save-subscriptions').onclick=async()=>{
   try{
     const data=await api('/api/subscriptions',{revision:serverRevision,config_revision:configRevision,subscriptions:entries.map(SelectionRules.exportRecord)});
     serverRevision=data.revision;savedSubscriptions=data.subscriptions;savedSummary();render();
-    setSaveStatus(JSON.stringify(selected)===snapshot?'Subscriptions saved. Press Check for downloads when ready.':'Subscriptions saved, but you have newer unsaved edits.');
+    setSaveStatus(JSON.stringify(selected)===snapshot?'Subscriptions saved. Press Scan for new downloads when ready.':'Subscriptions saved, but you have newer unsaved edits.');
     refreshQueue();
   }catch(error){setSaveStatus('Not saved: '+error.message,true)}
   finally{saving=false;renderSelections()}
@@ -94,7 +94,7 @@ async function refreshQueue(){
     const [queue,availability]=await Promise.all([api('/api/queue'),api('/api/availability').catch(()=>({files:0}))]);
     const availabilityKey=JSON.stringify([availability.checking,availability.checked_at,availability.files,availability.claimed]);
     if(availabilityKey!==availabilityDisplayKey){availabilityDisplayKey=availabilityKey;window.dispatchEvent(new Event('telegram-availability-updated'))}
-    const checkButton=document.getElementById('download-all');checkButton.textContent=availability.checking?'Checking…':'Check for downloads';checkButton.classList.toggle('checking',!!availability.checking);checkButton.setAttribute('aria-busy',String(!!availability.checking));
+    const checkButton=document.getElementById('download-all');checkButton.querySelector('.button-label').textContent=availability.checking?'Scanning…':'Scan for new downloads';checkButton.classList.toggle('checking',!!availability.checking);checkButton.setAttribute('aria-busy',String(!!availability.checking));
     renderCheckingProgress(availability);
     if(queue.active||queue.can_resume)revealQueue();
     document.getElementById('queue-details').hidden=availability.checking||!queueDetailsShown;

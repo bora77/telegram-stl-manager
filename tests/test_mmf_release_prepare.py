@@ -13,6 +13,28 @@ from app.release_images import listing
 from app.subscription_store import SubscriptionStore
 
 class PrepareTests(unittest.TestCase):
+    def test_make_release_uses_cleaner_config_and_reports_progress(self):
+        from tests.test_stl_cleaner import mesh
+        from app.collages import collage_filename
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);manager=MMFManager(SubscriptionStore(root));base=root/'nas'
+            directory=base/'Artist'/'Artist Campaign';directory.mkdir(parents=True)
+            archive=directory/'source.zip'
+            with zipfile.ZipFile(archive,'w') as z:z.writestr('Original Model.stl',mesh())
+            original=archive.read_bytes()
+            item={'key':'A','creator_id':1,'creator':'Artist','folder':'Artist','object_id':1,'archive_id':1,'object_name':'Model','filename':archive.name,'release':'Campaign','release_id':'FRONTIER:50:1','size':archive.stat().st_size,'repack':{'id':'A','kind':'original_archives','outputs':[{'path':str(archive),'size':archive.stat().st_size,'sha256':digest(archive)}],'images':[]}}
+            with manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',('A',json.dumps(item)))
+            releases([item]);Image.new('RGB',(64,64),'blue').save(directory/collage_filename({'folder':'Artist','month':directory.name}))
+            with patch.object(manager.store,'config',return_value={'download_directory':str(base),'release_stl_cleaner':'delicates','release_compression_level':0}),patch.object(manager,'state',return_value={'items':[]}),patch('app.mmf_release_prepare.Popen'),patch.object(manager,'progress',wraps=manager.progress) as progress:
+                start(manager,{'release_key':item['release_key']});plan=rows(manager)[0]
+                self.assertEqual(plan['stl_cleaner'],'delicates');execute(manager,plan)
+                events=[c.kwargs for c in progress.call_args_list if c.kwargs.get('phase')=='cleaning_stls']
+                self.assertTrue(events);self.assertEqual(events[-1]['cleaner_done'],1);self.assertEqual(events[-1]['cleaner_total'],1)
+            self.assertEqual(archive.read_bytes(),original)
+            receipt=json.loads((manager.directory/'release-preparation'/plan['id']/'packed/repack.json').read_text())
+            self.assertEqual(len(receipt['cleaned_stls']),1)
+            self.assertNotEqual(receipt['cleaned_stls'][0]['before']['sha256'],receipt['cleaned_stls'][0]['after']['sha256'])
+
     def test_release_router_reuses_package_and_checks_snapshot(self):
         from app.mmf_release_flow import start as route
         from app.mmf_release_prepare import save

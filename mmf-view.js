@@ -82,6 +82,7 @@ function releaseStatus(group){
   const job=data.job,phase={starting:'Starting',downloading:'Downloading',unpacking:'Unpacking archives',cleaning_stls:'Cleaning STLs',processing_pdfs:'Cleaning PDFs',repacking:'Compressing archive',verifying_archive:'Verifying archive',verifying_inputs:'Verifying files',extracting:'Extracting images',moving:'Moving files'}[job.phase]||(job.action==='prepare_images'?'Preparing images':job.action==='package'?'Making release':'Processing release');
   return phase+(job.cleaner_total?` · ${job.cleaner_done||0}/${job.cleaner_total} files`:'')+percent(job.bytes,job.expected)+(job.image_total!=null?` · ${job.image_count||0}/${job.image_total} images`:'');
  }
+ if(group.recorded<group.items.length&&data.existing_releases?.[group.key]?.recorded)return `${data.existing_releases[group.key].recorded} recorded · ${group.items.length-group.recorded} new/updated`;
  if(group.recorded<group.items.length&&data.managed_releases?.[group.key]?.available)return 'Managed release · '+data.managed_releases[group.key].archives.length+' existing archive(s)';
  if(group.recorded<group.items.length)return `${group.recorded}/${group.items.length} downloaded`;
  const issued=new Set(prep?.keys||[]),fresh=group.items.some(i=>i.completed&&!issued.has(i.key));
@@ -121,7 +122,7 @@ function releaseModal(group,pack=null){
 function queue(){
  const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?data.release_lifecycle?.[g.key]?.finished:!data.release_lifecycle?.[g.key]?.finished));
  page=Math.min(page,Math.max(0,Math.ceil(rows.length/20)-1));
- const signature=JSON.stringify([data.managed_releases,data.items,data.preparations,data.collages,data.release_lifecycle,data.active,data.job?.action,data.job?.release_key,data.job?.phase,data.job?.bytes,data.job?.expected,data.job?.image_count,data.job?.image_total,data.job?.cleaner_file,data.job?.cleaner_done,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
+ const signature=JSON.stringify([data.existing_releases,data.managed_releases,data.items,data.preparations,data.collages,data.release_lifecycle,data.active,data.job?.action,data.job?.release_key,data.job?.phase,data.job?.bytes,data.job?.expected,data.job?.image_count,data.job?.image_total,data.job?.cleaner_file,data.job?.cleaner_done,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
  for(const group of rows.slice(page*20,page*20+20)){
   const details=document.createElement('details');details.className='release-row'+(group.items.some(i=>i.missing_files?.length)?' missing-files':'');details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
   const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';const creatorLabel=text('small',group.creator);creatorLabel.prepend(ArtistProfiles.badge(group.creator,{compact:true}));heading.append(text('strong',group.name),creatorLabel);
@@ -133,6 +134,7 @@ function queue(){
    const actions=document.createElement('div');actions.className='actions';actions.style.padding='12px 18px';
    const offerGallery=group.recorded===group.items.length&&group.items.every(i=>i.images_checked)&&!data.collages?.[group.key]?.ready;
    const prepare=text('button',offerGallery?'Download images from MMF':'Extract images');prepare.disabled=data.active||!group.recorded;prepare.title=offerGallery?'Download gallery images from MMF for this release.':'Extract release images without creating an archive.';prepare.onclick=()=>act(offerGallery?'images':'prepare',{release_key:group.key});
+   const additionalImages=text('button','Get additional images from MMF');additionalImages.className='secondary';additionalImages.disabled=data.active||!group.recorded;additionalImages.onclick=()=>act('images',{release_key:group.key});
    const button=text('button',prep?.pending?'Retry '+prep.pending:prep&&prep.number>=0?`Make Addendum ${prep.number+1}`:'Make release');
    button.disabled=data.active||prep?.upload_active;
    button.onclick=()=>releaseModal(group);
@@ -158,6 +160,9 @@ function queue(){
     steps.push(workflowStep(button,4,packaging?'running':made?'done':button.disabled?'blocked':'ready',packaging?'Building the archive…':made?'Release archive ready':group.recorded!==group.items.length?'Download remaining files first':!collage?.valid?'Save a valid collage first':data.active?'Wait for the current MMF task':'Build the release archive'));
    }
    if(managed?.available){const note=text('small',`Managed archive${managed.archives.length===1?'':'s'}: ${managed.archives.map(a=>a.filename).join(', ')}${managed.images_checked?' · Images extracted':''}`);steps[0].append(note);}
+   const existing=data.existing_releases?.[group.key];
+   if(existing?.recorded){const note=text('small',`${existing.recorded} files already recorded in existing archives`);note.title=(existing.directories||[]).join('\n');steps[0].append(note);}
+   if(!offerGallery)steps[1].append(additionalImages);
    steps.forEach((step,index)=>{if(index){const arrow=text('span','→');arrow.className='workflow-arrow';arrow.setAttribute('aria-hidden','true');workflow.append(arrow)}workflow.append(step)});actions.append(workflow);
    if(prep?.directory)actions.append(text('small','Prepared: '+prep.title+' · '+prep.directory));
    else if(first.release_folder)actions.append(text('small','Creates a 7-Zip set using your configured compression and part size. Later additions get numbered addenda.'));

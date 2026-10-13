@@ -32,10 +32,21 @@ def version_key(item):
     return hashlib.sha256(json.dumps([item['object_id'],item['archive_id'],item['size'],item['updated_at']],separators=(',',':')).encode()).hexdigest()
 
 
+def file_in_scope(item, start_month):
+    """MMF's archive updatedAt is independent of its collection's release month."""
+    if not start_month:return True
+    try:
+        date=datetime.fromisoformat(item['updated_at'].replace('Z','+00:00'))
+        if date.tzinfo is None:return False
+        return date.astimezone(timezone.utc).strftime('%Y-%m')>=start_month
+    except (KeyError,ValueError,TypeError,AttributeError):return False
+
+
 def release_key(item):
     name=item.get('release') or item.get('object_name') or 'Unnamed release'
     month,_=release_date_month(name,item.get('release_created_at'))
-    if month:
+    # Preserve existing collection identities when correcting monthly reward folders.
+    if month and not re.search(r'\brewards?\b',name,re.I):
         return hashlib.sha256(json.dumps([item['creator_id'],['month',month]]).encode()).hexdigest()
     source=['id',str(item['release_id'])] if item.get('release_id') else ['label',item['release']] if item.get('release') else ['object',item['object_id']]
     return hashlib.sha256(json.dumps([item['creator_id'],source]).encode()).hexdigest()
@@ -43,9 +54,10 @@ def release_key(item):
 
 def release_date_month(name, created_at):
     # Special collections remain named even when MMF gives them a creation date.
-    if re.search(r'\b(welcome|loyalty|rewards?)\b|^\s*\d+\s*(months?|years?)\b',name,re.I):return None, None
+    if re.search(r'\b(welcome|loyalty|bonus)\b|\b\d+\s*(months?|years?)\b',name,re.I):return None, None
     explicit=month_for('',name)
     if explicit:return explicit,'name'
+    if re.search(r'\brewards?\b',name,re.I):return None,None
     try:
         date=datetime.fromisoformat(created_at.replace('Z','+00:00'))
         if not 2000<=date.year<=2099:return None,None
@@ -101,6 +113,10 @@ class MMFManager:
     def client(self):return MMFClient(self.session)
     def completed(self):
         with self.db() as db:return {r[0] for r in db.execute('SELECT key FROM completed')}
+    def scoped_items(self,items):
+        if self.provider!='mmf':return items
+        scopes={str(s['id']):s.get('start_month','') for s in self.get('settings',{}).get('subscriptions',[])}
+        return [i for i in items if file_in_scope(i,scopes.get(str(i['creator_id']),i.get('start_month','')))]
     def pending_redownload_keys(self):
         run=self.get('redownload',{})
         if not run:return set()
@@ -130,7 +146,21 @@ class MMFManager:
         subscribed={str(s['id']) for s in settings.get('subscriptions',[])}
         current_ids={(i['creator_id'],i['object_id'],i['archive_id']) for i in items}
         items.extend(i for i in downloaded(self) if str(i['creator_id']) in subscribed and (i['creator_id'],i['object_id'],i['archive_id']) not in current_ids)
+        items=self.scoped_items(items)
         records={i['key']:i for i in downloaded(self)};path_exists={}
+        existing_releases={}
+        visible={i['release_key'] for i in items}
+        current_versions={(i['creator_id'],i['object_id'],i['archive_id']):i['key'] for i in items}
+        for record in records.values():
+            key=record['release_key']
+            if key not in visible:continue
+            identity=(record['creator_id'],record['object_id'],record['archive_id'])
+            if current_versions.get(identity,record['key'])!=record['key']:continue
+            summary=existing_releases.setdefault(key,{'recorded':0,'directories':[]})
+            summary['recorded']+=1
+            if record.get('destination'):
+                directory=str(Path(record['destination']).parent)
+                if directory not in summary['directories']:summary['directories'].append(directory)
         storage_available=Path(self.store.config()['download_directory']).is_dir()
         for item in items:
             record=records.get(item['key'],{});outputs=(record.get('repack') or {}).get('outputs',[])
@@ -146,11 +176,11 @@ class MMFManager:
             item['missing_files']=missing;item['storage_unavailable']=not storage_available
         counts={'available':0,'review':0,'completed':0}
         for item in items:counts['completed' if item['key'] in known else 'available']+=1
-        resumable=any(i['key'] not in known for i in self.get('queue',[]))
+        resumable=any(i['key'] not in known for i in self.scoped_items(self.get('queue',[])))
         from app.mmf_release_prepare import preparation_status, release_lifecycle, release_collages
         prepared=preparation_status(self)
         managed=self.store.history.managed_releases({i['release_key']:Path(self.store.config()['download_directory'])/i['folder']/i['release_folder'] for i in items if i.get('folder') and i.get('release_folder')})
-        return {'managed_releases':managed,'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
+        return {'existing_releases':existing_releases,'managed_releases':managed,'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
     def login(self,payload):
         with self.idle():
             groups=self.client().login(payload.get('username'),payload.get('password'))
@@ -194,7 +224,7 @@ class MMFManager:
             if not settings.get('subscriptions') and action!='check':return {'started':False}
             if action=='download':
                 if not self.get('checked_at',0):raise MMFError('Check availability before starting downloads.')
-                known=self.completed();groups=releases(self.get('items',[]),self.store.config()['download_directory'])
+                known=self.completed();groups=releases(self.scoped_items(self.get('items',[])),self.store.config()['download_directory'])
                 if release is not None:
                     if not isinstance(release,str) or not re.fullmatch(r'[a-f0-9]{64}',release) or release not in groups:
                         raise MMFError('Choose an available release to download.')
@@ -220,7 +250,11 @@ class MMFManager:
                 with self.db() as db:previous=[json.loads(value) for key,value in db.execute('SELECT key,data FROM completed') if key in run['keys']]
                 self.put('redownload_history:'+run['id'],previous)
                 self.put('redownload',run);self.put('queue',group);self.put('run_base',self.store.config()['download_directory'])
-            if action=='resume' and not self.get('queue',[]):raise MMFError('No saved queue to resume.')
+            if action=='resume':
+                queue=self.get('queue',[])
+                if not self.get('redownload',{}):queue=self.scoped_items(queue)
+                if not queue:raise MMFError('No saved queue in the selected scope to resume.')
+                self.put('queue',queue)
             if action=='check':self.put('attempted_at',time.time())
             self.put('stop',False);self.put('job',{'phase':'starting','action':action,'release_key':release,'message':'Starting '+self.label+' task…','errors':[]})
             log=os.open(self.directory/'worker.log',os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
@@ -260,7 +294,8 @@ class MMFManager:
         # Keep every entitlement until scope filtering: an old shared entry
         # must not hide the same model in a current Tribe release.
         selected.sort(key=lambda o:({'USER_GROUP':0,'FRONTIER':1,'TRIBE':2}[o['source']],str(o.get('release',''))))
-        downloadables={};models={int(obj['originalId']):obj for obj in selected}
+        downloadables={};models={int(obj['originalId']):obj for obj in selected};warnings=[]
+        ignored_metadata_warnings=set(self.get('ignored_metadata_warnings',[]))
         self.progress(phase='checking',message=f'Checking {len(models)} MMF models…',done=0,total=len(models))
         fetch_many=getattr(client,'downloadables_many',None)
         responses=fetch_many(models,self.stopped) if callable(fetch_many) else ((oid,client.downloadables(oid)) for oid in models)
@@ -279,9 +314,21 @@ class MMFManager:
             sub=subs[cid];release=labels.get((source,owner,str(obj.get('release'))),{});label=release.get('label') or release.get('name') or ''
             oid=int(obj['originalId'])
             for archive in downloadables[oid]:
-                size=int(archive['size']);filename=archive['name']
-                if size<=0 or not isinstance(filename,str):continue
-                item={'object_id':int(obj['originalId']),'archive_id':int(archive['id']),'size':size,'filename':filename,'updated_at':archive.get('updatedAt',''),'creator':sub['name'],'creator_id':sub['id'],'folder':sub['folder'],'object_name':obj['name'],'release':label,'release_created_at':release.get('createdAt'),'release_id':str(obj['release']) if obj.get('release') is not None else None,'month':month_for(filename,label),'start_month':sub['start_month']}
+                try:
+                    if not isinstance(archive,dict):raise ValueError('invalid file metadata')
+                    filename=archive.get('name')
+                    if not isinstance(filename,str) or not filename.strip():raise ValueError('missing filename')
+                    if not re.fullmatch(r'[0-9]+',str(archive.get('id',''))) or int(archive['id'])<=0:
+                        raise ValueError('missing or invalid download ID')
+                    if not re.fullmatch(r'[0-9]+',str(archive.get('size',''))) or int(archive['size'])<=0:
+                        raise ValueError('missing or invalid file size')
+                    archive_id=int(archive['id']);size=int(archive['size'])
+                except ValueError as error:
+                    name=archive.get('name') if isinstance(archive,dict) else None
+                    warning=f"{sub['name']} · {obj['name']} · {name if isinstance(name,str) else 'Unnamed file'}: skipped because MMF returned {error}. This file was not queued; check it on MMF."
+                    if warning not in ignored_metadata_warnings and warning not in warnings:warnings.append(warning)
+                    continue
+                item={'object_id':int(obj['originalId']),'archive_id':archive_id,'size':size,'filename':filename,'updated_at':archive.get('updatedAt',''),'creator':sub['name'],'creator_id':sub['id'],'folder':sub['folder'],'object_name':obj['name'],'release':label,'release_created_at':release.get('createdAt'),'release_id':str(obj['release']) if obj.get('release') is not None else None,'month':month_for(filename,label),'start_month':sub['start_month']}
                 item['library_source']=source
                 if source!='USER_GROUP':
                     item['release_id']=f'{source}:{owner}:{obj.get("release",obj["originalId"])}'
@@ -294,8 +341,10 @@ class MMFManager:
                 items.append(item)
         groups=releases(items,self.store.config()['download_directory'])
         from app.mmf_release_prepare import downloaded
-        records=downloaded(self);historical={i['release_key'] for i in records}
-        included=[i for group in groups.values() if group[0]['release_key'] in historical or any(not i['start_month'] or not i['release_month'] or i['release_month']>=i['start_month'] for i in group) for i in group]
+        records=downloaded(self)
+        included=[i for i in items if file_in_scope(i,i['start_month'])]
+        undated=sum(bool(i['start_month']) and not file_in_scope(i,'0001-01') for i in items)
+        if undated:warnings.append(f'{undated} files have no usable MMF file update date and were not queued. Select All (archiving) to include undated files.')
         excluded=len(groups)-len({i['release_key'] for i in included})
         # Prefer a previously recorded destination, including for revised
         # archive versions, then a deterministic source. Fetch each file once.
@@ -312,9 +361,10 @@ class MMFManager:
         self.put('items',included);self.put('checked_at',time.time());client.save()
         count=len({release_key(i) for i in included})
         message=f'Check complete · {count} releases in scope.'
-        if excluded:message+=f' {excluded} older releases excluded by the starting month. Select All (archiving) to include them.'
+        if excluded:message+=f' {excluded} collections have no files in the selected update-date scope. Select All (archiving) to include older files.'
         if not subs:message='Artist list refreshed from Shared with me, Tribes and Frontiers. Select artists to check their files.'
-        self.progress(phase='complete',message=message,done=len(models),total=len(models),check_seconds=round(time.monotonic()-started,2),checked_models=len(models))
+        if warnings:message+=f' {len(warnings)} file metadata warnings; see details below. These files were not queued.'
+        self.progress(phase='complete',message=message,done=len(models),total=len(models),check_seconds=round(time.monotonic()-started,2),checked_models=len(models),warnings=warnings,errors=[])
     def deliver_originals(self,group,paths,units,base,identity,nonce):
         first=group[0];release_folder=first['release_folder'];records=[];staged_images=[]
         def moving(n,total):
@@ -368,11 +418,12 @@ class MMFManager:
             identity=hashlib.sha256((json.dumps(sorted(i['key'] for i in group))+nonce).encode()).hexdigest()
             work=self.directory/'staging'/identity;work.mkdir(parents=True,exist_ok=True)
             try:
-                current={};paths={};units=source_units(group)
+                current={};paths={};units=[unit for unit in source_units(group) if any(i['key'] not in known for i in unit)]
+                transfer_group=[i for unit in units for i in unit]
                 for unit in units:
                     unit_dir=work/safe_component('source-'+str(unit[0]['object_id'])+'-'+str(unit[0]['archive_id']));unit_dir.mkdir(exist_ok=True)
                     for item in unit:paths[item['key']]=unit_dir/safe_component(item['filename'])
-                for item in group:
+                for item in transfer_group:
                     if item['object_id'] not in current:current[item['object_id']]={self.id_type(a['id']):a for a in client.downloadables(item['object_id'])['archives']}
                     remote=current[item['object_id']].get(item['archive_id'])
                     if not remote or int(remote['size'])!=item['size'] or remote.get('updatedAt','')!=item['updated_at']:raise MMFError(self.label+' file changed after checking. Run Check availability again.')
@@ -381,7 +432,7 @@ class MMFManager:
                     def transfer(n,total,speed):
                         if time.monotonic()-last[0]>.35 or n==total:self.progress(bytes=n,expected=total,speed_mbps=round(speed,2));last[0]=time.monotonic()
                     client.download(item,paths[item['key']],transfer,self.stopped)
-                self.deliver_originals(group,paths,units,base,identity,nonce)
+                self.deliver_originals(transfer_group,paths,units,base,identity,nonce)
                 known.update(i['key'] for i in group);done+=len(remaining)
                 self.progress(done=done,total=len(queue))
             except LoginRequired:raise

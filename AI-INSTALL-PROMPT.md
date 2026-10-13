@@ -145,7 +145,11 @@ update, troubleshooting or uninstall.
 - Confirm the web page loads and the displayed version matches the chosen
   release. Verify Telegram Queue/Artists, Organize folders, Collages and
   Configuration; MMF navigation appears only if its Beta is enabled.
-- MMF supports Shared with me, Tribes and Frontiers archive downloads. Opening
+- MMF supports Shared with me, Tribes and Frontiers archive downloads.
+  MMF's month-limited scope uses each file's last-updated date, not its release
+  name. Late additions to old collections qualify; folder placement keeps the
+  original release. Undated files are flagged and require All (archiving).
+  Out-of-scope download history is retained but hidden from the queue. Opening
   MMF Artists refreshes creators directly from MMF, showing saved artists immediately
   and preserving unsaved selections. It does not start a file check or download. Frontier collections keep their names.
 For Tribe deliveries without release metadata, the library delivery date supplies the month,
@@ -333,3 +337,23 @@ a file. Archives nested inside downloaded archives block cleaning with an explan
 error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
 archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
 omit member timestamps; original downloads are not rewritten.
+
+### Telegram reports LOCATION_INVALID
+
+This means Telegram rejected a file-location request. The downloader tries
+smaller requests for the affected range and reports its byte offset if recovery
+fails. The file stays incomplete and is never marked downloaded. Try Resume
+later, or test the same attachment in Telegram. If that also fails, request a
+new upload. Other completed files remain recorded and are skipped on Resume.
+
+For an unfinished Telegram file, stop the run if it is active, then choose
+**Restart from zero** on that file. This resets its byte counter and saved
+transfer state and starts downloading again without rescanning artists. Old
+local staging is retained under `redownload-backups` for recovery; it is not
+reused. Completed files remain recorded. After Restart from zero, the main progress
+bar counts only files that were unfinished at restart; earlier completed files
+remain visible in history and do not inflate the new attempt’s progress.
+
+Use **Restart unfinished** beside Resume to reset every unfinished file in the
+saved run and download only those again. It skips earlier completed files and
+starts a new progress count for the unfinished work. Stop an active run first.

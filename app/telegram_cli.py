@@ -23,6 +23,17 @@ class CLIError(RuntimeError):
     pass
 
 
+def transfer_error(message):
+    message = str(message)
+    if re.search(r'\bLOCATION_INVALID\b', message):
+        offset = re.search(r'file range offset=(\d+)', message)
+        where = f" at {int(offset.group(1)) / 1024**2:g} MiB" if offset else ''
+        return ('Telegram rejected part of this file' + where + ' (LOCATION_INVALID). '
+                'The file remains incomplete. Try again later or check the same attachment in Telegram; '
+                'if it also fails there, ask for a new upload. Details: ' + message)
+    return 'Telegram: ' + message
+
+
 def require_release_collage(archive, *, action="uploading"):
     """Every archive upload through the app requires its release's valid collage."""
     from app.collages import collage_filename
@@ -436,7 +447,7 @@ class TelegramCLI:
                     line, pending = pending.split(b'\n', 1)
                     event = json.loads(line); kind = event.get('event')
                     if kind == 'error':
-                        raise CLIError('Telegram: ' + str(event.get('message', 'transfer failed')))
+                        raise CLIError(transfer_error(event.get('message', 'transfer failed')))
                     if kind == 'download_start':
                         previous = 0; active = True; last_change = time.monotonic()
                         status(event); progress(0, size)

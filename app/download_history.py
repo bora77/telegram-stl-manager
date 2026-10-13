@@ -268,7 +268,7 @@ class DownloadHistory:
                 warnings.extend(row['creator']+' · '+w for w in actual_image_warnings(json.loads(row['image_warnings'])))
         return list(dict.fromkeys(warnings))
 
-    def queue(self,batch_id=None):
+    def queue(self,batch_id=None,progress_ids=None):
         with self.connect() as db:
             batch={'batch_id':batch_id} if batch_id else db.execute('SELECT batch_id FROM downloads ORDER BY id DESC LIMIT 1').fetchone()
             rows=[dict(r) for r in db.execute('SELECT * FROM downloads WHERE batch_id=? ORDER BY id',(batch['batch_id'],))] if batch else []
@@ -278,10 +278,12 @@ class DownloadHistory:
         for row in rows:
             row['progress_total']=row['bytes_total'] if row['bytes_total'] is not None else row['bytes_total_estimate']
             row['total_is_estimate']=row['bytes_total'] is None and row['bytes_total_estimate'] is not None
-        return {'files':[r for r in rows if r['state']!='downloaded'],'total_files':len(rows),'completed_files':sum(r['state']=='downloaded' for r in rows),
+        all_rows=rows
+        if progress_ids is not None:rows=[r for r in rows if r['id'] in progress_ids]
+        return {'files':[r for r in all_rows if r['state']!='downloaded'],'total_files':len(rows),'completed_files':sum(r['state']=='downloaded' for r in rows),
                 'bytes_downloaded':sum(r['bytes_downloaded'] for r in rows),
                 'bytes_total':sum(r['bytes_total'] for r in rows) if rows and all(r['bytes_total'] is not None for r in rows) else None,
                 'progress_total':sum(r['progress_total'] for r in rows) if rows and all(r['progress_total'] is not None for r in rows) else None,
                 'total_is_estimate':any(r['total_is_estimate'] for r in rows),
-                'recent_completed':[r for r in rows if r['state']=='downloaded'][-10:],
+                'recent_completed':[r for r in all_rows if r['state']=='downloaded'][-10:],
                 'history_completed':completed,'ignored_files':ignored}

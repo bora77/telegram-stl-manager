@@ -63,13 +63,13 @@ function renderRunActivity(queue){
 }
 let resumableRunId=null,runRequestPending=false,queueDetailsShown=false;
 function revealQueue(){queueDetailsShown=true;document.getElementById('queue-details').hidden=false}
-async function corruptFileAction(runId,fileId,ignore){
+async function corruptFileAction(runId,fileId,ignore,restart=false){
   if(runRequestPending)return;
   runRequestPending=true;
-  document.querySelectorAll('#corrupt-files button,#download-all,#download-detected,#resume-downloads').forEach(button=>button.disabled=true);
+  document.querySelectorAll('#corrupt-files button,#download-all,#download-detected,#resume-downloads,#restart-unfinished').forEach(button=>button.disabled=true);
   let errorMessage='';
   try{
-    await api(ignore?'/api/run/ignore':'/api/run/resume',ignore?{run_id:runId,file_ids:[fileId]}:{run_id:runId,redownload_ids:[fileId]});
+    await api(ignore?'/api/run/ignore':'/api/run/resume',ignore?{run_id:runId,file_ids:[fileId]}:{run_id:runId,[restart?'restart_ids':'redownload_ids']:[fileId]});
   }catch(error){errorMessage=error.message}
   finally{runRequestPending=false;await refreshQueue();if(errorMessage)document.getElementById('run-detail').textContent=errorMessage}
 }
@@ -109,6 +109,7 @@ async function refreshQueue(){
     resumableRunId=queue.can_resume?queue.run.id:null;
     const resume=document.getElementById('resume-downloads');resume.hidden=false;resume.disabled=!queue.can_resume||availability.checking||saving||runRequestPending;
     resume.textContent='Resume';
+    document.getElementById('restart-unfinished').disabled=resume.disabled;
     document.getElementById('download-start-help').hidden=queue.active||(!queue.can_resume&&!!queue.subscriptions_saved);
     document.getElementById('download-start-help').textContent=queue.active?'':queue.can_resume?'Resume uses this run’s saved artists, scope and folders, without rechecking finished artists. Completed files and verified local downloads are reused.':queue.subscriptions_saved?'':'Save at least one subscription to start.';
     const total=queue.progress_total??queue.bytes_total;
@@ -120,14 +121,14 @@ async function refreshQueue(){
     document.getElementById('history-summary').textContent=`${queue.history_completed||0} completed downloads in permanent history · retained when files move`;
     document.getElementById('queue-bytes').textContent=queue.total_files?bytes(queue.bytes_downloaded)+' / '+(queue.total_is_estimate?'≈ ':'')+bytes(total):checking?'Scanning before downloading':emptyFinished?'No data transferred':'No transfers yet';
     const warnings=document.getElementById('run-warnings');warnings.replaceChildren();for(const text of queue.run.warnings||[])warnings.append(element('li',text));
-    const corrupt=document.getElementById('corrupt-files'),badFiles=queue.files.filter(file=>file.corrupt_archive);
+    const corrupt=document.getElementById('corrupt-files'),badFiles=queue.files.filter(file=>file.corrupt_archive||['paused','failed','needs_review'].includes(file.state));
     corrupt.hidden=!badFiles.length;corrupt.replaceChildren();
     for(const file of badFiles){
       const row=element('div'),description=element('div'),actions=element('div');row.className='corrupt-file';actions.className='corrupt-actions';
-      description.append(element('strong',file.filename),element('small','Archive data failed integrity checks. Redownload keeps the current copy locally; Ignore skips this Telegram attachment in future runs.'));
-      for(const [label,ignore] of [['Redownload',false],['Ignore corrupt source',true]]){
+      description.append(element('strong',file.filename),element('small',file.corrupt_archive?'Archive data failed integrity checks. Redownload keeps the current copy locally; Ignore skips this Telegram attachment in future runs.':'Restart from zero resets this file’s progress and downloads a fresh copy. Completed files are kept.'));
+      for(const [label,ignore] of (file.corrupt_archive?[['Redownload',false],['Ignore corrupt source',true]]:[['Restart from zero',false]])){
         const button=element('button',label);button.disabled=queue.active||!queue.can_resume||runRequestPending;
-        button.onclick=()=>corruptFileAction(queue.run.id,file.id,ignore);actions.append(button);
+        button.onclick=()=>corruptFileAction(queue.run.id,file.id,ignore,!file.corrupt_archive);actions.append(button);
       }
       row.append(description,actions);corrupt.append(row);
     }
@@ -221,6 +222,16 @@ document.getElementById('resume-downloads').onclick=async()=>{
   try{await api('/api/run/resume',{run_id:resumableRunId});await refreshQueue()}
   catch(error){document.getElementById('run-phase').textContent='Could not resume';document.getElementById('run-detail').textContent=error.message;button.disabled=false}
   finally{runRequestPending=false}
+};
+document.getElementById('restart-unfinished').onclick=async()=>{
+  if(!resumableRunId||runRequestPending)return;
+  runRequestPending=true;
+  document.querySelectorAll('#restart-unfinished,#resume-downloads,#download-all,#download-detected').forEach(b=>b.disabled=true);
+  revealQueue();
+  let errorMessage='';
+  try{await api('/api/run/resume',{run_id:resumableRunId,restart_unfinished:true})}
+  catch(error){errorMessage=error.message}
+  finally{runRequestPending=false;await refreshQueue();if(errorMessage)document.getElementById('run-detail').textContent=errorMessage}
 };
 document.getElementById('stop-downloads').onclick=async()=>{
   try{const result=await api('/api/stop',{});document.getElementById('run-detail').textContent=result.message}catch(error){document.getElementById('run-detail').textContent=error.message}

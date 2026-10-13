@@ -20,6 +20,7 @@ import (
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 
 	"github.com/iyear/tdl/core/stltransport"
 	"github.com/iyear/tdl/core/storage"
@@ -286,8 +287,28 @@ func (c sizedClient) UploadGetFile(ctx context.Context, request *tg.UploadGetFil
 		return &tg.UploadFile{Type: &tg.StorageFileUnknown{}}, nil
 	}
 	result, err := c.Client.UploadGetFile(ctx, request)
+	// Some file locations reject a large range. Retry that range once as
+	// aligned 128 KiB requests; never treat a rejected/short range as EOF.
+	if tgerr.Is(err, "LOCATION_INVALID") && request.Limit > 128*1024 {
+		data := make([]byte, 0, request.Limit)
+		end := min(request.Offset+int64(request.Limit), c.size)
+		for off := request.Offset; off < end; off += 128 * 1024 {
+			small := *request
+			small.Offset, small.Limit = off, 128*1024
+			part, partErr := c.UploadGetFile(ctx, &small)
+			if partErr != nil {
+				return nil, partErr
+			}
+			chunk, ok := part.(*tg.UploadFile)
+			if !ok {
+				return nil, errors.New("unexpected response during smaller-range recovery")
+			}
+			data = append(data, chunk.Bytes...)
+		}
+		return &tg.UploadFile{Type: &tg.StorageFileUnknown{}, Bytes: data}, nil
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("file range offset=%d limit=%d: %w", request.Offset, request.Limit, err)
 	}
 	if chunk, ok := result.(*tg.UploadFile); ok {
 		expected := min(int64(request.Limit), c.size-request.Offset)

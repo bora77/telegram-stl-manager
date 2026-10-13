@@ -519,3 +519,14 @@ events.write_text(json.dumps({'event':'complete','bytes':10,'message_id':100000,
 
 
 if __name__=='__main__':unittest.main()
+
+
+class TransferLocationErrorTests(unittest.TestCase):
+    def test_location_failure_explains_incomplete_file_and_preserves_details(self):
+        from app.telegram_cli import transfer_error
+        raw = 'file range offset=235929600 limit=131072: rpc error code 400: LOCATION_INVALID'
+        message = transfer_error(raw)
+        self.assertIn('225 MiB', message)
+        self.assertIn('remains incomplete', message)
+        self.assertIn(raw, message)
+        self.assertEqual(transfer_error('connection reset'), 'Telegram: connection reset')

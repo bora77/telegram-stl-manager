@@ -101,6 +101,17 @@ class RunManager:
                 raise ValueError('The destination changed. Restore the saved run’s download folder or start a new run.')
             from app.download_plan import DownloadPlan
             DownloadPlan(self.store,run) # Validate saved source and run identity before launch.
+            if payload.get('restart_unfinished') is True:
+                if 'restart_ids' in payload or 'redownload_ids' in payload:raise ValueError('Choose one restart action.')
+                with self.store.history.connect() as db:
+                    ids=[r[0] for r in db.execute("SELECT id FROM downloads WHERE batch_id=? AND state!='downloaded' AND ignored_at IS NULL",(run['id'],))]
+                payload={**payload,'restart_ids':ids}
+            if 'restart_ids' in payload and 'redownload_ids' in payload:raise ValueError('Choose one restart action.')
+            if 'restart_ids' in payload:
+                rows=self.corrupt_rows(run,payload['restart_ids'],require_corrupt=False)
+                self.prepare_redownload(run,rows)
+                with self.store.history.connect() as db:
+                    run['restart_progress_ids']=[r[0] for r in db.execute("SELECT id FROM downloads WHERE batch_id=? AND state!='downloaded' AND ignored_at IS NULL",(run['id'],))]
             if 'redownload_ids' in payload:
                 rows=self.corrupt_rows(run,payload['redownload_ids'])
                 self.prepare_redownload(run,rows)
@@ -119,15 +130,15 @@ class RunManager:
                 raise ValueError(run['message']) from error
             return run
 
-    def corrupt_rows(self,run,ids):
+    def corrupt_rows(self,run,ids,require_corrupt=True):
         if not isinstance(ids,list) or not ids or any(type(i) is not int or i<=0 for i in ids) or len(ids)!=len(set(ids)):
             raise ValueError('Choose corrupt files from the current run.')
         with self.store.history.connect() as db:
             rows=[dict(r) for r in db.execute('SELECT * FROM downloads WHERE batch_id=?',(run['id'],)) if r['id'] in ids]
         topics={s['topic_url'] for s in run['subscriptions']}
-        if len(rows)!=len(ids) or any(not corrupt_download(r) or r['topic_url'] not in topics or
+        if len(rows)!=len(ids) or any((not corrupt_download(r) if require_corrupt else r['state'] not in ('paused','failed','needs_review','queued') or bool(r.get('ignored_at'))) or r['topic_url'] not in topics or
                 r['source_chat_id']!=str(self.store.history.source.chat_id) for r in rows):
-            raise ValueError('Only unfinished corrupt files in this run can use this action.')
+            raise ValueError('Only unfinished '+('corrupt ' if require_corrupt else '')+'files in this run can use this action.')
         return rows
 
     def prepare_redownload(self,run,rows):

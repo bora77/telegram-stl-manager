@@ -898,6 +898,10 @@ Open **Configuration → MyMiniFactory account** in the manager and connect with
 MMF password. Google-only accounts may first need an MMF password from the site's
 Forgot password flow. Select creators from Shared with me, Tribes and Frontiers, their destination folders
 and starting months, then save and check availability. Start downloads manually.
+The MMF starting month filters each file's last-updated date, including updates
+to older collections; release names still determine destination folders. Files
+without a usable update date are flagged and excluded unless All (archiving) is
+selected. Out-of-scope history stays recorded but is hidden from the queue.
 Opening **MMF → Artists** automatically refreshes the creator list without reconnecting,
 while showing saved artists immediately and preserving unsaved selections. Frontier pledges, add-ons and sign-up bonuses retain their names.
 For Tribe deliveries without release metadata, the library delivery date supplies the month,
@@ -1093,3 +1097,23 @@ a file. Archives nested inside downloaded archives block cleaning with an explan
 error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
 archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
 omit member timestamps; original downloads are not rewritten.
+
+### Telegram reports LOCATION_INVALID
+
+This means Telegram rejected a file-location request. The downloader tries
+smaller requests for the affected range and reports its byte offset if recovery
+fails. The file stays incomplete and is never marked downloaded. Try Resume
+later, or test the same attachment in Telegram. If that also fails, request a
+new upload. Other completed files remain recorded and are skipped on Resume.
+
+For an unfinished Telegram file, stop the run if it is active, then choose
+**Restart from zero** on that file. This resets its byte counter and saved
+transfer state and starts downloading again without rescanning artists. Old
+local staging is retained under `redownload-backups` for recovery; it is not
+reused. Completed files remain recorded. After Restart from zero, the main progress
+bar counts only files that were unfinished at restart; earlier completed files
+remain visible in history and do not inflate the new attempt’s progress.
+
+Use **Restart unfinished** beside Resume to reset every unfinished file in the
+saved run and download only those again. It skips earlier completed files and
+starts a new progress count for the unfinished work. Stop an active run first.

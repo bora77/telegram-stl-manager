@@ -14,6 +14,40 @@ class Response(io.BytesIO):
         super().__init__(body);self.status=status;self.headers=headers or {};self.url=url
 
 class MMFTests(unittest.TestCase):
+    def test_scan_skips_invalid_archive_metadata_with_visible_warnings(self):
+        self.manager.put('settings',{'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':''}]})
+        archives=[{'name':'legacy-generated.zip','size':'338836095','updatedAt':'2022-06-14T14:03:44+00:00'},
+                  {'id':None,'name':'null-id.zip','size':3},
+                  {'id':False,'name':'boolean-id.zip','size':3},
+                  {'id':34,'name':'bad-size.zip','size':None},
+                  None,{'id':35,'size':3},
+                  {'id':'33','name':'valid.zip','size':'3','updatedAt':'v1'}]
+        class Client:
+            def groups(self):return [{'id':1,'name':'Example Creator'}]
+            def metadata(self,path):
+                if path.endswith('objectPreviews'):
+                    return [{'originalId':22,'creatorId':1,'type':'object','name':'Legacy Model','source':'USER_GROUP','release':9}]
+                return [{'id':9,'label':'September 2026'}]
+            def downloadables(self,oid):return {'archives':archives}
+            def save(self):pass
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        self.assertEqual([i['filename'] for i in self.manager.get('items')],['valid.zip'])
+        job=self.manager.get('job')
+        self.assertEqual(job['phase'],'complete');self.assertEqual(job['done'],job['total'])
+        self.assertEqual(len(job['warnings']),6)
+        self.assertIn('legacy-generated.zip',job['warnings'][0])
+        self.assertIn('missing or invalid download ID',job['warnings'][0])
+        self.assertIn('not queued',job['message'])
+        self.assertGreater(self.manager.get('checked_at'),0)
+        self.manager.put('ignored_metadata_warnings',[job['warnings'][0]])
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        self.assertEqual(len(self.manager.get('job')['warnings']),5)
+        self.assertNotIn(job['warnings'][0],self.manager.get('job')['warnings'])
+        self.assertEqual([i['filename'] for i in self.manager.get('items')],['valid.zip'])
+        archives[:]=[archives[-1]]
+        with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
+        self.assertEqual(self.manager.get('job')['warnings'],[])
+
     def test_tribe_campaign_alias_uses_delivery_month_not_model_creation(self):
         self.manager.put('settings',{'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':'2026-08'}]})
         base={'originalId':22,'creatorId':1,'type':'object','name':'Bell Model','createdAt':'2026-06-29T11:45:22+00:00','publishedAt':None,'libraryAddedAt':'2026-09-11T14:42:22+00:00'}
@@ -25,7 +59,7 @@ class MMFTests(unittest.TestCase):
         class Client:
             def groups(self):return [{'id':1,'name':'Example Creator','sources':['USER_GROUP','TRIBE','FRONTIER']}]
             def metadata(self,path):return responses[path.removeprefix('/api/data-library/')]
-            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':33,'size':3,'name':'model.zip','updatedAt':'v1'}]}
+            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':33,'size':3,'name':'model.zip','updatedAt':'2026-09-01T00:00:00Z'}]}
             def save(self):pass
         with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
         result=self.manager.get('items');self.assertEqual(len(result),1)
@@ -44,9 +78,9 @@ class MMFTests(unittest.TestCase):
             'tribe_releases_metadata/1':[{'id':'new','label':'September 2026'}]}
         calls=[]
         class Client:
-            def groups(self):return [{'id':1,'name':'Example Creator'}]
+            def groups(self):return [{'id':1,'name':'Example Creator','sources':['USER_GROUP','TRIBE']}]
             def metadata(self,path):return responses[path.removeprefix('/api/data-library/')]
-            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':33,'size':3,'name':'model.zip','updatedAt':'v1'}]}
+            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':33,'size':3,'name':'model.zip','updatedAt':'2026-09-01T00:00:00Z'}]}
             def save(self):pass
         with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
         items=self.manager.get('items');self.assertEqual(len(items),1)
@@ -82,7 +116,7 @@ class MMFTests(unittest.TestCase):
         class Client:
             def groups(self):return [{'id':1,'name':'Example Creator'}]
             def metadata(self,path):return responses[path.removeprefix('/api/data-library/')]
-            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':oid,'size':10,'name':'model.zip','updatedAt':'v1'}]}
+            def downloadables(self,oid):calls.append(oid);return {'archives':[{'id':oid,'size':10,'name':'model.zip','updatedAt':'2025-01-01T00:00:00Z' if oid==1 else '2026-08-01T00:00:00Z'}]}
             def save(self):pass
         with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
         items=self.manager.get('items');byid={i['object_id']:i for i in items}
@@ -91,16 +125,16 @@ class MMFTests(unittest.TestCase):
         self.assertEqual(byid[3]['release_folder'],'Example Creator Welcome Pack')
         self.assertEqual(byid[4]['release_folder'],'Example Creator Campaign Pledge')
         self.assertIsNone(byid[4]['release_month'])
-        self.assertIn('1 older releases excluded',self.manager.get('job')['message'])
+        self.assertIn('1 collections have no files',self.manager.get('job')['message'])
         original=byid[2]
         with self.manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',(original['key'],json.dumps(original)))
         responses['tribe_releases_metadata/1'][0]['label']='January 2025'
-        # A completed release retains its identity and its later additions even
-        # when the starting month moves forward.
+        # History is retained, but moving the cutoff hides unchanged old files.
         responses['tribe_releases_metadata/1'][0]['label']='August 2026'
         self.manager.put('settings',{'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':'2026-09'}]})
         with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
-        self.assertIn(original['key'],[i['key'] for i in self.manager.get('items')])
+        self.assertNotIn(original['key'],[i['key'] for i in self.manager.get('items')])
+        self.assertIn(original['key'],self.manager.completed())
 
     def test_creator_discovery_merges_sources_and_retained_tribe_objects(self):
         client=MMFClient(self.root/'cookies')
@@ -196,7 +230,7 @@ class MMFTests(unittest.TestCase):
             def groups(self):return [{'id':1,'name':'Example Creator'}]
             def metadata(self,path):
                 return [{'originalId':22,'creatorId':1,'source':'USER_GROUP','type':'object','release':44,'name':'Old loyalty collection'}] if 'objectPreviews' in path else [{'id':44,'label':'1 Year Rewards'}]
-            def downloadables(self,oid):return {'archives':[{'id':33,'name':'January2025Reward.zip','size':'3','updatedAt':'v1'}]}
+            def downloadables(self,oid):return {'archives':[{'id':33,'name':'January2025Reward.zip','size':'3','updatedAt':'2025-01-01T00:00:00Z'}]}
             def save(self):pass
         with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
         self.assertEqual(len(self.manager.get('items')),1);self.assertEqual(self.manager.get('items')[0]['month'],'2025-01')
@@ -209,10 +243,37 @@ class MMFTests(unittest.TestCase):
             def groups(self):return [{'id':1,'name':'Example Creator'}]
             def metadata(self,path):
                 return [{'originalId':22,'creatorId':1,'source':'USER_GROUP','type':'object','release':44,'name':'Old model'}] if 'objectPreviews' in path else [{'id':44,'label':'January 2025'}]
-            def downloadables(self,oid):return {'archives':[{'id':99,'name':'supported.zip','size':'9','updatedAt':'v2'}]}
+            def downloadables(self,oid):return {'archives':[
+                {'id':99,'name':'supported.zip','size':'9','updatedAt':'2026-09-01T00:00:00Z'},
+                {'id':98,'name':'original.zip','size':'9','updatedAt':'2025-01-01T00:00:00Z'},
+                {'id':97,'name':'undated.zip','size':'9','updatedAt':None}]}
             def save(self):pass
         with patch.object(self.manager,'client',return_value=Client()):self.manager.check()
         self.assertEqual([i['archive_id'] for i in self.manager.get('items')],[99])
+        self.assertEqual([i['archive_id'] for i in self.manager.state()['items']],[99])
+        self.assertIn(self.item['key'],self.manager.completed())
+        self.assertTrue(any('no usable MMF file update date' in w for w in self.manager.get('job')['warnings']))
+
+    def test_monthly_reward_folder_and_existing_history_summary(self):
+        from app.mmf_manager import releases, release_key
+        old={**self.item,'release':'August 2026 Standard Rewards','release_id':'august',
+             'updated_at':'2026-08-01T00:00:00Z','destination':str(self.root/'Example Creator'/'Example Creator 2026-08'/'existing.7z')}
+        old['key']=version_key(old)
+        new={**old,'archive_id':99,'updated_at':'2026-09-01T00:00:00Z','filename':'supported.zip'}
+        new['key']=version_key(new)
+        with self.manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',(old['key'],json.dumps(old)))
+        self.manager.put('settings',{'subscriptions':[{'id':1,'start_month':'2026-09'}]})
+        self.manager.put('items',[new])
+        state=self.manager.state();item=state['items'][0]
+        self.assertEqual(item['release_folder'],'Example Creator 2026-08')
+        self.assertEqual(state['existing_releases'][item['release_key']]['recorded'],1)
+        self.assertEqual(state['counts']['available'],1)
+        self.assertEqual(len(state['items']),1)
+        # Keep the pre-existing named collection key; publication history must survive.
+        import hashlib
+        self.assertEqual(release_key(old),hashlib.sha256(json.dumps([old['creator_id'],['id','august']]).encode()).hexdigest())
+        loyalty={**old,'release':'3DArtGuy 1 Year Rewards','release_id':'loyalty'}
+        releases([loyalty]);self.assertIsNone(loyalty['release_month'])
 
     def test_successful_delivery_then_failure_continues(self):
         import zipfile

@@ -196,7 +196,7 @@ def prepare_images(manager, key,from_mmf=False):
     work=manager.directory/'release-images'/key;work.mkdir(parents=True,exist_ok=True)
     records=[];warnings=[];seen=set()
     previous=manager.get('prepared_images:'+key,{})
-    if set(previous.get('keys',[]))=={i['key'] for i in group} and previous.get('images'):
+    if not from_mmf and set(previous.get('keys',[]))=={i['key'] for i in group} and previous.get('images'):
         try:
             for record in previous['images']:verified(record['path'],record,base)
         except (OSError,ValueError):pass
@@ -209,6 +209,11 @@ def prepare_images(manager, key,from_mmf=False):
                          message=labels.get(stage,'Preparing images')+' · '+first['release_folder'],
                          image_count=count,image_total=total,done=count,total=total or 0,bytes=received or 0,expected=expected or 0,speed_mbps=0)
     with release_lock(manager.root,base,first['folder'],first['release_folder'],manager.stopped):
+        if from_mmf:
+            images=(getattr(manager,'fetch_images',None) or fetch_images)(manager.client(),group,work/'gallery',manager.stopped,progress)
+            for index,image in enumerate(images):
+                dest,size,checksum=deliver(image,base,first['folder'],first['release_folder'],'gallery--'+image.name,lambda n,total:progress('moving_images',index,len(images),n,total),subdirectories=('release_images',),release_directory=first['release_folder'])
+                records.append({'path':str(dest),'size':size,'sha256':checksum})
         for item in group:
             manifest=item.get('repack') or {};mid=manifest.get('id')
             if not mid or mid in seen:continue
@@ -218,13 +223,12 @@ def prepare_images(manager, key,from_mmf=False):
                 for record in existing:verified(record['path'],record,base)
             except (OSError,ValueError):existing=[]
             if existing:records.extend(existing);continue
+            if from_mmf:continue
             outputs=manifest.get('outputs',[])
             images=[]
             if outputs and not from_mmf:
                 sources=[verified(r['path'],r,base) for r in outputs]
                 images=extract_images(sorted(sources)[0],work/mid,progress,manager.stopped,warnings=warnings)
-            if not images and from_mmf:
-                images=(getattr(manager,'fetch_images',None) or fetch_images)(manager.client(),[i for i in group if (i.get('repack') or {}).get('id')==mid],work/(mid+'-gallery'),manager.stopped,progress)
             for index,image in enumerate(images):
                 progress('moving_images',index,len(images))
                 dest,size,checksum=deliver(image,base,first['folder'],first['release_folder'],mid[:8]+'-'+str(index)+'--'+image.name,lambda n,total:progress('moving_images',index,len(images),n,total),subdirectories=('release_images',),release_directory=first['release_folder'])

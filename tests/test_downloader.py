@@ -275,6 +275,41 @@ class ResumeTests(unittest.TestCase):
             self.assertEqual((fresh['state'],fresh['bytes_downloaded'],fresh['download_finished_at']),('queued',0,None))
             self.assertFalse(store.history.was_downloaded(201))
 
+    def test_restart_from_zero_accepts_transfer_error_and_resets_caches(self):
+        with tempfile.TemporaryDirectory() as temp,patch('app.run_manager.subprocess.Popen') as launch:
+            root=Path(temp);store,state,cli,run,item,row,staging,cache=self.corrupt_fixture(root)
+            with store.history.connect() as db:
+                db.execute("UPDATE downloads SET error='LOCATION_INVALID',download_finished_at=NULL WHERE id=?",(row['id'],))
+            with patch('app.telegram_cli.STATE',state),patch('app.telegram_cli.CLI_STATE',cli):
+                result=store.runs.resume({'run_id':run['id'],'restart_ids':[row['id']]})
+            launch.assert_called_once()
+            self.assertEqual(result['restart_progress_ids'],[row['id']])
+            other=store.history.register(source_message_id=202,creator=run['subscriptions'][0]['creator'],topic_url=run['subscriptions'][0]['topic_url'],filename='done.zip',bytes_total=100,release_month='2026-09',batch_id=run['id'])
+            with store.history.connect() as db:db.execute("UPDATE downloads SET state='downloaded',bytes_downloaded=100 WHERE id=?",(other['id'],))
+            q=store.history.queue(run['id'],progress_ids=result['restart_progress_ids'])
+            self.assertEqual(q['total_files'],1);self.assertEqual(q['completed_files'],0)
+            self.assertEqual(q['bytes_downloaded'],0)
+            self.assertTrue(any(r['id']==other['id'] for r in q['recent_completed']))
+            self.assertFalse(cache.exists());self.assertFalse(staging.exists())
+            fresh=store.history.queue(run['id'])['files'][0]
+            self.assertEqual(fresh['bytes_downloaded'],0)
+            self.assertIsNone(fresh['error'])
+            with store.history.connect() as db:db.execute("UPDATE downloads SET state='downloaded' WHERE id=?",(row['id'],))
+            with self.assertRaises(ValueError):store.runs.corrupt_rows(run,[row['id']],require_corrupt=False)
+
+    def test_restart_unfinished_skips_completed_files(self):
+        with tempfile.TemporaryDirectory() as temp,patch('app.run_manager.subprocess.Popen'):
+            root=Path(temp);store,state,cli,run,item,row,staging,cache=self.corrupt_fixture(root)
+            sub=run['subscriptions'][0]
+            other=store.history.register(source_message_id=202,creator=sub['creator'],topic_url=sub['topic_url'],filename='done.zip',bytes_total=100,release_month='2026-09',batch_id=run['id'])
+            with store.history.connect() as db:db.execute("UPDATE downloads SET state='downloaded',bytes_downloaded=100 WHERE id=?",(other['id'],))
+            with patch('app.telegram_cli.STATE',state),patch('app.telegram_cli.CLI_STATE',cli):
+                result=store.runs.resume({'run_id':run['id'],'restart_unfinished':True})
+            self.assertEqual(result['restart_progress_ids'],[row['id']])
+            self.assertTrue(store.history.was_downloaded(202))
+            q=store.history.queue(run['id'],progress_ids=result['restart_progress_ids'])
+            self.assertEqual((q['bytes_downloaded'],q['completed_files'],q['total_files']),(0,0,1))
+
     def test_ignore_corrupt_source_finishes_run_without_claiming_download_or_removing_file(self):
         from app import download_worker
         with tempfile.TemporaryDirectory() as temp,patch('app.run_manager.subprocess.Popen') as launch:

@@ -1,5 +1,15 @@
 # Version history
 
+## 0.1.30
+
+- Filter MMF downloads by each file's update date, including additions to older collections, while preserving original release folders.
+- Recognize existing archive history and show recorded files alongside new release files.
+- Collect additional MMF gallery images even when archives already contain pictures.
+- Skip invalid MMF file metadata without aborting availability checks.
+- Restart unfinished Telegram transfers from zero and report unavailable file chunks more clearly.
+- Include artist tag filters, optional STL cleaning, and the initial setup usage notice.
+
+
 ## 0.1.26
 
 - Add an optional Gumroad Beta with account sign-in, verification codes, artist subscriptions, availability checks and manual downloads.

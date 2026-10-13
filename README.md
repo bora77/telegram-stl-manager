@@ -302,6 +302,11 @@ the private session stays in local application data. Reconnect if it expires.
 
 Select artists from **Shared with me, Tribes and Frontiers**, assign each creator folder, choose a
 starting month or **All (archiving)**, then save. Availability checks use the
+MMF file's last-updated date for the starting-month cutoff, including updates to
+older collections. Release names still determine folder placement. Undated files
+are flagged and excluded from month-limited checks; All includes them. Historical
+download records are retained, but out-of-scope files are hidden from the queue.
+Checks run at the
 configured interval while any manager page is open. They include new files
 added to existing collections. Downloads start only when you click **Download
 available releases**. **Resume unfinished** reuses the saved queue and local partial
@@ -611,3 +616,23 @@ a file. Archives nested inside downloaded archives block cleaning with an explan
 error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
 archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
 omit member timestamps; original downloads are not rewritten.
+
+### Telegram reports LOCATION_INVALID
+
+This means Telegram rejected a file-location request. The downloader tries
+smaller requests for the affected range and reports its byte offset if recovery
+fails. The file stays incomplete and is never marked downloaded. Try Resume
+later, or test the same attachment in Telegram. If that also fails, request a
+new upload. Other completed files remain recorded and are skipped on Resume.
+
+For an unfinished Telegram file, stop the run if it is active, then choose
+**Restart from zero** on that file. This resets its byte counter and saved
+transfer state and starts downloading again without rescanning artists. Old
+local staging is retained under `redownload-backups` for recovery; it is not
+reused. Completed files remain recorded. After Restart from zero, the main progress
+bar counts only files that were unfinished at restart; earlier completed files
+remain visible in history and do not inflate the new attempt’s progress.
+
+Use **Restart unfinished** beside Resume to reset every unfinished file in the
+saved run and download only those again. It skips earlier completed files and
+starts a new progress count for the unfinished work. Stop an active run first.

@@ -5,6 +5,14 @@ from PIL import Image
 from app.mmf_images import Gallery, image_url, fetch_images
 
 class ImagesTests(unittest.TestCase):
+    def test_page_gallery_uses_owner_directory_and_deduplicates_thumbnails(self):
+        root='https://assets.myminifactory.com/object-images/owner/images/'
+        p=Gallery(123)
+        p.feed('<meta property="og:image" content="'+root+'cover.jpg">'
+               '<img src="'+root+'720X720-cover.jpg">'
+               '<img data-src="'+root+'detail.jpg">'
+               '<img src="'+root.replace('/owner/','/other/')+'recommendation.jpg">')
+        self.assertEqual(p.images(),[root+'cover.jpg',root+'detail.jpg'])
     def test_only_owner_product_and_original_urls(self):
         image='https://assets.myminifactory.com/object-images/abc/images/720X720-cover.png'
         p=Gallery(123)

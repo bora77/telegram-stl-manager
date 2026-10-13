@@ -24,10 +24,14 @@ def image_url(url):
 
 class Gallery(HTMLParser):
     def __init__(self,object_id):
-        super().__init__();self.object_id=object_id;self.urls=[];self.cover=None;self.script=False;self.buffer=''
+        super().__init__();self.object_id=object_id;self.urls=[];self.cover=None;self.script=False;self.buffer='';self.page_images=[]
     def handle_starttag(self,tag,attrs):
         a=dict(attrs)
         if tag=='meta' and a.get('property')=='og:image':self.cover=image_url(a.get('content'))
+        if tag=='img':
+            for key in ('src','data-src'):
+                url=image_url(a.get(key))
+                if url:self.page_images.append(url)
         if tag=='script':self.script=a.get('type')=='application/ld+json';self.buffer=''
     def handle_data(self,data):
         if self.script:self.buffer+=data
@@ -45,7 +49,11 @@ class Gallery(HTMLParser):
                     self.urls.extend(u for v in images if (u:=image_url(v)))
                 if '@graph' in value:visit(value['@graph'])
         visit(value)
-    def images(self):return list(dict.fromkeys(self.urls or ([self.cover] if self.cover else [])))
+    def images(self):
+        owners=self.urls or ([self.cover] if self.cover else [])
+        # Only accept images in the owning product's asset directory, excluding recommendations.
+        roots={urllib.parse.urlsplit(u).path.rsplit('/',1)[0] for u in owners}
+        return list(dict.fromkeys(owners+[u for u in self.page_images if urllib.parse.urlsplit(u).path.rsplit('/',1)[0] in roots]))
 
 
 class ImageRedirects(urllib.request.HTTPRedirectHandler):

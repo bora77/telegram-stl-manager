@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 	"github.com/iyear/tdl/core/tmedia"
 	"os"
 	"path/filepath"
@@ -141,5 +142,31 @@ func TestExactReceivedCountIsIndependentOfSparseOffset(t *testing.T) {
 	}
 	if _, err := writer.WriteAt(make([]byte, 10), 95); err == nil {
 		t.Fatal("out-of-bounds data accepted")
+	}
+}
+
+func TestLocationInvalidSmallerRangeRecovery(t *testing.T) {
+	for _, badSmall := range []bool{false, true} {
+		calls := 0
+		client := sizedClient{size: partSize + 37, Client: functionClient{get: func(ctx context.Context, r *tg.UploadGetFileRequest) (tg.UploadFileClass, error) {
+			calls++
+			if r.Limit > 128*1024 || badSmall {
+				return nil, &tgerr.Error{Code: 400, Type: "LOCATION_INVALID"}
+			}
+			return &tg.UploadFile{Type: &tg.StorageFileUnknown{}, Bytes: make([]byte, min(int64(r.Limit), partSize+37-r.Offset))}, nil
+		}}}
+		result, err := client.UploadGetFile(context.Background(), &tg.UploadGetFileRequest{Offset: partSize, Limit: partSize})
+		if badSmall {
+			if err == nil || calls != 2 {
+				t.Fatalf("unbounded or swallowed error: %v %d", err, calls)
+			}
+		} else {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.(*tg.UploadFile).Bytes) != 37 {
+				t.Fatal("wrong recovered tail")
+			}
+		}
 	}
 }

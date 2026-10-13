@@ -226,7 +226,7 @@ class SubscriptionStore:
         active=run['state'] in ('starting','scanning','downloading','extracting','copying','stopping')
         organizer_active=Organizer(self).status()['state'] in ACTIVE
         count=len(self.read()['subscriptions'])
-        queue=self.history.queue(run.get('id'))
+        queue=self.history.queue(run.get('id'),progress_ids=run.get('restart_progress_ids'))
         from app.run_manager import corrupt_download
         for file in queue['files']:file['corrupt_archive']=corrupt_download(file)
         transferring=[f for f in queue['files'] if f['state']=='downloading' and f.get('download_finished_at') is None] if active and run['state']=='downloading' else []

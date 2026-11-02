@@ -2,6 +2,14 @@
 
 Copyright © 2026 trumphater77
 
+MMF and Gumroad uploads share a persistent queue. Uploads and bot conversations
+include queued **Release through bot** / **Build and upload** workflows, which
+wait for preparation/download work and build missing release archives before delivery. Uploads
+run one at a time. After a container restart or upload failure, review any
+partially sent attempt and use **Resume upload queue** for waiting entries.
+Failed attempts are not retried automatically. Waiting uploads can be removed
+from their release panels without deleting their local files.
+
 This package builds the app for Linux x86-64 or ARM64, including Intel and
 Apple Silicon Macs through Docker Desktop. It contains public source only:
 no accounts, passwords, sessions, creator selections or download history.
@@ -181,3 +189,26 @@ a file. Archives nested inside downloaded archives block cleaning with an explan
 error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
 archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
 omit member timestamps; original downloads are not rewritten.
+When releasing a prepared release through a bot, an existing verified upload to
+your Telegram release channel is reused. The collage and archives are forwarded
+without sender attribution; they are not uploaded again from your computer.
+Forwarding failures stop the attempt for review, with no automatic re-upload.
+A release without a previous verified channel upload is uploaded to Your Telegram
+Release Channel first, then forwarded to the bot. Configure this channel before
+starting a bot release. Archive bytes are never uploaded directly to a bot.
+
+If all files reached the bot but final confirmation failed, use **Retry completion**
+in the release upload panel. This queues only the completion step, without
+restarting the conversation or resending files. Recovery stops if the bot
+conversation has since changed. Replaced button messages are refreshed automatically.
+
+After bot-confirmed publication (or explicit confirmation of a verified upload),
+the manager removes unchanged source archives included in that package. It keeps
+the final release archive, collage, images, and download history. Sources remain
+until publication succeeds; changed files or cleanup errors are retained for review.
+Manual publication confirmation returns immediately. Source verification and
+cleanup run in a separate background worker, with status shown on the release.
+The queue shows live cleanup progress, including the current file, bytes checked,
+verification speed and sources removed, even when finished releases are filtered out.
+The confirmation dialog remains closable and reports a timeout if the server
+does not respond; check the saved release status before retrying.

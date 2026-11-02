@@ -35,7 +35,7 @@ def update_busy():
     if AVAILABILITY.running or (SETUP.child and SETUP.child.poll() is None):return True
     queue=STORE.queue()
     if queue.get('active') or queue.get('organizer_active') or MMF.busy() or GUMROAD.busy():return True
-    for name in ('worker.lock','organizer-worker.lock','mmf/worker.lock','mmf/upload.lock','gumroad/worker.lock','gumroad/upload.lock','collages/worker.lock'):
+    for name in ('worker.lock','organizer-worker.lock','mmf/worker.lock','mmf/upload.lock','mmf/cleanup.lock','gumroad/worker.lock','gumroad/upload.lock','gumroad/cleanup.lock','release-upload-worker.lock','collages/worker.lock'):
         path=ROOT/'data'/name
         if path.exists():
             with path.open('a') as lock:

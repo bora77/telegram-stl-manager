@@ -1,5 +1,13 @@
 # Prompt for an AI agent: install Telegram STL Manager
 
+MMF and Gumroad share a persistent upload queue. Waiting entries show their position
+and include preparation plus bot delivery when submitted with **Release through bot**
+or **Build and upload**. These actions can be queued while other work runs
+and can be removed. After failure or server restart, the user must resume waiting
+uploads manually and review partially sent attempts before separately re-uploading
+them. Closing the browser does not stop an active upload worker. Do not resume or
+upload content as an installation test without explicit authorization.
+
 Checked against the **v0.1.14** installer and updater on **2026-09-18**.
 
 Copy the prompt below into an agent with terminal/filesystem access on the
@@ -357,3 +365,26 @@ remain visible in history and do not inflate the new attempt’s progress.
 Use **Restart unfinished** beside Resume to reset every unfinished file in the
 saved run and download only those again. It skips earlier completed files and
 starts a new progress count for the unfinished work. Stop an active run first.
+When releasing a prepared release through a bot, an existing verified upload to
+your Telegram release channel is reused. The collage and archives are forwarded
+without sender attribution; they are not uploaded again from your computer.
+Forwarding failures stop the attempt for review, with no automatic re-upload.
+A release without a previous verified channel upload is uploaded to Your Telegram
+Release Channel first, then forwarded to the bot. Configure this channel before
+starting a bot release. Archive bytes are never uploaded directly to a bot.
+
+If all files reached the bot but final confirmation failed, use **Retry completion**
+in the release upload panel. This queues only the completion step, without
+restarting the conversation or resending files. Recovery stops if the bot
+conversation has since changed. Replaced button messages are refreshed automatically.
+
+After bot-confirmed publication (or explicit confirmation of a verified upload),
+the manager removes unchanged source archives included in that package. It keeps
+the final release archive, collage, images, and download history. Sources remain
+until publication succeeds; changed files or cleanup errors are retained for review.
+Manual publication confirmation returns immediately. Source verification and
+cleanup run in a separate background worker, with status shown on the release.
+The queue shows live cleanup progress, including the current file, bytes checked,
+verification speed and sources removed, even when finished releases are filtered out.
+The confirmation dialog remains closable and reports a timeout if the server
+does not respond; check the saved release status before retrying.

@@ -144,8 +144,8 @@ class MMFManager:
         known=self.completed()-self.pending_redownload_keys();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])
         from app.mmf_release_prepare import downloaded
         subscribed={str(s['id']) for s in settings.get('subscriptions',[])}
-        current_ids={(i['creator_id'],i['object_id'],i['archive_id']) for i in items}
-        items.extend(i for i in downloaded(self) if str(i['creator_id']) in subscribed and (i['creator_id'],i['object_id'],i['archive_id']) not in current_ids)
+        current_objects={(i['creator_id'],i['object_id']) for i in items}
+        items.extend(i for i in downloaded(self) if str(i['creator_id']) in subscribed and (i['creator_id'],i['object_id']) not in current_objects)
         items=self.scoped_items(items)
         records={i['key']:i for i in downloaded(self)};path_exists={}
         existing_releases={}
@@ -164,6 +164,8 @@ class MMFManager:
         storage_available=Path(self.store.config()['download_directory']).is_dir()
         for item in items:
             record=records.get(item['key'],{});outputs=(record.get('repack') or {}).get('outputs',[])
+            cleanup=record.get('source_cleanup',{})
+            if cleanup.get('state')=='complete' and cleanup.get('release_outputs'):outputs=cleanup['release_outputs']
             paths=[r['path'] for r in outputs] or ([record['destination']] if record.get('destination') else [])
             missing=[]
             if storage_available:
@@ -239,8 +241,8 @@ class MMFManager:
             if action=='redownload':
                 if not isinstance(release,str) or not re.fullmatch(r'[a-f0-9]{64}',release):raise MMFError('Choose a valid release to re-download.')
                 from app.mmf_release_prepare import downloaded
-                items=self.get('items',[]);current={(i['creator_id'],i['object_id'],i['archive_id']) for i in items}
-                items.extend(i for i in downloaded(self) if (i['creator_id'],i['object_id'],i['archive_id']) not in current)
+                items=self.get('items',[]);current={(i['creator_id'],i['object_id']) for i in items}
+                items.extend(i for i in downloaded(self) if (i['creator_id'],i['object_id']) not in current)
                 group=releases(items,self.store.config()['download_directory']).get(release,[])
                 subscribed={str(s['id']):s for s in settings['subscriptions']}
                 if not group or any(str(i['creator_id']) not in subscribed for i in group):raise MMFError('This release is not available for a subscribed artist.')

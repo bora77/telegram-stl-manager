@@ -26,7 +26,7 @@ def archive_name(filename):
     return safe_component(stem)+'.7z'
 
 
-def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None):
+def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None,release_images=None):
     if type(compression_level) is not int or compression_level not in (0,1,3,5,7,9):raise ValueError('Invalid compression level.')
     if type(volume_bytes) is not int or volume_bytes<=0:raise ValueError('Invalid volume size.')
     if stl_cleaner not in ('off','delicates','cotton'):raise ValueError('Unknown STL cleaner.')
@@ -39,9 +39,15 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
     source=Path(source).resolve(strict=True);work=Path(work).resolve();work.mkdir(parents=True,exist_ok=True)
     receipt=work/'repack.json';name=safe_component(release_name)+'.7z' if release_name else archive_name(source.name)
     sources=sources or [{'path':source,'folder':''}]
+    image_receipts=[]
+    for path in release_images or []:
+        path=Path(path)
+        if path.is_symlink() or not path.is_file():raise ExtractionError('Release image is missing or a symbolic link.')
+        image_receipts.append({'path':str(path),'name':safe_component(path.name),'size':path.stat().st_size,'sha256':digest(path)})
+    image_receipts.sort(key=lambda r:r['name'])
     if receipt.exists():
         saved=json.loads(receipt.read_text())
-        if saved.get('identity')==identity and saved.get('volume_bytes')==volume_bytes and saved.get('compression_level')==compression_level and saved.get('policy_version')==POLICY_VERSION and saved.get('name')==name and saved.get('stl_cleaner')==cleaner_policy:
+        if saved.get('identity')==identity and saved.get('release_images',[])==image_receipts and saved.get('volume_bytes')==volume_bytes and saved.get('compression_level')==compression_level and saved.get('policy_version')==POLICY_VERSION and saved.get('name')==name and saved.get('stl_cleaner')==cleaner_policy:
             outputs=[]
             for item in saved['outputs']:
                 filename=item['name']
@@ -103,6 +109,14 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
                 expected={e.get('disk_name',e['name']) for e in entries}
                 if actual!=expected or any(p.is_symlink() for p in target_members.rglob('*')):raise ExtractionError('Unexpected content in unpacked release.')
             all_entries.update({(prefix+'/'+e.get('disk_name',e['name'])).lstrip('/'):e['size'] for e in entries})
+        for image in image_receipts:
+            member='release_images/'+image['name'];target=members/member
+            if any(n.casefold()==member.casefold() for n in all_entries):
+                if not target.is_file() or digest(target)!=image['sha256']:raise ExtractionError('Release image filename conflicts with archive contents: '+image['name'])
+                continue
+            target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(image['path'],target)
+            if digest(target)!=image['sha256']:raise ExtractionError('Release image changed during packaging.')
+            all_entries[member]=image['size']
         if not all_entries:raise ExtractionError('No release files remain after removing operating-system metadata; source retained.')
         from app.mmf_pdf import clean_pdf
         for member_name in list(all_entries):
@@ -145,6 +159,6 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
         outputs=[];records=[]
         for path in parts:
             checksum=digest(path);target=work/path.name;path.replace(target);outputs.append(target);records.append({'name':target.name,'size':target.stat().st_size,'sha256':checksum})
-        state={'stl_cleaner':cleaner_policy,'cleaned_stls':cleaned,'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':compression_level,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
+        state={'release_images':image_receipts,'stl_cleaner':cleaner_policy,'cleaned_stls':cleaned,'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':compression_level,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
         staged=work/'repack.json.tmp';staged.write_text(json.dumps(state));staged.replace(receipt)
         return outputs

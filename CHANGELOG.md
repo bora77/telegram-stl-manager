@@ -1,5 +1,15 @@
 # Version history
 
+## 0.1.31
+
+- Show live source-cleanup progress, current file, verification speed and removal counts; publication confirmation returns immediately.
+- Keep confirmation dialogs closable and show a clear timeout message when the server does not respond.
+- Queue release workflows and upload to the release channel before anonymously forwarding to a bot; reuse verified channel uploads.
+- Recover stale bot buttons and retry completion without resending delivered files.
+- Include release gallery images inside prepared archives and exclude obsolete MMF archives from re-downloads and packaging.
+- Preserve publication history, clean up verified sources after publication, and keep superseded failed attempts out of finished releases.
+- Show archive preparation progress in the release queue and allow existing packages to be re-uploaded independently of new downloads.
+
 ## 0.1.30
 
 - Filter MMF downloads by each file's update date, including additions to older collections, while preserving original release folders.

@@ -19,7 +19,7 @@ function showMMFView(){
 window.addEventListener('hashchange',showMMFView);showMMFView();
 
 const text=(tag,value)=>{const n=document.createElement(tag);n.textContent=value;return n};
-async function request(action,payload){const r=await fetch('/api/mmf'+(action?'/'+action:''),{cache:'no-store',...(payload!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value}
+async function request(action,payload,options={}){const r=await fetch('/api/mmf'+(action?'/'+action:''),{cache:'no-store',...options,...(payload!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const value=await r.json();if(!r.ok)throw Error(value.error||'Request failed');return value}
 function notice(value,error=false){$('notice').textContent=value;$('notice').className=error?'error':''}
 function changed(){
  const canonical=rows=>JSON.stringify([...rows].sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(s=>[s.id,s.folder,s.start_month]));
@@ -54,12 +54,20 @@ function sizeLabel(bytes){return bytes>=1e9?(bytes/1e9).toFixed(2)+' GB':(bytes/
 const closedUploadPanels=new Set();
 function uploadPanel(pack){
  const job=pack.upload;if(!job)return null;
+ const preparation=data.active&&job.state==='preparing'&&data.job?.action==='package'&&(data.preparations?.[data.job.release_key]?.packages||[]).includes(pack)?data.job:null;
  const panel=document.createElement('details');panel.className='upload-panel';panel.open=!closedUploadPanels.has(job.id);
  panel.ontoggle=()=>{if(!panel.isConnected)return;if(panel.open)closedUploadPanels.delete(job.id);else closedUploadPanels.add(job.id)};
  const live=['queued','preparing','uploading','verifying','conversation'].includes(job.state);
- const heading=document.createElement('summary'),icon=text('span',live?'':job.state==='complete'?'✓':'!');if(live)icon.className='upload-spinner';heading.append(icon,text('strong','Release upload · '+(job.state||'unknown')));panel.append(heading);
- const body=document.createElement('div');body.className='upload-body';body.append(text('p',job.message||''));
- if(live){const metrics=document.createElement('div');metrics.className='upload-metrics';const bar=document.createElement('progress');bar.max=job.total||1;if(job.total)bar.value=job.bytes||0;bar.setAttribute('aria-label','Total upload progress');metrics.append(bar,text('strong',(job.speed_mbps||0).toFixed(1)+' MB/s'));body.append(metrics,text('small',sizeLabel(job.bytes||0)+' / '+sizeLabel(job.total||0)+' uploaded'));}
+ const stage=preparation?(preparation.phase==='repacking'?'Compressing archive':String(preparation.phase||'Preparing archive').replaceAll('_',' ')):job.state;
+ const heading=document.createElement('summary'),icon=text('span',live?'':job.state==='complete'?'✓':'!');if(live)icon.className='upload-spinner';heading.append(icon,text('strong',(preparation?'Release preparation · ':'Release upload · ')+(stage||'unknown')));panel.append(heading);
+ const body=document.createElement('div');body.className='upload-body';body.append(text('p',(preparation?.message||job.message)||''));
+ if(preparation){const bar=document.createElement('progress');bar.max=preparation.expected||1;if(preparation.expected)bar.value=preparation.bytes||0;bar.setAttribute('aria-label','Release preparation progress');const percent=preparation.expected?Math.min(100,Math.floor(100*(preparation.bytes||0)/preparation.expected)):null;body.append(bar,text('strong',percent===null?'Preparing…':percent+'%'));}
+ if(job.can_finish){const finish=text('button','Retry completion');finish.onclick=()=>act('upload',{retry_completion:job.id});body.append(text('p','Files are already delivered. Retry only the bot’s final confirmation.'),finish);}
+ if(job.state==='queued'){
+  const remove=text('button','Remove from queue');remove.className='secondary';remove.onclick=()=>act('upload',{cancel_queued:job.id});body.append(remove);
+  if(!Object.values(data.preparations||{}).some(p=>p.upload_active)){const resume=text('button','Resume upload queue');resume.onclick=()=>act('upload',{resume_queue:true});body.append(resume)}
+ }
+ if(live&&job.state!=='queued'&&!preparation){const metrics=document.createElement('div');metrics.className='upload-metrics';const bar=document.createElement('progress');bar.max=job.total||1;if(job.total)bar.value=job.bytes||0;bar.setAttribute('aria-label','Total upload progress');metrics.append(bar,text('strong',(job.speed_mbps||0).toFixed(1)+' MB/s'));body.append(metrics,text('small',sizeLabel(job.bytes||0)+' / '+sizeLabel(job.total||0)+' uploaded'));}
  for(const f of job.files||[]){const row=document.createElement('div');row.className='upload-file';row.append(text('span',f.name||''),text('small',sizeLabel(f.size||0)+' · '+f.state));if(['uploading','verifying'].includes(f.state)){const bar=document.createElement('progress');bar.max=f.size||1;bar.value=f.uploaded||0;bar.setAttribute('aria-label',(f.name||'File')+' upload progress');row.append(bar)}body.append(row)}
  panel.append(body);return panel;
 }
@@ -77,7 +85,7 @@ function releaseStatus(group){
  if(lifecycle?.finished)return 'Released';
  const percent=(done,total)=>total>0?' · '+Math.min(100,Math.floor(100*(done||0)/total))+'%':'';
  const packages=prep?.packages||[],uploading=packages.find(p=>['queued','preparing','uploading','verifying','conversation'].includes(p.upload?.state));
- if(uploading)return uploading.upload.state==='conversation'?'Bot conversation · '+(uploading.upload.message||'Waiting for reply'):(uploading.upload.state==='verifying'?'Verifying upload':'Uploading')+percent(uploading.upload.bytes,uploading.upload.total);
+ if(uploading){if(uploading.upload.state==='preparing'&&data.active&&data.job?.action==='package'&&data.job.release_key===group.key)return (data.job.phase==='repacking'?'Compressing archive':'Preparing archive')+percent(data.job.bytes,data.job.expected);return uploading.upload.state==='queued'?(uploading.upload.message||'Queued'):uploading.upload.state==='conversation'?'Bot conversation · '+(uploading.upload.message||'Waiting for reply'):uploading.upload.state==='preparing'?'Preparing upload':(uploading.upload.state==='verifying'?'Verifying upload':'Uploading')+percent(uploading.upload.bytes,uploading.upload.total);}
  if(data.active&&data.job?.release_key===group.key){
   const job=data.job,phase={starting:'Starting',downloading:'Downloading',unpacking:'Unpacking archives',cleaning_stls:'Cleaning STLs',processing_pdfs:'Cleaning PDFs',repacking:'Compressing archive',verifying_archive:'Verifying archive',verifying_inputs:'Verifying files',extracting:'Extracting images',moving:'Moving files'}[job.phase]||(job.action==='prepare_images'?'Preparing images':job.action==='package'?'Making release':'Processing release');
   return phase+(job.cleaner_total?` · ${job.cleaner_done||0}/${job.cleaner_total} files`:'')+percent(job.bytes,job.expected)+(job.image_total!=null?` · ${job.image_count||0}/${job.image_total} images`:'');
@@ -97,12 +105,23 @@ function releaseStatus(group){
  if(!collage?.valid)return 'Images ready · Create collage';
  return prep?.pending?'Archive incomplete · Retry packaging':lifecycle?.published?'Collage ready · Make addendum':'Collage ready · Make release';
 }
+function confirmReleasedModal(pack){
+ const dialog=document.createElement('dialog');dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','confirm-release-title');
+ const title=text('h2','Confirm publication');title.id='confirm-release-title';
+ dialog.append(title,text('p',pack.title),text('p','Confirm only after the bot has successfully published this release. An upload to your release channel alone is not publication.'),text('p','This marks the prepared release as finished and removes its unchanged source archives. The final release archive, collage, images and download history are kept.'));
+ const error=text('p','');error.className='error';error.setAttribute('role','alert');error.hidden=true;dialog.append(error);
+ const actions=document.createElement('div');actions.className='actions';const cancel=text('button','Cancel');cancel.className='secondary';const confirm=text('button','Confirm published');actions.append(cancel,confirm);dialog.append(actions);document.body.append(dialog);
+ let pending=false;cancel.onclick=()=>dialog.close();dialog.onclose=()=>dialog.remove();
+ dialog.onclick=e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}};
+ confirm.onclick=async()=>{if(pending)return;pending=true;confirm.disabled=true;confirm.textContent='Saving confirmation…';cancel.textContent='Close';error.hidden=true;const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),20000);try{await request('released',{preparation_id:pack.id,attempt_id:pack.upload.id,confirmed:true},{signal:controller.signal});dialog.close();await refresh();}catch(e){error.textContent=e.name==='AbortError'?'The server did not respond in time. Your confirmation may already be saved. Close this dialog and refresh the release status before retrying.':e.message;error.hidden=false;}finally{clearTimeout(timer);pending=false;confirm.disabled=false;confirm.textContent='Confirm published';}};
+ dialog.showModal();cancel.focus();
+}
 function releaseModal(group,pack=null){
  const dialog=document.createElement('dialog');dialog.className='release-dialog';dialog.setAttribute('aria-labelledby','release-dialog-title');
  const title=text('h2','Make release');title.id='release-dialog-title';dialog.append(title,text('p',group.creator+' · '+(pack?.title||group.name)));
  const form=document.createElement('form');form.method='dialog';
  const label=(caption,node)=>{const l=text('label',caption);if(!node.hasAttribute('aria-label'))node.setAttribute('aria-label',caption);l.append(node);return l};
- const mode=document.createElement('select');mode.setAttribute('aria-label','Release action');mode.append(new Option('Upload to my release channel','pad'),new Option('Release directly through a bot','bot'),new Option('Just mark as finished','finished'));form.append(label('What would you like to do?',mode));
+ const mode=document.createElement('select');mode.setAttribute('aria-label','Release action');mode.append(new Option('Upload to my release channel','pad'),new Option('Release through a bot','bot'),new Option('Just mark as finished','finished'));form.append(label('What would you like to do?',mode));
  const botFields=document.createElement('div'),saved=data.release_bot_settings||{};
  const bot=document.createElement('input');bot.value=saved.destination||'';bot.placeholder='@your_release_bot';
  const creator=document.createElement('input');creator.value=group.creator;
@@ -114,15 +133,23 @@ function releaseModal(group,pack=null){
  custom.append(text('p','Use one step per line: send: message, click: exact button text, or wait: reply text. Placeholders: {creator}, {month}, {title}. Configure the exact sequence used by your bot.'),label('Before sending files',before),label('After sending files',after),label('Final success reply',success));botFields.append(custom);form.append(botFields);
  const explanation=text('p',''),error=text('p','');error.className='error';error.setAttribute('role','alert');form.append(explanation,error);
  const actions=document.createElement('div');actions.className='actions';const cancel=text('button','Cancel');cancel.type='button';cancel.className='secondary';cancel.onclick=()=>dialog.close();const submit=text('button','Continue');submit.type='submit';actions.append(cancel,submit);form.append(actions);dialog.append(form);document.body.append(dialog);
- const update=()=>{botFields.hidden=mode.value!=='bot';custom.hidden=profile.value!=='custom';const blocked=mode.value!=='finished'&&(!data.collages?.[group.key]?.valid||group.recorded!==group.items.length);submit.disabled=blocked;explanation.textContent=blocked?'Download all release files and save a collage before uploading. You can still mark an externally published release as finished.':mode.value==='finished'?'Records these file versions as finished. New or updated files reopen the release. Files are retained.':mode.value==='bot'?'Builds the archive if needed, runs the conversation, sends the collage and archives, and completes publication. The release is finished only after the bot confirms success.':'Builds the archive if needed, then uploads the collage and archives to Your Telegram Release Channel. Publication is confirmed separately.';submit.textContent=mode.value==='finished'?'Mark as finished':mode.value==='bot'?'Release through bot':'Build and upload';};mode.onchange=profile.onchange=update;update();
+ const update=()=>{botFields.hidden=mode.value!=='bot';custom.hidden=profile.value!=='custom';const blocked=mode.value!=='finished'&&(!data.collages?.[group.key]?.valid||(!pack&&group.recorded!==group.items.length));submit.disabled=blocked;explanation.textContent=blocked?'Download all release files and save a collage before uploading. You can still mark an externally published release as finished.':mode.value==='finished'?'Records these file versions as finished. New or updated files reopen the release. Files are retained.':mode.value==='bot'?'Uploads to Your Telegram Release Channel first, then forwards the collage and archives anonymously to the bot. Reuses an existing verified channel upload. Runs the bot conversation and marks the release finished only after confirmation.':'Builds the archive if needed, then uploads the collage and archives to Your Telegram Release Channel. Publication is confirmed separately.';submit.textContent=mode.value==='finished'?'Mark as finished':mode.value==='bot'?'Release through bot':'Build and upload';};mode.onchange=profile.onchange=update;update();
  let pending=false;dialog.oncancel=e=>{if(pending)e.preventDefault()};dialog.onclick=e=>{if(e.target===dialog&&!pending){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}};dialog.onclose=()=>dialog.remove();
  form.onsubmit=async e=>{e.preventDefault();if(pending||submit.disabled)return;pending=true;submit.disabled=cancel.disabled=true;error.textContent='';try{await request('release',{release_key:group.key,preparation_id:pack?.id,keys:[...new Set(group.items.map(i=>i.key))].sort(),mode:mode.value,confirmed:mode.value==='finished',bot:bot.value,creator:creator.value,profile:profile.value,before:before.value,after:after.value,success:success.value});dialog.close();expandedReleases.add(group.key);await refresh();}catch(e){error.textContent=e.message;}finally{pending=false;cancel.disabled=false;update();}};
  dialog.showModal();
+}
+function cleanupPanel(pack){
+ const job=pack.source_cleanup,panel=document.createElement('section');panel.className='upload-panel';
+ panel.append(text('strong',pack.title+' · Source cleanup'));
+ const body=document.createElement('div');body.className='upload-body';body.append(text('p',job.message||'Source cleanup queued.'));
+ const bar=document.createElement('progress');bar.max=job.total||1;if(job.total)bar.value=job.bytes||0;bar.setAttribute('aria-label','Source verification progress');body.append(bar);
+ body.append(text('p',job.current_file||'Waiting to start'),text('small',`${sizeLabel(job.bytes||0)} / ${sizeLabel(job.total||0)} checked · ${(job.speed_mbps||0).toFixed(1)} MB/s`),text('p',`${job.checked_files||0} / ${job.total_files||0} files checked · ${job.removed_files||0} / ${job.source_files||0} sources removed`));panel.append(body);return panel;
 }
 function queue(){
  const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?data.release_lifecycle?.[g.key]?.finished:!data.release_lifecycle?.[g.key]?.finished));
  page=Math.min(page,Math.max(0,Math.ceil(rows.length/20)-1));
  const signature=JSON.stringify([data.existing_releases,data.managed_releases,data.items,data.preparations,data.collages,data.release_lifecycle,data.active,data.job?.action,data.job?.release_key,data.job?.phase,data.job?.bytes,data.job?.expected,data.job?.image_count,data.job?.image_total,data.job?.cleaner_file,data.job?.cleaner_done,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
+ for(const prep of Object.values(data.preparations||{}))for(const pack of prep.packages||[])if(['queued','running','pending'].includes(pack.source_cleanup?.state))$('queue').append(cleanupPanel(pack));
  for(const group of rows.slice(page*20,page*20+20)){
   const details=document.createElement('details');details.className='release-row'+(group.items.some(i=>i.missing_files?.length)?' missing-files':'');details.open=expandedReleases.has(group.key);details.ontoggle=()=>{if(!details.isConnected)return;if(details.open)expandedReleases.add(group.key);else expandedReleases.delete(group.key)};
   const summary=document.createElement('summary'),heading=document.createElement('span');heading.className='release-heading';const creatorLabel=text('small',group.creator);creatorLabel.prepend(ArtistProfiles.badge(group.creator,{compact:true}));heading.append(text('strong',group.name),creatorLabel);
@@ -136,7 +163,7 @@ function queue(){
    const prepare=text('button',offerGallery?'Download images from MMF':'Extract images');prepare.disabled=data.active||!group.recorded;prepare.title=offerGallery?'Download gallery images from MMF for this release.':'Extract release images without creating an archive.';prepare.onclick=()=>act(offerGallery?'images':'prepare',{release_key:group.key});
    const additionalImages=text('button','Get additional images from MMF');additionalImages.className='secondary';additionalImages.disabled=data.active||!group.recorded;additionalImages.onclick=()=>act('images',{release_key:group.key});
    const button=text('button',prep?.pending?'Retry '+prep.pending:prep&&prep.number>=0?`Make Addendum ${prep.number+1}`:'Make release');
-   button.disabled=data.active||prep?.upload_active;
+   button.disabled=(prep?.packages||[]).some(p=>['queued','preparing','uploading','verifying','conversation'].includes(p.upload?.state));
    button.onclick=()=>releaseModal(group);
    const collage=data.collages?.[group.key];
    button.title='Choose channel delivery, a bot conversation, or mark this release as finished.';
@@ -168,14 +195,15 @@ function queue(){
    else if(first.release_folder)actions.append(text('small','Creates a 7-Zip set using your configured compression and part size. Later additions get numbered addenda.'));
    for(const pack of prep?.packages||[]){
     const upload=text('button',pack.attempted?'Re-upload':'Upload release');
-    upload.disabled=prep.upload_active;upload.title=pack.title;
+    upload.disabled=['queued','preparing','uploading','verifying','conversation'].includes(pack.upload?.state);upload.title=pack.title;
     upload.onclick=()=>releaseModal(group,pack);
     actions.append(upload);
     if(pack.published)actions.append(text('small','✓ Released · '+pack.title));
     else if(pack.upload?.state==='complete'){
      const finish=text('button','Confirm released');finish.className='secondary';finish.title='Record completion after the release bot confirms publication.';
-     finish.onclick=()=>{if(window.confirm('Has the release bot successfully finished publishing '+pack.title+'? Uploading to Release Pad or seeing the Complete button is not enough.'))act('released',{preparation_id:pack.id,attempt_id:pack.upload.id,confirmed:true})};actions.append(finish);
+     finish.onclick=()=>confirmReleasedModal(pack);actions.append(finish);
     }
+    if(pack.source_cleanup&&['queued','running','warning'].includes(pack.source_cleanup.state)){const note=text('small',pack.source_cleanup.message||'Source cleanup is running in the background.');if(pack.source_cleanup.state==='warning')note.className='error';actions.append(note);}
    }
    details.append(actions);
    for(const pack of prep?.packages||[]){const progress=uploadPanel(pack);if(progress)details.append(progress);}

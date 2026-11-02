@@ -151,6 +151,20 @@ class MMFTests(unittest.TestCase):
         self.manager.put('creators',[{'id':1,'name':'Example Creator'}])
         self.item={'object_id':22,'archive_id':33,'size':3,'updated_at':'v1','filename':'January2025_Model.zip','creator':'Example Creator','creator_id':1,'folder':'Example Creator','month':'2025-01','release':'January 2025','object_name':'Model','start_month':''}
         self.item['key']=version_key(self.item)
+    def test_removed_archive_history_is_not_added_to_current_redownload(self):
+        from app.mmf_manager import releases
+        old=dict(self.item);releases([old])
+        with self.manager.db() as db:db.execute('INSERT INTO completed VALUES (?,?)',(old['key'],json.dumps(old)))
+        current={**self.item,'archive_id':34,'filename':'January2025_Model_r1.zip'};current['key']=version_key(current)
+        self.manager.put('items',[current]);self.manager.session.touch()
+        self.manager.put('settings',{'revision':1,'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':''}]})
+        self.store.atomic_write(self.store.config_path,{**self.store.config(),'download_directory':str(self.root)})
+        self.assertEqual([i['archive_id'] for i in self.manager.state()['items']],[34])
+        with patch('app.mmf_manager.subprocess.Popen'):
+            self.manager.start('redownload',release=old['release_key'])
+        self.assertEqual([i['archive_id'] for i in self.manager.get('queue')],[34])
+        self.assertIn(old['key'],self.manager.completed())
+
     def test_mmf_check_interval_is_independent_and_download_claims_notification(self):
         config=self.store.config()
         self.store.atomic_write(self.store.config_path,{**config,'availability_interval_hours':12,'mmf_availability_interval_hours':1})

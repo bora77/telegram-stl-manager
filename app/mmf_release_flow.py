@@ -2,6 +2,7 @@
 import json
 import re
 import time
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -37,11 +38,10 @@ def start(manager,payload):
     if payload.get('mode')=='finished':return prepare.finish_manually(manager,payload)
     choice=delivery(manager,payload)
     state=manager.state()
-    if state['active'] or upload.busy(manager):raise FileExistsError('Wait for the current release task to finish.')
     group=[i for i in state['items'] if i['release_key']==payload.get('release_key')]
     if not group:raise ValueError('Choose an existing release.')
     if sorted({i['key'] for i in group})!=payload.get('keys'):raise ValueError('Release files changed. Reopen Make release and review them.')
-    if any(not i['completed'] for i in group):raise ValueError('Download the release files first.')
+    if not payload.get('preparation_id') and any(not i['completed'] for i in group):raise ValueError('Download the release files first.')
     choice['creator']=choice.get('creator') or group[0]['creator']
     choice['month']=group[0].get('release_month','')
     if choice['mode']=='bot' and choice['profile']=='eve':
@@ -55,7 +55,10 @@ def start(manager,payload):
     if selected or available and not fresh and not any(p['state']!='complete' for p in history):
         plan=next(p for p in available if p['id']==selected) if selected else max(available,key=lambda p:p['number'])
         result=upload.start(manager,{'preparation_id':plan['id'],'delivery':choice})
-    else:result=prepare.start(manager,{'release_key':payload['release_key'],'delivery':choice})
+    else:
+        from app.telegram_cli import require_release_collage
+        require_release_collage(Path(manager.store.config()['download_directory'])/group[0]['folder']/group[0]['release_folder']/'release.7z')
+        result=upload.start(manager,{'workflow':{'release_key':payload['release_key'],'keys':payload['keys']},'title':group[0]['release_folder'],'delivery':choice})
     if choice['mode']=='bot':manager.put('release_bot_settings',{k:v for k,v in choice.items() if k not in ('month','creator')})
     return result
 
@@ -98,10 +101,20 @@ class BotConversation:
         return [b for row in (m['raw'].get('ReplyMarkup') or {}).get('Rows',[]) for b in row.get('Buttons',[]) if b.get('Data')]
 
     def click(self,label):
-        m=self.wait(lambda m:any(b.get('Text')==label for b in self.buttons(m)),'Waiting for bot button: '+label)
-        matches=[b for b in self.buttons(m) if b.get('Text')==label]
-        if len(matches)!=1:raise ValueError('Bot button is ambiguous: '+label)
-        self.checkpoint();self.command('callback',matches[0]['Data'],m['id'])
+        baseline=dict(self.baseline);rejected=set()
+        for attempt in range(3):
+            self.baseline=dict(baseline)
+            m=self.wait(lambda m:m['id'] not in rejected and any(b.get('Text')==label for b in self.buttons(m)),'Waiting for bot button: '+label)
+            matches=[b for b in self.buttons(m) if b.get('Text')==label]
+            if len(matches)!=1:raise ValueError('Bot button is ambiguous: '+label)
+            self.checkpoint()
+            try:
+                self.command('callback',matches[0]['Data'],m['id'])
+                return
+            except Exception as error:
+                if 'MESSAGE_ID_INVALID' not in str(error) or attempt==2:raise
+                rejected.add(m['id'])
+                self.update('conversation','Bot replaced its button; waiting for the current '+label+' button.')
 
     def steps(self,lines):
         for line in lines:
@@ -115,14 +128,23 @@ class BotConversation:
         if self.choice['profile']=='custom':self.steps(self.choice['before']);return
         self.checkpoint();self.command('text','/start')
         creator=self.choice['creator'];period=eve_month(self.choice['month'])
+        def creator_key(name):
+            return ''.join(unicodedata.normalize('NFKC',name).split()).casefold()
         def row_button(m):
+            matches=[]
             for row in (m['raw'].get('ReplyMarkup') or {}).get('Rows',[]):
                 buttons=row.get('Buttons',[])
-                if any(b.get('Text')==creator for b in buttons):
-                    matches=[b for b in buttons if b.get('Text','').endswith(period) and b.get('Data')]
-                    if len(matches)==1:return matches[0]
+                names=[b['Text'] for b in buttons if creator_key(b.get('Text',''))==creator_key(creator)]
+                if names:
+                    periods=[b for b in buttons if b.get('Text','').endswith(period) and b.get('Data')]
+                    if len(names)!=1 or len(periods)>1:
+                        raise ValueError('Bot creator selection is ambiguous: '+creator)
+                    if periods:matches.append((names[0],periods[0]))
+            if len(matches)>1:raise ValueError('Bot creator selection is ambiguous: '+creator)
+            return matches[0] if matches else None
         m=self.wait(lambda m:bool(row_button(m)),'Waiting for '+creator+' · '+period)
-        button=row_button(m);self.checkpoint();self.command('callback',button['Data'],m['id'])
+        creator,button=row_button(m);self.choice['creator']=creator
+        self.checkpoint();self.command('callback',button['Data'],m['id'])
         month=self.choice['month'];suffix=month[2:]
         self.wait(lambda m:('Upload a release for '+creator) in m['raw'].get('Message','') and (creator+' - '+suffix) in m['raw'].get('Message',''),'Waiting for the selected creator and release month')
 
@@ -130,3 +152,12 @@ class BotConversation:
         if self.choice['profile']=='custom':self.steps(self.choice['after']);success=self.choice['success']
         else:self.click('Complete');success='Upload done and saved.'
         return self.wait(lambda m:success in m['raw'].get('Message',''),'Waiting for publication confirmation')
+
+    def upload_filename(self,name):
+        if self.choice['profile']!='eve':return name
+        prefix=self.choice['creator']+' - '+self.choice['month'][2:]
+        # Preserve original names, volume numbers and addendum identifiers.
+        result=name if name.startswith(prefix) else prefix+' - '+name
+        from app.telegram_cli import safe_filename
+        if not safe_filename(result):raise ValueError('The bot upload filename is invalid or too long.')
+        return result

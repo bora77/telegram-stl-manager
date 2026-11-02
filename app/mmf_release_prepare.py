@@ -18,12 +18,78 @@ from app.telegram_cli import require_release_collage, CLIError
 def rows(manager):
     with manager.db() as db:
         db.execute('CREATE TABLE IF NOT EXISTS telegram_preparations (id TEXT PRIMARY KEY, data TEXT NOT NULL)')
-        return [json.loads(r[0]) for r in db.execute('SELECT data FROM telegram_preparations')]
+        return [p for r in db.execute('SELECT data FROM telegram_preparations') if not (p:=json.loads(r[0])).get('retired')]
 
 
 def save(manager, plan):
     with manager.db() as db:
         db.execute('INSERT OR REPLACE INTO telegram_preparations VALUES (?,?)',(plan['id'],json.dumps(plan)))
+
+
+def cleanup_published_sources(manager,plan):
+    """Remove only unchanged, packaged originals after confirmed publication."""
+    if not plan.get('publication') or not plan.get('items') or not plan.get('outputs'):return
+    try:
+        with release_lock(manager.root,plan['base'],plan['folder'],plan['release_folder']):
+            plan['source_cleanup']={'state':'running','message':'Checking release and source archives before cleanup.'};save(manager,plan)
+            source_root=Path(plan['base'])/plan['folder']/plan['release_folder']/(manager.label+' sources')
+            sources={};included=set(plan['keys']);eligible=[]
+            for item in plan['items']:
+                manifest=item.get('repack',{})
+                if not set(manifest.get('source_keys',[item['key']]))<=included:continue
+                for output in manifest.get('outputs',[]):
+                    path=Path(output['path'])
+                    if not path.is_relative_to(source_root) or any(p.is_symlink() for p in (path,*path.parents)):
+                        raise ValueError('Source cleanup refused a path outside the release source folder.')
+                    sources[str(path)]=output
+                eligible.append(item['key'])
+            checks=[*plan['outputs'],*(r for name,r in sources.items() if Path(name).exists())]
+            total=sum(r['size'] for r in checks);checked=0;started=time.monotonic();last=[0]
+            progress={'state':'running','message':'Verifying files before source cleanup.','bytes':0,'total':total,'checked_files':0,'total_files':len(checks),'removed_files':0,'source_files':len(sources)}
+            def report(force=False):
+                now=time.monotonic()
+                if force or now-last[0]>=.25:
+                    progress['speed_mbps']=round(progress['bytes']/max(now-started,.001)/1e6,2)
+                    plan['source_cleanup']=dict(progress);save(manager,plan);last[0]=now
+            for receipt in checks:
+                progress['current_file']=Path(receipt['path']).name;report(True)
+                def tick(n):progress['bytes']=checked+n;report()
+                verified(receipt['path'],receipt,plan['base'],tick)
+                checked+=receipt['size'];progress['bytes']=checked;progress['checked_files']+=1;report(True)
+            marker={'state':'complete','preparation_id':plan['id'],'release_outputs':plan['outputs'],'completed_at':time.time()}
+            # Persist intent first, so interrupted deletion is recoverable.
+            progress.update(state='pending',message='Removing verified source files.',sources=list(sources.values()))
+            report(True)
+            for name in sources:
+                path=Path(name)
+                if path.exists():path.unlink()
+                progress['current_file']=path.name;progress['removed_files']+=1;report(True)
+            if source_root.exists():
+                for directory in sorted((p for p in source_root.rglob('*') if p.is_dir() and not p.is_symlink()),key=lambda p:len(p.parts),reverse=True):
+                    if not any(directory.iterdir()):directory.rmdir()
+                if not any(source_root.iterdir()):source_root.rmdir()
+            with manager.db() as db:
+                for key in eligible:
+                    row=db.execute('SELECT data FROM completed WHERE key=?',(key,)).fetchone()
+                    if row:
+                        record=json.loads(row[0]);record['source_cleanup']=marker
+                        db.execute('UPDATE completed SET data=? WHERE key=?',(json.dumps(record),key))
+            plan['source_cleanup']={**progress,**marker,'speed_mbps':0,'message':'Source cleanup complete.'};save(manager,plan)
+    except Exception as error:
+        plan['source_cleanup']={'state':'warning','message':str(error)};save(manager,plan)
+
+
+def start_source_cleanup(manager,plan):
+    if not plan.get('items') or not plan.get('outputs'):return
+    plan['source_cleanup']={'state':'queued','message':'Publication saved. Source cleanup is running in the background.'};save(manager,plan)
+    with (manager.directory/'cleanup.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_SH)
+        log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
+        try:
+            Popen([sys.executable,'-m','app.mmf_release_prepare',str(manager.root),'cleanup:'+plan['id'],str(lock.fileno()),getattr(manager,'provider','mmf')],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
+        except Exception as error:
+            plan['source_cleanup']={'state':'warning','message':'Publication is saved, but source cleanup could not start: '+str(error)};save(manager,plan)
+        finally:os.close(log)
 
 
 def downloaded(manager):
@@ -49,13 +115,25 @@ def preparation_status(manager):
                 summary['keys']=sorted(set(summary['keys'])|set(plan['keys']))
                 summary['published_keys']=sorted(set(summary['published_keys'])|set(plan['keys']))
                 continue
-            history=sorted((r for r in uploads['attempts'] if r['preparation_id']==plan['id']),key=lambda r:r['created_at'])
+            history=sorted((r for r in uploads['attempts'] if r['preparation_id']==plan['id'] and not r.get('parent_upload_id')),key=lambda r:r['created_at'])
             last=history[-1] if history else plan.get('test_upload')
-            summary.setdefault('packages',[]).append({'id':plan['id'],'title':plan['title'],'published':bool(plan.get('publication')),'upload':({k:last.get(k) for k in ('id','state','message','bytes','total','speed_mbps','current')}|{'files':[{k:f.get(k) for k in ('name','size','uploaded','state')} for f in last.get('files',[])]}) if last else None,'attempted':bool(last),'upload_state':last.get('state') if last else None,'upload_message':last.get('message','Test upload '+last.get('state','')) if last else ''})
+            summary.setdefault('packages',[]).append({'id':plan['id'],'title':plan['title'],'published':bool(plan.get('publication')),'upload':({k:last.get(k) for k in ('id','state','message','bytes','total','speed_mbps','current','queue_position','can_finish')}|{'files':[{k:f.get(k) for k in ('name','size','uploaded','state')} for f in last.get('files',[])]}) if last else None,'attempted':bool(last),'upload_state':last.get('state') if last else None,'upload_message':last.get('message','Test upload '+last.get('state','')) if last else ''})
             summary.update(number=plan['number'],title=plan['title'],directory=plan['directory'])
+            summary['packages'][-1]['source_cleanup']=plan.get('source_cleanup')
             summary['keys']=sorted(set(summary['keys'])|set(plan['keys']))
             summary['published_keys']=sorted(set(summary['published_keys'])|set(plan.get('publication',{}).get('keys',[])))
         else:summary['pending']=plan['title']
+    for row in uploads['attempts']:
+        if not row.get('workflow') or row.get('preparation_id'):continue
+        key=row['workflow']['release_key'];summary=result.setdefault(key,{'number':-1,'keys':[],'published_keys':[]})
+        workflow_keys=set(row['workflow'].get('keys',[]))
+        if row['state'] in ('failed','interrupted','cancelled') and workflow_keys and workflow_keys<=set(summary['published_keys']):
+            # Preserve the attempt in history, but it is superseded by publication
+            # of every exact file version it was meant to release.
+            continue
+        summary['upload_active']=uploads['active']
+        summary.setdefault('packages',[]).append({'id':None,'title':row['title'],'published':False,'attempted':True,
+            'upload':{**{k:row.get(k) for k in ('id','state','message','queue_position')},'files':[]}})
     return result
 
 
@@ -116,6 +194,7 @@ def confirm_released(manager, payload):
         plan['publication']={'confirmed_at':time.time(),'method':'user_confirmation',
                              'upload_id':upload['id'],'keys':list(plan['keys'])}
         db.execute('UPDATE telegram_preparations SET data=? WHERE id=?',(json.dumps(plan),plan['id']))
+    start_source_cleanup(manager,plan)
     return {'recorded':True}
 
 
@@ -237,7 +316,7 @@ def prepare_images(manager, key,from_mmf=False):
         manager.progress(phase='complete',message=('Images ready. Create and save a collage next.' if records else 'No images found in '+getattr(manager,'label','MMF')+' galleries.' if from_mmf else 'No images found in the archives. You can download images from '+getattr(manager,'label','MMF')+'.'),warnings=warnings,speed_mbps=0)
 
 
-def start(manager,payload):
+def start(manager,payload,synchronous=False):
     key=payload.get('release_key')
     if not isinstance(key,str):raise ValueError('Choose a downloaded monthly release.')
     lock=(manager.directory/'worker.lock').open('a')
@@ -245,14 +324,23 @@ def start(manager,payload):
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:raise FileExistsError('Wait for the current MMF task to finish.')
         history=rows(manager);group=[i for i in downloaded(manager) if i['release_key']==key]
+        current=[i for i in manager.state()['items'] if i['release_key']==key]
+        if any(not i['completed'] for i in current):raise ValueError('Download the available files for this release first.')
+        if current:
+            current_keys={i['key'] for i in current}
+            group=[i for i in group if i['key'] in current_keys]
         if not group:raise ValueError('Choose a downloaded release.')
         directory=Path(manager.store.config()['download_directory'])/group[0]['folder']/group[0]['release_folder']
         require_release_collage(directory/'release.7z',action='making the release')
         # Do not silently issue a partial release while known files await downloading.
-        current=[i for i in manager.state()['items'] if i['release_key']==key]
-        if any(not i['completed'] for i in current):raise ValueError('Download the available files for this release first.')
         pending=[p for p in history if p['release_key']==key and p['state']!='complete']
-        if pending:plan=pending[0]
+        if pending:
+            plan=pending[0]
+            issued={k for p in history if p['release_key']==key and p['state']=='complete' for k in p['keys']}
+            delta=[i for i in group if i['key'] not in issued]
+            if not delta:raise ValueError('No current downloaded files remain for this preparation.')
+            plan.update(items=delta,keys=[i['key'] for i in delta],state='pending')
+            plan.pop('error',None)
         else:
             completed=[p for p in history if p['release_key']==key and p['state']=='complete']
             issued={k for p in completed for k in p['keys']}
@@ -260,7 +348,7 @@ def start(manager,payload):
             if not delta:raise ValueError('No new or updated downloaded files to prepare.')
             number=max((p['number'] for p in completed),default=-1)+1
             title=group[0]['release_folder']+(f' Addendum {number}' if number else '')
-            plan={'id':hashlib.sha256((key+':'+str(number)).encode()).hexdigest(),'release_key':key,'number':number,'title':title,'keys':[i['key'] for i in delta],'items':delta,'state':'pending','base':manager.store.config()['download_directory'],'folder':group[0]['folder'],'release_folder':group[0]['release_folder']}
+            plan={'id':hashlib.sha256((key+':'+str(number)+':'+os.urandom(16).hex()).encode()).hexdigest(),'release_key':key,'number':number,'title':title,'keys':[i['key'] for i in delta],'items':delta,'state':'pending','base':manager.store.config()['download_directory'],'folder':group[0]['folder'],'release_folder':group[0]['release_folder']}
             save(manager,plan)
         config=manager.store.config()
         plan['delivery']=payload.get('delivery')
@@ -271,6 +359,13 @@ def start(manager,payload):
         plan['cotton_directory']=config.get('release_cotton_directory','')
         save(manager,plan)
         manager.put('stop',False);manager.put('job',{'phase':'starting','action':'package','release_key':key,'message':'Making '+plan['title'],'errors':[]})
+        if synchronous:
+            try:execute(manager,plan)
+            except Exception as error:
+                plan.update(state='failed',error=str(error));save(manager,plan)
+                manager.progress(phase='error',message=str(error),speed_mbps=0)
+                raise
+            return {'started':True,'preparation_id':plan['id']}
         log=os.open(manager.directory/'worker.log',os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
         try:Popen([sys.executable,'-m','app.mmf_release_prepare',str(manager.root),plan['id'],str(lock.fileno()),getattr(manager,'provider','mmf')],pass_fds=(lock.fileno(),),stdout=log,stderr=log,stdin=DEVNULL,start_new_session=True,cwd=manager.root)
         finally:os.close(log)
@@ -278,11 +373,18 @@ def start(manager,payload):
     return {'started':True}
 
 
-def verified(path,receipt,base):
+def verified(path,receipt,base,progress=None):
     path=Path(path)
     if path.is_symlink() or not path.resolve(strict=True).is_relative_to(Path(base).resolve(strict=True)):
         raise ValueError('Prepared input is outside the configured download folder.')
-    if path.stat().st_size!=receipt['size'] or digest(path)!=receipt['sha256']:
+    if progress:
+        checksum=hashlib.sha256();count=0
+        with path.open('rb') as stream:
+            while chunk:=stream.read(1024*1024):
+                checksum.update(chunk);count+=len(chunk);progress(count)
+        actual=checksum.hexdigest()
+    else:actual=digest(path)
+    if path.stat().st_size!=receipt['size'] or actual!=receipt['sha256']:
         raise ValueError('Downloaded input changed or is incomplete: '+path.name)
     return path
 
@@ -336,11 +438,22 @@ def execute(manager,plan):
                 include.append(prefix)
             sources.append({'path':outputs[0],'folder':safe_component(manifest.get('release_name') or 'Release')+'-'+mid[:8] if len(manifests)>1 else '', 'include_prefixes':sorted(set(include))})
             for r in manifest.get('images',[]):images[r['path']]=r
+        for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
+            images.setdefault(record['path'],record)
+        image_paths={str(verified(r['path'],r,plan['base'])) for r in images.values()}
+        image_dir=release_archive.parent/'release_images'
+        if image_dir.is_symlink():raise ValueError('Release images folder must not be a symbolic link.')
+        for image in image_dir.glob('*'):
+            if image.suffix.lower() in ('.jpg','.jpeg','.png','.webp'):
+                if image.is_symlink() or not image.is_file():raise ValueError('Invalid release image: '+image.name)
+                image_paths.add(str(image))
+        if image_paths:reusable=None
         if reusable:
             packed=reusable
             manager.progress(phase='moving',message='Reusing verified archive · '+plan['title'],bytes=0,expected=0)
         else:
-            packed=repack(sources[0]['path'],work/'packed',plan['id'],progress,manager.stopped,compression_level=compression,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress)
+            identity=hashlib.sha256((plan['id']+json.dumps(sorted(plan['keys']))).encode()).hexdigest()
+            packed=repack(sources[0]['path'],work/'packed',identity,progress,manager.stopped,compression_level=compression,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress,release_images=sorted(image_paths))
         for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
             images.setdefault(record['path'],record)
         fallback=[]
@@ -371,7 +484,10 @@ if __name__=='__main__':
     else:manager=MMFManager(SubscriptionStore(Path(sys.argv[1])))
     plan=None
     try:
-        if sys.argv[2].startswith('gallery:'):prepare_images(manager,sys.argv[2][8:],from_mmf=True)
+        if sys.argv[2].startswith('cleanup:'):
+            cleanup_plan=next(p for p in rows(manager) if p['id']==sys.argv[2][8:])
+            cleanup_published_sources(manager,cleanup_plan)
+        elif sys.argv[2].startswith('gallery:'):prepare_images(manager,sys.argv[2][8:],from_mmf=True)
         elif sys.argv[2].startswith('images:'):prepare_images(manager,sys.argv[2][7:])
         else:
             plan=next(p for p in rows(manager) if p['id']==sys.argv[2])

@@ -409,6 +409,17 @@ Gallery images are fetched only on request. Packaging uses the configured compre
 
 Prepared MMF releases offer manual Upload and Re-upload actions. Every attempt sends a valid release collage as a Telegram photo first, then the existing archive volumes, and verifies the resulting messages. Re-upload remains available after success, failure, deletion, or interruption; it creates a separate receipt without downloading MMF sources again or creating an addendum. Choose the destination in Configuration. An uncertain attempt may have delivered some messages, so check the Release Pad before retrying.
 
+MMF and Gumroad share a durable upload queue. Add another prepared release while
+one uploads, or queue **Release through bot** / **Build and upload** before its
+archive is prepared. The queue waits for other preparation/download work, builds
+the archive if needed, and then performs the saved delivery conversation. Add another release while
+one uploads; its queue position appears in the release panel. Uploads and bot
+conversations run one at a time. Remove waiting entries with **Remove from queue**.
+After failure or interruption, review any partially sent release, then use
+**Resume upload queue** for untouched waiting entries. Retry the failed release
+separately with Re-upload. Closing the browser does not stop the worker; after
+a server restart the queue waits for manual resume.
+
 MMF **Open tasks** tracks publication separately from downloading or uploading. After the release bot successfully publishes a package, use **Confirm released** to move it to **Finished releases**. Direct bot delivery records completion only after the configured bot confirms publication. New or changed source files reopen their month for an addendum; previously published file versions remain recorded.
 
 On the download page, **Download detected** uses the last availability check's exact file queue without scanning subscriptions again. **Check and download all** performs a fresh check of every saved subscription. Starting a detected run replaces its notification with the next scheduled check; subsequent checks can notify about new files. Each new checking cycle hides inactive organizer results from view while preserving their records and any running organizer job.
@@ -636,3 +647,26 @@ remain visible in history and do not inflate the new attempt’s progress.
 Use **Restart unfinished** beside Resume to reset every unfinished file in the
 saved run and download only those again. It skips earlier completed files and
 starts a new progress count for the unfinished work. Stop an active run first.
+When releasing a prepared release through a bot, an existing verified upload to
+your Telegram release channel is reused. The collage and archives are forwarded
+without sender attribution; they are not uploaded again from your computer.
+Forwarding failures stop the attempt for review, with no automatic re-upload.
+A release without a previous verified channel upload is uploaded to Your Telegram
+Release Channel first, then forwarded to the bot. Configure this channel before
+starting a bot release. Archive bytes are never uploaded directly to a bot.
+
+If all files reached the bot but final confirmation failed, use **Retry completion**
+in the release upload panel. This queues only the completion step, without
+restarting the conversation or resending files. Recovery stops if the bot
+conversation has since changed. Replaced button messages are refreshed automatically.
+
+After bot-confirmed publication (or explicit confirmation of a verified upload),
+the manager removes unchanged source archives included in that package. It keeps
+the final release archive, collage, images, and download history. Sources remain
+until publication succeeds; changed files or cleanup errors are retained for review.
+Manual publication confirmation returns immediately. Source verification and
+cleanup run in a separate background worker, with status shown on the release.
+The queue shows live cleanup progress, including the current file, bytes checked,
+verification speed and sources removed, even when finished releases are filtered out.
+The confirmation dialog remains closable and reports a timeout if the server
+does not respond; check the saved release status before retrying.

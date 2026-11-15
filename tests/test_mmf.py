@@ -151,6 +151,13 @@ class MMFTests(unittest.TestCase):
         self.manager.put('creators',[{'id':1,'name':'Example Creator'}])
         self.item={'object_id':22,'archive_id':33,'size':3,'updated_at':'v1','filename':'January2025_Model.zip','creator':'Example Creator','creator_id':1,'folder':'Example Creator','month':'2025-01','release':'January 2025','object_name':'Model','start_month':''}
         self.item['key']=version_key(self.item)
+    def test_progress_status_does_not_probe_download_destination(self):
+        self.manager.put('job',{'phase':'verifying_inputs','bytes':123,'expected':456})
+        with patch.object(self.manager,'state',side_effect=AssertionError('Heavy status called')),patch.object(self.store,'config',side_effect=AssertionError('Destination config read')):
+            result=self.manager.progress_state()
+        self.assertEqual(result['job']['bytes'],123)
+        self.assertEqual(result['job']['expected'],456)
+
     def test_removed_archive_history_is_not_added_to_current_redownload(self):
         from app.mmf_manager import releases
         old=dict(self.item);releases([old])

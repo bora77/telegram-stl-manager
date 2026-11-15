@@ -399,7 +399,7 @@ def execute(manager,plan):
     work=manager.directory/'release-preparation'/plan['id'];work.mkdir(parents=True,exist_ok=True)
     def progress(phase,percent):
         if manager.stopped():raise ValueError('Preparation stopped. Use the same preparation button to resume.')
-        manager.progress(phase=phase,message=plan['title'],bytes=percent,expected=100,progress_unit='percent',cleaner_file=None,cleaner_total=None)
+        manager.progress(phase=phase,message=plan['title'],bytes=percent,expected=100,progress_unit='percent',cleaner_file=None,cleaner_total=None,current_file=None,file_index=None,file_total=None,speed_mbps=0)
     last_clean=[0,None]
     cleaner_started=[time.monotonic()]
     def cleaning_progress(filename,index,total,percent):
@@ -420,9 +420,22 @@ def execute(manager,plan):
             if not manifest:raise ValueError('This download has no verified repack receipt. Download it again before preparing.')
             manifests[manifest['id']]=manifest;selected.setdefault(manifest['id'],[]).append(item)
         sources=[];images={};reusable=None
+        input_total=sum(r['size'] for m in manifests.values() for r in m['outputs'])
+        input_files=sum(len(m['outputs']) for m in manifests.values());checked=0;index=0;started=time.monotonic();last_report=[0]
         for mid,manifest in manifests.items():
-            progress('verifying_inputs',0)
-            outputs=[verified(r['path'],r,plan['base']) for r in manifest['outputs']]
+            outputs=[]
+            for receipt in manifest['outputs']:
+                index+=1
+                def checking(n,force=False):
+                    if manager.stopped():raise ValueError('Preparation stopped. Resume to retry.')
+                    now=time.monotonic()
+                    if force or now-last_report[0]>=.25 or n==receipt['size']:
+                        manager.progress(phase='verifying_inputs',message='Checking input '+str(index)+'/'+str(input_files)+' · '+Path(receipt['path']).name,
+                            bytes=checked+n,expected=input_total,progress_unit='bytes',current_file=Path(receipt['path']).name,file_index=index,file_total=input_files,
+                            speed_mbps=round((checked+n)/max(now-started,.001)/1e6,2))
+                        last_report[0]=now
+                checking(0,True)
+                outputs.append(verified(receipt['path'],receipt,plan['base'],checking));checked+=receipt['size']
             outputs.sort();prefixes=manifest.get('source_prefixes',{})
             for r in manifest.get('images',[]):images[r['path']]=r
             if manifest.get('kind')=='original_archives':
@@ -460,7 +473,7 @@ def execute(manager,plan):
         sub=();outputs=[]
         def moving(n,total):
             if manager.stopped():raise ValueError('Preparation stopped. Use the preparation button to resume.')
-            manager.progress(phase='moving',message=plan['title'],bytes=n,expected=total)
+            manager.progress(phase='moving',message='Saving release · '+plan['title'],bytes=n,expected=total,progress_unit='bytes',speed_mbps=0)
         for index,path in enumerate(packed,1):
             if manager.stopped():raise ValueError('Preparation stopped. Use the preparation button to resume.')
             dest,size,checksum=deliver(path,plan['base'],plan['folder'],plan['release_folder'],plan['title']+'.7z'+(f'.{index:03}' if len(packed)>1 else ''),moving,subdirectories=sub,release_directory=plan['release_folder']);outputs.append({'path':str(dest),'size':size,'sha256':checksum})

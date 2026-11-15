@@ -135,6 +135,11 @@ class MMFManager:
             try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError:raise FileExistsError('Wait for the current '+self.label+' task to finish.')
             yield
+    def progress_state(self):
+        # No destination probing: progress must stay responsive while NAS I/O is busy.
+        from app.mmf_release_prepare import preparation_status
+        return {'job':self.get('job',{}),'active':self.busy(),'preparations':preparation_status(self)}
+
     def state(self):
         settings=self.get('settings',{'revision':0,'subscriptions':[]})
         job=self.get('job',{});active=self.busy()

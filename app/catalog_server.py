@@ -127,6 +127,8 @@ class Handler(SimpleHTTPRequestHandler):
                 else:self.reply_json(profiles.info(name))
             except (ValueError,OSError) as error:self.reply_json({'error':str(error)},400)
             return
+        if path in ('/api/mmf/progress','/api/gumroad/progress'):
+            self.reply_json((GUMROAD if path.startswith('/api/gumroad') else MMF).progress_state());return
         if path in ('/api/mmf','/api/mmf/status','/api/gumroad','/api/gumroad/status'):
             result=(GUMROAD if path.startswith('/api/gumroad') else MMF).state()
             if path.endswith('/status'):

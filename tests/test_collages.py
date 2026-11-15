@@ -38,7 +38,7 @@ class LayoutTests(unittest.TestCase):
             self.assertLess(max(heights)/min(heights),3)
 
     def test_every_shape_layout_and_slot_count_has_bounded_separate_cells(self):
-        for count in range(2,10):
+        for count in range(1,10):
             sizes=[(300,500),(800,300),(200,200),(400,900),(750,450),(100,600),(1000,200),(300,800),(500,400)][:count]
             for shape,(w,h) in FORMATS.items():
                 for layout in LAYOUTS:
@@ -97,6 +97,12 @@ class CollageTests(unittest.TestCase):
     def start(self,preview):
         with patch('app.collages.subprocess.Popen') as spawn:job=self.collages.start_export({'preview_id':preview['id']})
         spawn.assert_called_once();return job
+
+    def test_single_image_can_preview_and_export(self):
+        payload={**self.payload,'images':self.payload['images'][:1],'layout':'rows'}
+        preview=self.collages.preview(payload)
+        job=self.start(preview);self.collages.run_export(job['id'])
+        self.assertTrue((self.images.parent/'Example-2026-08.jpg').is_file())
 
     def test_artist_prefixed_and_named_release_folders_open_and_export(self):
         old=self.images.parent

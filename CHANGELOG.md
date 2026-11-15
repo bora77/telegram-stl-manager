@@ -1,5 +1,12 @@
 # Version history
 
+## 0.1.32
+
+- Show file counts, bytes checked and speed during release input verification.
+- Keep progress updates responsive while network storage is busy using a lightweight local status endpoint.
+- Use Image-shaped rows as the default for new collages, while preserving saved layouts.
+- Support single-image collages with uncropped, proportional preview and export.
+
 ## 0.1.31
 
 - Show live source-cleanup progress, current file, verification speed and removal counts; publication confirmation returns immediately.

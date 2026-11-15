@@ -38,8 +38,8 @@ def _rows(ratios, indices, area, gap):
     return cells
 
 
-def geometry(sizes, layout='featured', shape='landscape', title=True):
-    if not 2 <= len(sizes) <= 9 or any(w<=0 or h<=0 for w,h in sizes):raise ValueError('A collage needs 2–9 valid image slots.')
+def geometry(sizes, layout='rows', shape='landscape', title=True):
+    if not 1 <= len(sizes) <= 9 or any(w<=0 or h<=0 for w,h in sizes):raise ValueError('A collage needs 1–9 valid image slots.')
     width, height = FORMATS[shape]
     margin = min(width, height)/30
     gap = margin/3
@@ -47,7 +47,7 @@ def geometry(sizes, layout='featured', shape='landscape', title=True):
     x0, y0, x1, y1 = area
     ratios = [w/h for w, h in sizes]
     indices = list(range(len(sizes)))
-    if layout == 'rows':return _rows(ratios, indices, area, gap)
+    if layout == 'rows' or len(sizes)==1:return _rows(ratios, indices, area, gap)
     if layout == 'featured':
         # Portrait leads sit to the left; landscape leads sit above the others.
         if ratios[0] < 1:

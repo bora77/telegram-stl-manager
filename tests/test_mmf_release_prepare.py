@@ -115,6 +115,12 @@ class PrepareTests(unittest.TestCase):
             with patch.object(manager.store,'config',return_value={'download_directory':str(base),'release_stl_cleaner':'delicates','release_compression_level':0}),patch.object(manager,'state',return_value={'items':[]}),patch('app.mmf_release_prepare.Popen'),patch.object(manager,'progress',wraps=manager.progress) as progress:
                 start(manager,{'release_key':item['release_key']});plan=rows(manager)[0]
                 self.assertEqual(plan['stl_cleaner'],'delicates');execute(manager,plan)
+                input_events=[c.kwargs for c in progress.call_args_list if c.kwargs.get('phase')=='verifying_inputs']
+                self.assertTrue(input_events);self.assertEqual(input_events[0]['bytes'],0)
+                self.assertEqual(input_events[-1]['bytes'],archive.stat().st_size)
+                self.assertEqual(input_events[-1]['expected'],archive.stat().st_size)
+                self.assertEqual(input_events[-1]['file_total'],1)
+                self.assertEqual(input_events[-1]['current_file'],archive.name)
                 events=[c.kwargs for c in progress.call_args_list if c.kwargs.get('phase')=='cleaning_stls']
                 self.assertTrue(events);self.assertEqual(events[-1]['cleaner_done'],1);self.assertEqual(events[-1]['cleaner_total'],1)
             self.assertEqual(archive.read_bytes(),original)

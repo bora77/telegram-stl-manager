@@ -189,7 +189,7 @@ class CollageStore:
             for record in records:
                 db.execute('INSERT OR REPLACE INTO images VALUES(:id,:release_id,:relative,:name,:identity,:width,:height,:format,:reason,:archive)', record)
             selection = db.execute('SELECT * FROM selections WHERE release_id=?', (release['id'],)).fetchone()
-        draft = json.loads(selection['data']) if selection else {'images': [None]*6, 'layout': 'featured', 'shape': 'landscape', 'theme': 'dark', 'title': folder.lstrip('-! ')+' · '+month}
+        draft = json.loads(selection['data']) if selection else {'images': [None]*6, 'layout': 'rows', 'shape': 'landscape', 'theme': 'dark', 'title': folder.lstrip('-! ')+' · '+month}
         return {'release': {k:release[k] for k in ('id','folder','month')}, 'images': [self.public_image(r) for r in records],
                 'selection': draft, 'revision': selection['revision'] if selection else 0, 'warnings': warnings, 'exports': self.exports(release['id'])}
 
@@ -247,7 +247,7 @@ class CollageStore:
     def validate_selection(self, payload, minimum=0):
         release = self.release(payload.get('release_id'))
         ids = payload.get('images')
-        if not isinstance(ids, list) or not 2 <= len(ids) <= 9:raise CollageError('Choose between two and nine collage slots.')
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 9:raise CollageError('Choose between one and nine collage slots.')
         filled = [i for i in ids if i is not None]
         if len(set(map(str,filled))) != len(filled) or (minimum and len(filled)!=len(ids)):raise CollageError('Fill every collage slot with a different image.')
         records = [self.image_record(i) for i in filled]
@@ -287,7 +287,7 @@ class CollageStore:
         return sources
 
     def preview(self, payload):
-        release, records, settings = self.validate_selection(payload, minimum=2)
+        release, records, settings = self.validate_selection(payload, minimum=1)
         if not PREVIEW_SLOT.acquire(timeout=20):raise CollageError('Another preview is being prepared. Try again shortly.')
         preview_id = uuid.uuid4().hex;output = self.cache/(preview_id+'-preview.jpg')
         try:

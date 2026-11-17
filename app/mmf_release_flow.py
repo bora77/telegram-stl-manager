@@ -3,6 +3,7 @@ import json
 import re
 import time
 import unicodedata
+import calendar
 from datetime import datetime
 from pathlib import Path
 
@@ -44,22 +45,30 @@ def start(manager,payload):
     if not payload.get('preparation_id') and any(not i['completed'] for i in group):raise ValueError('Download the release files first.')
     choice['creator']=choice.get('creator') or group[0]['creator']
     choice['month']=group[0].get('release_month','')
-    if choice['mode']=='bot' and choice['profile']=='eve':
-        eve_month(choice['month'])
+    choice['release_kind']='welcome_pack' if re.search(r'\bwelcome[\s_-]*pack\b',group[0].get('release_folder',''),re.I) else 'monthly'
     history=[p for p in prepare.rows(manager) if p['release_key']==payload['release_key']]
     issued={k for p in history if p['state']=='complete' for k in p['keys']}
     fresh=any(i['key'] not in issued for i in group)
     available=[p for p in history if p['state']=='complete' and p.get('outputs')]
     selected=payload.get('preparation_id')
     if selected and not any(p['id']==selected for p in available):raise ValueError('The selected archive is no longer available.')
+    def configure_append(number):
+        choice['append']=number>0
+        if choice['mode']=='bot' and choice['profile']=='eve' and choice['release_kind']=='monthly':
+            if choice['append']:
+                if not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',choice['month'] or ''):raise ValueError('An addendum needs the original release month.')
+            else:eve_month(choice['month'])
     if selected or available and not fresh and not any(p['state']!='complete' for p in history):
         plan=next(p for p in available if p['id']==selected) if selected else max(available,key=lambda p:p['number'])
+        configure_append(plan['number'])
         result=upload.start(manager,{'preparation_id':plan['id'],'delivery':choice})
     else:
+        pending=next((p for p in history if p['state']!='complete'),None)
+        configure_append(pending['number'] if pending else max((p['number'] for p in history if p['state']=='complete'),default=-1)+1)
         from app.telegram_cli import require_release_collage
         require_release_collage(Path(manager.store.config()['download_directory'])/group[0]['folder']/group[0]['release_folder']/'release.7z')
         result=upload.start(manager,{'workflow':{'release_key':payload['release_key'],'keys':payload['keys']},'title':group[0]['release_folder'],'delivery':choice})
-    if choice['mode']=='bot':manager.put('release_bot_settings',{k:v for k,v in choice.items() if k not in ('month','creator')})
+    if choice['mode']=='bot':manager.put('release_bot_settings',{k:v for k,v in choice.items() if k not in ('month','creator','release_kind','append')})
     return result
 
 
@@ -68,7 +77,7 @@ def eve_month(month):
     previous=f'{now.year-1}-12' if now.month==1 else f'{now.year}-{now.month-1:02}'
     if month==current:return 'This Month'
     if month==previous:return 'Last Month'
-    raise ValueError('The Eve quick flow supports this month and last month. For older or named releases, configure Custom conversation with the bot’s exact buttons.')
+    raise ValueError('The Eve flow supports this month, last month and Welcome Packs. For other older or named releases, configure Custom conversation with the bot’s exact buttons.')
 
 
 class BotConversation:
@@ -127,7 +136,9 @@ class BotConversation:
     def begin(self):
         if self.choice['profile']=='custom':self.steps(self.choice['before']);return
         self.checkpoint();self.command('text','/start')
-        creator=self.choice['creator'];period=eve_month(self.choice['month'])
+        welcome=self.choice.get('release_kind')=='welcome_pack'
+        append=self.choice.get('append',False)
+        creator=self.choice['creator'];period='Welcome Pack' if welcome else self.choice['month'] if append else eve_month(self.choice['month'])
         def creator_key(name):
             return ''.join(unicodedata.normalize('NFKC',name).split()).casefold()
         def row_button(m):
@@ -136,7 +147,7 @@ class BotConversation:
                 buttons=row.get('Buttons',[])
                 names=[b['Text'] for b in buttons if creator_key(b.get('Text',''))==creator_key(creator)]
                 if names:
-                    periods=[b for b in buttons if b.get('Text','').endswith(period) and b.get('Data')]
+                    periods=[b for b in buttons if (creator_key(b.get('Text',''))==creator_key(creator) if welcome or append else b.get('Text','').endswith(period)) and b.get('Data')]
                     if len(names)!=1 or len(periods)>1:
                         raise ValueError('Bot creator selection is ambiguous: '+creator)
                     if periods:matches.append((names[0],periods[0]))
@@ -145,7 +156,30 @@ class BotConversation:
         m=self.wait(lambda m:bool(row_button(m)),'Waiting for '+creator+' · '+period)
         creator,button=row_button(m);self.choice['creator']=creator
         self.checkpoint();self.command('callback',button['Data'],m['id'])
-        month=self.choice['month'];suffix=month[2:]
+        if welcome:
+            def welcome_buttons(m):
+                return [b for b in self.buttons(m) if re.fullmatch(r'\W*welcome[\s_-]*pack\W*',b.get('Text',''),re.I)]
+            menu=self.wait(lambda m:bool(welcome_buttons(m)),'Waiting for Welcome Pack category')
+            matches=welcome_buttons(menu)
+            if len(matches)!=1:raise ValueError('Welcome Pack category is ambiguous.')
+            self.click(matches[0]['Text'])
+        elif append:
+            month=self.choice['month']
+            if not re.fullmatch(r'20\d{2}-(0[1-9]|1[0-2])',month or ''):raise ValueError('An addendum needs the original release month.')
+            self.click('Monthly');self.click(month[:4]);self.click(calendar.month_name[int(month[5:])])
+        suffix='Welcome Pack' if welcome else self.choice['month'][2:]
+        if append:
+            expected=creator+' - '+suffix
+            def existing(m):
+                text=m['raw'].get('Message','')
+                if ('Upload a release for '+creator) in text:raise ValueError('Eve has no existing release for this addendum. No files were forwarded.')
+                return ('A release for '+expected+' already exists.') in text
+            menu=self.wait(existing,'Waiting for the existing release: '+expected)
+            buttons=[b for b in self.buttons(menu) if b.get('Text')=='Append to release']
+            if len(buttons)!=1:raise ValueError('The existing release has no unambiguous Append to release button.')
+            self.checkpoint();self.command('callback',buttons[0]['Data'],menu['id'])
+            self.wait(lambda m:('Upload additional files for '+creator+' ') in m['raw'].get('Message','') and expected in m['raw'].get('Message',''),'Waiting for the addendum upload prompt: '+expected)
+            return
         self.wait(lambda m:('Upload a release for '+creator) in m['raw'].get('Message','') and (creator+' - '+suffix) in m['raw'].get('Message',''),'Waiting for the selected creator and release month')
 
     def finish(self):
@@ -155,7 +189,8 @@ class BotConversation:
 
     def upload_filename(self,name):
         if self.choice['profile']!='eve':return name
-        prefix=self.choice['creator']+' - '+self.choice['month'][2:]
+        suffix='Welcome Pack' if self.choice.get('release_kind')=='welcome_pack' else self.choice['month'][2:]
+        prefix=self.choice['creator']+' - '+suffix
         # Preserve original names, volume numbers and addendum identifiers.
         result=name if name.startswith(prefix) else prefix+' - '+name
         from app.telegram_cli import safe_filename

@@ -353,6 +353,7 @@ def start(manager,payload,synchronous=False):
         config=manager.store.config()
         plan['delivery']=payload.get('delivery')
         plan.setdefault('compression_level',config.get('release_compression_level',7))
+        plan['compression_threads']=config.get('release_compression_threads',0)
         plan.setdefault('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
         plan['stl_cleaner']=config.get('release_stl_cleaner','off')
         plan['cotton_level']=config.get('release_cotton_level',0)
@@ -392,6 +393,7 @@ def verified(path,receipt,base,progress=None):
 def execute(manager,plan):
     config=manager.store.config()
     compression=plan.get('compression_level',config.get('release_compression_level',7))
+    threads=plan.get('compression_threads',config.get('release_compression_threads',0))
     volume_bytes=plan.get('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
     cleaner=plan.get('stl_cleaner',config.get('release_stl_cleaner','off'))
     cotton_level=plan.get('cotton_level',config.get('release_cotton_level',0))
@@ -466,7 +468,7 @@ def execute(manager,plan):
             manager.progress(phase='moving',message='Reusing verified archive · '+plan['title'],bytes=0,expected=0)
         else:
             identity=hashlib.sha256((plan['id']+json.dumps(sorted(plan['keys']))).encode()).hexdigest()
-            packed=repack(sources[0]['path'],work/'packed',identity,progress,manager.stopped,compression_level=compression,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress,release_images=sorted(image_paths))
+            packed=repack(sources[0]['path'],work/'packed',identity,progress,manager.stopped,compression_level=compression,compression_threads=threads,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress,release_images=sorted(image_paths))
         for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
             images.setdefault(record['path'],record)
         fallback=[]

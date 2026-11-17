@@ -126,7 +126,7 @@ function releaseModal(group,pack=null){
  const botFields=document.createElement('div'),saved=data.release_bot_settings||{};
  const bot=document.createElement('input');bot.value=saved.destination||'';bot.placeholder='@your_release_bot';
  const creator=document.createElement('input');creator.value=group.creator;
- const profile=document.createElement('select');profile.append(new Option('Eve · this month / last month','eve'),new Option('Custom conversation','custom'));profile.value=saved.profile||'eve';
+ const profile=document.createElement('select');profile.append(new Option('Eve · monthly releases / Welcome Packs','eve'),new Option('Custom conversation','custom'));profile.value=saved.profile||'eve';
  botFields.append(label('Bot username',bot),label('Creator name in the bot',creator),label('Conversation',profile));
  const custom=document.createElement('div'),before=document.createElement('textarea'),after=document.createElement('textarea'),success=document.createElement('input');
  before.rows=4;after.rows=3;before.value=(saved.before||[]).join('\n');after.value=(saved.after||[]).join('\n');success.value=saved.success||'';

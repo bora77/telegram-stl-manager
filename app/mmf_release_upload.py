@@ -232,6 +232,7 @@ def drain(manager,lock_fd):
 def execute(manager,row,client=None):
     from app.mmf_release_prepare import rows
     plan=next(p for p in rows(manager) if p['id']==row['preparation_id'])
+    row['title']=plan['title'];save(manager,row)
     if row.get('delivery',{}).get('mode')=='bot' and not row.get('completion_only') and not pad_source(manager,plan['id']):
         target=manager.store.config().get('release_pad_destination','')
         if not re.fullmatch(r'-[1-9][0-9]{0,18}',target):raise ValueError('Choose Your Telegram Release Channel in Configuration before releasing through a bot.')
@@ -261,7 +262,7 @@ def execute(manager,row,client=None):
         conversation=None
         if row.get('delivery',{}).get('mode')=='bot':
             from app.mmf_release_flow import BotConversation
-            conversation=BotConversation(client,work,{**row['delivery'],'title':plan['title']},export,update)
+            conversation=BotConversation(client,work,{**row['delivery'],'title':plan['title'],'append':plan.get('number',0)>0},export,update)
             conversation.command('info')
             peer=json.loads((work/'bot.json').read_text())
             if peer.get('bot') is not True or type(peer.get('id')) is not int or peer['id']<=0:raise CLIError('The recipient is not a verified bot.')
@@ -340,7 +341,7 @@ def execute(manager,row,client=None):
                 if index and m.get('file')==sent_path.name and (media.get('Document') or {}).get('Size')==info['size']:matches.append(m)
             if len(matches)!=1:raise CLIError('Could not verify delivery. Check the selected destination before re-uploading; the message may already exist.')
             info.update(uploaded=info['size'],state='complete');row['bytes']=sum(f['uploaded'] for f in staged)
-            row['messages'].append({'message_id':matches[0]['id'],'filename':sent_path.name,'kind':'collage' if index==0 else 'archive'});save(manager,row)
+            row['messages'].append({'message_id':matches[0]['id'],'filename':sent_path.name,'kind':'collage' if index==0 else 'archive','caption':plan['title']});save(manager,row)
         if conversation:
             first=min(m['message_id'] for m in row['messages'])
             conversation.baseline={k:v for k,v in conversation.baseline.items() if k<first}
@@ -362,6 +363,7 @@ def execute(manager,row,client=None):
 def forward_existing(manager,row,source,conversation,client,work,export,update):
     """Reuse verified Telegram messages; never stage or upload local bytes."""
     from app.mmf_release_prepare import rows,save as save_plan
+    plan=next(p for p in rows(manager) if p['id']==row['preparation_id'])
     row['source_upload_id']=source['id'];row['transfer_mode']='forward'
     row['files']=[{**f,'uploaded':0,'state':'queued'} for f in source['files']]
     row['total']=sum(f['size'] for f in row['files']);row['bytes']=0;row['speed_mbps']=0
@@ -384,7 +386,9 @@ def forward_existing(manager,row,source,conversation,client,work,export,update):
             # Only populated fields indicate retained forwarding attribution.
             attribution=raw.get('FwdFrom') or {}
             if m['id'] in before or not raw.get('Out') or any(attribution.values()):continue
-            if raw.get('Message')!=source['title']:continue
+            # Legacy queued receipts kept the monthly title before packaging
+            # assigned an Addendum title. The prepared plan supplied the caption.
+            if raw.get('Message')!=message.get('caption',plan['title']):continue
             if index==0 and media.get('Photo'):matches.append(m)
             elif index and m.get('file')==message['filename'] and (media.get('Document') or {}).get('Size')==info['size']:matches.append(m)
         if len(matches)!=1:raise CLIError('Could not verify the forwarded message. Check the bot before retrying. No local files were uploaded.')

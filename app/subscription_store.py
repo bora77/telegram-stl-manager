@@ -39,6 +39,7 @@ class SubscriptionStore:
         data.setdefault('availability_interval_hours',4)
         data.setdefault('mmf_availability_interval_hours',4)
         data.setdefault('release_compression_level',7)
+        data.setdefault('release_compression_threads',0)
         data.setdefault('release_volume_mib',4000)
         data.setdefault('release_stl_cleaner','off')
         data.setdefault('release_cotton_level',0)
@@ -112,6 +113,8 @@ class SubscriptionStore:
                 from app.stl_cleaner import cotton_executable
                 cotton_executable(self.root,cotton_level,cotton_directory)
             compression=payload.get('release_compression_level',current['release_compression_level'])
+            threads=payload.get('release_compression_threads',current['release_compression_threads'])
+            if type(threads) is not int or not 0<=threads<=256:raise ValueError('Choose Auto or between 1 and 256 compression threads.')
             volume=payload.get('release_volume_mib',current['release_volume_mib'])
             if type(compression) is not int or compression not in (0,1,3,5,7,9):
                 raise ValueError('Choose a compression level of 0, 1, 3, 5, 7 or 9.')
@@ -119,7 +122,7 @@ class SubscriptionStore:
                 raise ValueError('Choose a release part size between 1 and 65536 MiB.')
             adaptive=payload.get('adaptive_downloads',current['adaptive_downloads'])
             if type(adaptive) is not bool:raise ValueError('Choose whether adaptive parallel downloads are enabled.')
-            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'gumroad_beta_enabled':gumroad_beta,'gumroad_availability_interval_hours':gumroad_interval,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval,'mmf_availability_interval_hours':mmf_interval,'release_compression_level':compression,'release_volume_mib':volume,'release_stl_cleaner':cleaner,'release_cotton_level':cotton_level,'release_cotton_directory':cotton_directory}
+            data={'revision':current['revision']+1,'download_storage':storage,'mmf_beta_enabled':mmf_beta,'gumroad_beta_enabled':gumroad_beta,'gumroad_availability_interval_hours':gumroad_interval,'release_pad_destination':release_pad,'download_directory':str(directory),'download_servers':servers,'server_check_frequency':frequency,'server_speed_threshold_mbps':threshold,'download_bandwidth_target_mbps':target,'adaptive_downloads':adaptive,'availability_interval_hours':interval,'mmf_availability_interval_hours':mmf_interval,'release_compression_level':compression,'release_compression_threads':threads,'release_volume_mib':volume,'release_stl_cleaner':cleaner,'release_cotton_level':cotton_level,'release_cotton_directory':cotton_directory}
             self.atomic_write(self.config_path,data)
             return data
 

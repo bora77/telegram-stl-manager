@@ -1,5 +1,12 @@
 # Version history
 
+## 0.1.33
+
+- Use automatic 7-Zip threading by default, with a configurable fixed limit under Release packaging.
+- Automatically route Welcome Packs through Eve's Welcome Pack category.
+- Send numbered addenda through the original creator/year/month and Append to release, including older months.
+- Verify addendum captions correctly when forwarding existing release-channel messages, including older upload receipts.
+
 ## 0.1.32
 
 - Show file counts, bytes checked and speed during release input verification.

@@ -19,10 +19,12 @@ class StoreTests(unittest.TestCase):
     def test_release_packaging_settings(self):
         config=self.store.config()
         self.assertEqual((config['release_compression_level'],config['release_volume_mib']),(7,4000))
-        payload={'revision':config['revision'],'download_directory':str(self.root),'release_compression_level':3,'release_volume_mib':1500}
+        self.assertEqual(config['release_compression_threads'],0)
+        payload={'revision':config['revision'],'download_directory':str(self.root),'release_compression_level':3,'release_volume_mib':1500,'release_compression_threads':8}
         result=self.store.save_config(payload)
         self.assertEqual((result['release_compression_level'],result['release_volume_mib']),(3,1500))
-        for key,values in {'release_compression_level':[True,2,10,'7'],'release_volume_mib':[True,0,1.5,65537]}.items():
+        self.assertEqual(result['release_compression_threads'],8)
+        for key,values in {'release_compression_level':[True,2,10,'7'],'release_volume_mib':[True,0,1.5,65537],'release_compression_threads':[True,-1,257,1.5,'auto']}.items():
             for value in values:
                 with self.subTest(key=key,value=value),self.assertRaises(ValueError):
                     self.store.save_config({**payload,'revision':result['revision'],key:value})

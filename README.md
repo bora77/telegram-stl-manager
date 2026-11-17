@@ -405,7 +405,7 @@ MMF Download and Re-download automatically extract archive images into `release_
 
 Preparation records which source file versions were included. Later additions or updated downloads use **Make Addendum 1**, then Addendum 2, and so on; unchanged files are excluded. A failed preparation retries the same number. Preparing successfully reserves that release number even before you upload it. Previously downloaded months remain eligible for update checks regardless of the subscription start month. The Make release dialog chooses what happens after preparation: upload to your release channel or run a bot conversation.
 
-Gallery images are fetched only on request. Packaging uses the configured compression level and part size with two threads. Legacy verified 7-Zip sets can be reused only when their contents, compression, cleanup policy and part sizes meet the requested settings.
+Gallery images are fetched only on request. Packaging uses the configured compression level, part size and thread setting (Auto by default). Legacy verified 7-Zip sets can be reused only when their contents, compression, cleanup policy and part sizes meet the requested settings.
 
 Prepared MMF releases offer manual Upload and Re-upload actions. Every attempt sends a valid release collage as a Telegram photo first, then the existing archive volumes, and verifies the resulting messages. Re-upload remains available after success, failure, deletion, or interruption; it creates a separate receipt without downloading MMF sources again or creating an addendum. Choose the destination in Configuration. An uncertain attempt may have delivered some messages, so check the Release Pad before retrying.
 
@@ -515,8 +515,9 @@ bot. The Eve quick flow selects the creator's **This Month** or **Last Month** b
 checks the upload prompt's creator and month, sends the collage and archives,
 clicks **Complete**, and waits for **Upload done and saved.** before recording
 publication. It supports creators visible in the opening menu. Other creators,
-older months, named collections and bots with different menus need **Custom
-conversation**. Do not choose a monthly quick flow for a welcome pack or campaign.
+older months, other named collections and bots with different menus need **Custom
+conversation**. Welcome Packs are detected automatically: the flow selects the
+creator, selects **Welcome Pack**, and verifies the creator's Welcome Pack prompt.
 
 Custom conversations use one `send: message`, `click: exact button text`, or
 `wait: reply text` step per line, separately before and after file upload. Supported
@@ -670,3 +671,14 @@ The queue shows live cleanup progress, including the current file, bytes checked
 verification speed and sources removed, even when finished releases are filtered out.
 The confirmation dialog remains closable and reports a timeout if the server
 does not respond; check the saved release status before retrying.
+
+In Configuration → Release packaging, Compression threads defaults to Auto,
+letting 7-Zip choose its thread count. Select a fixed limit to leave more CPU
+capacity for other work. Saved changes apply to subsequent packaging jobs;
+running jobs keep their current settings. Compression level remains independent.
+
+Numbered addenda sent through Eve select the original release's creator, year and
+month, then **Append to release**. Older monthly releases are supported for this
+append flow. The tool verifies the existing release and additional-files prompt
+before forwarding; it stops if the original release is not found. Welcome Pack
+addenda use the Welcome Pack category instead of a month.

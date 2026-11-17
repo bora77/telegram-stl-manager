@@ -253,8 +253,9 @@ preserved; saving subscriptions does not start downloads or create folders.
 MMF beta release delivery is configured from **Make release** in MMF Queue. Choose
 the configured Telegram release channel, a bot conversation, or Just mark as
 finished. Bot delivery requires its @username and conversation settings; the Eve
-quick flow covers this/last month for creators in its initial menu. Use Custom
-conversation for other menus, older months or named collections. See README.md,
+quick flow covers this/last month and automatically selects the Welcome Pack
+category for named Welcome Packs, for creators in its initial menu. Use Custom
+conversation for other menus, older months or other named collections. See README.md,
 “Choosing a release destination”, before configuring bot automation.
 
 ## Optional Gumroad Beta
@@ -388,3 +389,14 @@ The queue shows live cleanup progress, including the current file, bytes checked
 verification speed and sources removed, even when finished releases are filtered out.
 The confirmation dialog remains closable and reports a timeout if the server
 does not respond; check the saved release status before retrying.
+
+In Configuration → Release packaging, Compression threads defaults to Auto,
+letting 7-Zip choose its thread count. Select a fixed limit to leave more CPU
+capacity for other work. Saved changes apply to subsequent packaging jobs;
+running jobs keep their current settings. Compression level remains independent.
+
+Numbered addenda sent through Eve select the original release's creator, year and
+month, then **Append to release**. Older monthly releases are supported for this
+append flow. The tool verifies the existing release and additional-files prompt
+before forwarding; it stops if the original release is not found. Welcome Pack
+addenda use the Welcome Pack category instead of a month.

@@ -212,3 +212,17 @@ The queue shows live cleanup progress, including the current file, bytes checked
 verification speed and sources removed, even when finished releases are filtered out.
 The confirmation dialog remains closable and reports a timeout if the server
 does not respond; check the saved release status before retrying.
+
+In Configuration → Release packaging, Compression threads defaults to Auto,
+letting 7-Zip choose its thread count. Select a fixed limit to leave more CPU
+capacity for other work. Saved changes apply to subsequent packaging jobs;
+running jobs keep their current settings. Compression level remains independent.
+
+Numbered addenda sent through Eve select the original release's creator, year and
+month, then **Append to release**. Older monthly releases are supported for this
+append flow. The tool verifies the existing release and additional-files prompt
+before forwarding; it stops if the original release is not found. Welcome Pack
+addenda use the Welcome Pack category instead of a month.
+
+Eve bot delivery recognizes named Welcome Packs and selects the creator's Welcome
+Pack category automatically. Other named collections still require a Custom conversation.

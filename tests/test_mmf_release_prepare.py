@@ -13,6 +13,18 @@ from app.release_images import listing
 from app.subscription_store import SubscriptionStore
 
 class PrepareTests(unittest.TestCase):
+    def test_repack_uses_auto_or_fixed_thread_setting(self):
+        from app.mmf_repack import repack,command
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);source=root/'source.zip'
+            with zipfile.ZipFile(source,'w') as z:z.writestr('model.stl','solid example')
+            for threads,option in ((0,'-mmt=on'),(4,'-mmt=4')):
+                with patch('app.mmf_repack.command',wraps=command) as run:
+                    repack(source,root/str(threads),'test',compression_threads=threads)
+                calls=[c.args[0] for c in run.call_args_list if c.args[0][0] in ('x','a','t')]
+                self.assertEqual(len(calls),3)
+                self.assertTrue(all(option in args for args in calls))
+
     def test_confirmation_schedules_cleanup_without_reading_archive_bytes(self):
         from app.mmf_release_prepare import save,confirm_released
         from app.mmf_release_upload import attempts,save as save_upload
@@ -149,6 +161,16 @@ class PrepareTests(unittest.TestCase):
                 route(manager,{**payload,'keys':['B'],'preparation_id':'old'})
                 self.assertEqual(upload.call_args.args[1]['preparation_id'],'old')
                 with self.assertRaisesRegex(ValueError,'no longer available'):route(manager,{**payload,'keys':['B'],'preparation_id':'missing'})
+                item.update(release_folder='Artist Welcome Pack (2023-2025)',release_month=None)
+                route(manager,{**payload,'keys':['B'],'preparation_id':'old','mode':'bot','profile':'eve','bot':'@example_bot'})
+                self.assertEqual(upload.call_args.args[1]['delivery']['release_kind'],'welcome_pack')
+                self.assertNotIn('release_kind',manager.get('release_bot_settings'))
+                save(manager,{'id':'old','state':'complete','release_key':'release','keys':['A'],'number':1,'outputs':[{'path':'example.7z'}]})
+                item.update(release_folder='Artist 2024-06',release_month='2024-06')
+                route(manager,{**payload,'keys':['B'],'preparation_id':'old','mode':'bot','profile':'eve','bot':'@example_bot'})
+                self.assertTrue(upload.call_args.args[1]['delivery']['append'])
+                self.assertEqual(upload.call_args.args[1]['delivery']['month'],'2024-06')
+                self.assertNotIn('append',manager.get('release_bot_settings'))
 
     def test_named_frontier_packages_and_addenda(self):
         from app.collages import collage_filename

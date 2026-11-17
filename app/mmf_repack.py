@@ -26,8 +26,10 @@ def archive_name(filename):
     return safe_component(stem)+'.7z'
 
 
-def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None,release_images=None):
+def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None,release_images=None,compression_threads=0):
     if type(compression_level) is not int or compression_level not in (0,1,3,5,7,9):raise ValueError('Invalid compression level.')
+    if type(compression_threads) is not int or not 0<=compression_threads<=256:raise ValueError('Invalid compression thread count.')
+    threading_option='-mmt='+('on' if compression_threads==0 else str(compression_threads))
     if type(volume_bytes) is not int or volume_bytes<=0:raise ValueError('Invalid volume size.')
     if stl_cleaner not in ('off','delicates','cotton'):raise ValueError('Unknown STL cleaner.')
     cleaner_policy={'mode':stl_cleaner,'cotton_level':cotton_level if stl_cleaner=='cotton' else None}
@@ -99,7 +101,7 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
                 ordinary=[e for e in entries if 'disk_name' not in e]
                 include=temporary/'include.txt';include.write_text(''.join(e['name']+'\n' for e in ordinary))
                 if ordinary:
-                    command(['x','-y','-bsp1','-bb0','-mmt=2','-p-','-spd','-scsUTF-8','-o'+str(target_members),'-i@'+str(include),'--',str(read_source)],temporary,stopped,percent=lambda n:progress('unpacking',n),timeout=14400)
+                    command(['x','-y','-bsp1','-bb0',threading_option,'-p-','-spd','-scsUTF-8','-o'+str(target_members),'-i@'+str(include),'--',str(read_source)],temporary,stopped,percent=lambda n:progress('unpacking',n),timeout=14400)
                 for entry in entries:
                     if 'disk_name' in entry:extract_mapped_member(read_source,entry,member_path(target_members,entry),temporary,stopped,lambda:None)
                 for entry in entries:
@@ -148,12 +150,12 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
                 all_entries[member_name]=path.stat().st_size
                 cleaned.append({'name':member_name,'before':before,'after':{'size':path.stat().st_size,'sha256':digest(path)},**result})
         progress('repacking',0)
-        command(['a','-t7z','-mx='+str(compression_level),'-mmt=2','-ms=off','-mtc=off','-mta=off','-mtm=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
+        command(['a','-t7z','-mx='+str(compression_level),threading_option,'-ms=off','-mtc=off','-mta=off','-mtm=off','-bsp1','-bb0','-v'+str(volume_bytes)+'b','--',str(output/name),'.'],temporary,stopped,percent=lambda n:progress('repacking',n),timeout=14400,cwd=members)
         parts=sorted(output.iterdir())
         if not parts or any(p.stat().st_size>volume_bytes for p in parts):raise ExtractionError('Repacked volume size exceeds the configured limit.')
         if len(parts)==1 and parts[0].name==name+'.001':parts[0].rename(output/name);parts=[output/name]
         progress('verifying_archive',0)
-        command(['t','-bsp1','-bb0','-mmt=2','-p-','--',str(parts[0])],temporary,stopped,percent=lambda n:progress('verifying_archive',n),timeout=14400)
+        command(['t','-bsp1','-bb0',threading_option,'-p-','--',str(parts[0])],temporary,stopped,percent=lambda n:progress('verifying_archive',n),timeout=14400)
         _,packed_entries=listing(parts[0],temporary,stopped)
         if {e['name']:e['size'] for e in packed_entries}!=all_entries:raise ExtractionError('Repacked contents differ from the extracted release.')
         outputs=[];records=[]

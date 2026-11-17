@@ -175,6 +175,51 @@ class BotCLI(FakeCLI):
         if '--photo' not in args:self.incoming('Your upload looks complete',[{'Text':'Complete','Data':'Y29tcGxldGU='}])
 
 class BotUploadTests(UploadTests):
+    def test_addendum_selects_original_year_month_and_append(self):
+        self.check_append_flow(True)
+
+    def test_addendum_refuses_new_release_prompt(self):
+        self.check_append_flow(False)
+
+    def check_append_flow(self,existing):
+        from app.mmf_release_flow import BotConversation
+        client=BotCLI();actions=[]
+        def run(args,*rest,**kwargs):
+            action=args[args.index('--action')+1];value=args[args.index('--value')+1];actions.append(value)
+            stages={
+                '/start':('Select creator',[{'Text':'Example','Data':'creator'}]),
+                'creator':('Please select a release type:',[{'Text':'Monthly','Data':'monthly'}]),
+                'monthly':('Please select a year:',[{'Text':'2024','Data':'year'},{'Text':'2026','Data':'wrong-year'}]),
+                'year':('Please select a month:',[{'Text':'June','Data':'month'},{'Text':'July','Data':'wrong-month'}]),
+                'month':(('A release for Example - 24-06 already exists. What do you want to do.' if existing else 'Upload a release for Example. Example - 24-06'),[{'Text':'Append to release','Data':'append'}] if existing else []),
+                'append':('Upload additional files for Example 1234 The filename should start with: Example - 24-06',[])}
+            message,buttons=stages[value];client.incoming(message,buttons)
+        client._run=run
+        choice={'profile':'eve','creator':'Example','month':'2024-06','append':True,'destination':'@example_bot'}
+        conversation=BotConversation(client,Path(self.temp.name),choice,lambda label:client.messages,lambda *args:None)
+        if existing:
+            conversation.begin();self.assertEqual(actions,['/start','creator','monthly','year','month','append'])
+        else:
+            with self.assertRaisesRegex(ValueError,'no existing release'):conversation.begin()
+            self.assertNotIn('append',actions)
+
+    def test_welcome_pack_selects_creator_and_category_without_month(self):
+        from app.mmf_release_flow import BotConversation
+        client=BotCLI();actions=[]
+        def run(args,*rest,**kwargs):
+            action=args[args.index('--action')+1];value=args[args.index('--value')+1];actions.append((action,value))
+            if action=='text':client.incoming('Select creator',[{'Text':'Ex ample','Data':'Y3JlYXRvcg=='},{'Text':'This Month','Data':'bW9udGg='}])
+            elif value=='Y3JlYXRvcg==':client.incoming('Select category',[{'Text':'Welcome Pack','Data':'d2VsY29tZQ=='},{'Text':'Others','Data':'b3RoZXI='}])
+            elif value=='d2VsY29tZQ==':client.incoming('Upload a release for Ex ample. The filename should start with: Ex ample - Welcome Pack')
+            else:raise AssertionError('Unexpected action')
+        client._run=run
+        choice={'profile':'eve','creator':'Example','month':None,'release_kind':'welcome_pack','destination':'@example_bot'}
+        conversation=BotConversation(client,Path(self.temp.name),choice,lambda label:client.messages,lambda *args:None)
+        conversation.begin()
+        self.assertEqual(actions,[('text','/start'),('callback','Y3JlYXRvcg=='),('callback','d2VsY29tZQ==')])
+        self.assertEqual(choice['creator'],'Ex ample')
+        self.assertTrue(conversation.upload_filename('Welcome Pack.7z').startswith('Ex ample - Welcome Pack'))
+
     def test_failed_channel_upload_never_starts_bot(self):
         row=self.begin_bot();client=BotCLI();original=client._run
         def run(args,*rest,**kwargs):
@@ -232,11 +277,21 @@ class BotUploadTests(UploadTests):
     def test_existing_pad_release_is_forwarded_without_local_files(self):
         self.check_pad_forwarding(False)
 
+    def test_legacy_addendum_receipt_uses_prepared_caption(self):
+        self.check_pad_forwarding(False,True)
+
     def test_forward_with_visible_attribution_stops_before_archive(self):
         self.check_pad_forwarding(True)
 
-    def check_pad_forwarding(self,attributed):
+    def check_pad_forwarding(self,attributed,legacy_addendum=False):
+        if legacy_addendum:
+            self.plan['title']+=' Addendum 1';save_plan(self.manager,self.plan)
         pad=self.begin();execute(self.manager,pad,FakeCLI())
+        sent_caption=self.plan['title']
+        if legacy_addendum:
+            pad['title']=pad['title'].removesuffix(' Addendum 1')
+            for message in pad['messages']:message.pop('caption',None)
+            save(self.manager,pad)
         self.archive.unlink();self.collage.unlink()
         row=self.begin_bot();client=BotCLI();forwarded=[]
         original=client._run
@@ -247,7 +302,7 @@ class BotUploadTests(UploadTests):
             index=next(n for n,m in enumerate(pad['messages']) if m['message_id']==message_id)
             forwarded.append(index)
             client.messages.append({'id':len(client.messages)+1,'file':pad['messages'][index]['filename'],
-                'raw':{'PeerID':{'UserID':456},'Out':True,'Message':pad['title'],
+                'raw':{'PeerID':{'UserID':456},'Out':True,'Message':sent_caption,
                        'FwdFrom':{'Flags':0,'Imported':False,'SavedOut':False,'FromID':None,'FromName':'','Date':0,
                                   'ChannelPost':0,'PostAuthor':'','SavedFromPeer':None,'SavedFromMsgID':0,
                                   'SavedFromID':None,'SavedFromName':'','SavedDate':0,'PsaType':''},

@@ -288,397 +288,392 @@ Split archives with mixed names such as `release.7z.001`, `release.002`, and `re
 
 The browser checks subscribed creators for available downloads at the interval saved in Configuration (four hours by default) while the tool is open; it never starts downloads automatically. The Linux x64 runtime package includes Python, the web server, SQLite, Pillow, Telegram CLI and 7-Zip. Run `start.sh`; Windows uses WSL2. See INSTALL.md for first-time account/source setup and supported platforms.
 
-### MyMiniFactory
+## MyMiniFactory (Beta)
 
-MMF is a beta feature, hidden by default.
+**Beta features are hidden by default and intended for testers only. They are
+incomplete and buggy; do not rely on them for regular use.**
 
-**All Beta features are for testers only: they are incomplete and buggy, and should not be relied on for regular use.**
- Enable it in **Configuration → Beta
-features**, then connect under **MyMiniFactory account**. The manager connects directly to MMF using an MMF username/email and
-password. A separate MMF browser, extension, Playwright or AI agent is not needed
-for checks and downloads. Google sign-in users may need to set an MMF password
-through MMF's password-reset page first. Passwords are used for login only;
-the private session stays in local application data. Reconnect if it expires.
+### Connect and select artists
 
-Select artists from **Shared with me, Tribes and Frontiers**, assign each creator folder, choose a
-starting month or **All (archiving)**, then save. Availability checks use the
-MMF file's last-updated date for the starting-month cutoff, including updates to
-older collections. Release names still determine folder placement. Undated files
-are flagged and excluded from month-limited checks; All includes them. Historical
-download records are retained, but out-of-scope files are hidden from the queue.
-Checks run at the
-configured interval while any manager page is open. They include new files
-added to existing collections. Downloads start only when you click **Download
-available releases**. **Resume unfinished** reuses the saved queue and local partial
-files. One MMF transfer runs at a time in this initial implementation.
+Enable MMF in **Configuration → Beta features**, then connect under
+**MyMiniFactory account** with your MMF username/email and password. Google
+sign-in users may need to set a separate MMF password using MMF's password-reset
+page first. Passwords are used for login; the session is stored privately on your
+machine. No browser extension, separate logged-in browser or AI agent is needed.
 
-The release list follows the artist’s MMF folders, including monthly releases,
-Welcome Packs and loyalty rewards. Named Frontier collections use the same full
-workflow: extract images, create collage, make release, upload, and confirm publication.
-Archive names follow the collection folder; later additions use numbered addenda.
-Expand a release to see its files. **Make release**
-produces one 7-Zip set named after that release. Configuration controls compression
-and maximum part size, defaulting to level **7** and **4000M** (4000 MiB). Original member filenames are preserved under model/archive
-subfolders to avoid collisions. Small releases use `.7z`; larger sets use
-`.7z.001`, `.002`, and so on.
+In **MMF → Artists**, select creators, assign destination folders, choose a
+starting month or **All (archiving)**, and save. Opening this page refreshes the
+creator list without starting downloads or losing unsaved selections.
 
-Original archives stage locally and are verified during delivery to `<creator>/<Artist YYYY-MM>/`, or an artist-prefixed named collection
-folder such as `<creator>/<Artist Welcome Pack>/`. Unsafe filename characters are
-sanitized for the filesystem. Images go into one flat `release_images` folder
-inside the release. For ordinary releases without a month in their name, the MMF release folder’s
-creation date supplies the destination month (`YYYY-MM`). Each named release
-still produces its own archive set. The UI labels this inferred month; later
-file updates never change it. Welcome Packs and loyalty rewards retain named
-folders. Missing or invalid dates also keep the release name. Original archives are kept directly under `MMF sources`, preserving their filenames. Only conflicting names use a readable model-name subfolder; multipart archives stay together. Identical files are reused after a full-content comparison. **Re-download release** fetches fresh originals and extracts images again without repackaging or deleting history. Missing recorded archives are highlighted.
-Source downloads stay local until archive/image delivery and database recording
-succeed. Completed source versions and extraction receipts are recorded separately
-from Telegram history. A changed release is rebuilt as a complete set, which can
-require downloading its unchanged source archives again; other completed releases
-are skipped.
-Failed releases are reported and the run continues with the next release.
-Availability checks fetch up to four model file lists concurrently, with progress
-updated after each response. Older models remain included: MMF model timestamps
-do not reliably reflect changes to their downloadable archives. Failed or stopped
-checks retain the previous availability results.
+The integration supports **Shared with me, Tribes and Frontiers**. Creators are
+merged by MMF creator ID, and duplicate models are checked once. Frontier pledges,
+add-ons and sign-up bonuses retain their collection names. Individual store
+purchases and standalone model/PDF downloads are not yet exposed.
 
-If a release was published outside the tool, expand it in MMF Queue and choose
-**Make release → Just mark as finished**. Confirmation moves the current file versions to Finished releases
-without uploading or deleting files, or claiming they were downloaded by this app.
-New or updated source files reopen the release for the next addendum.
+### Check and download
 
-This integration covers archive downloads from Shared with me, Tribes and Frontiers.
-Creators are merged by MMF creator ID, and duplicate models across sources are checked once.
-Frontier pledges, add-ons and sign-up bonuses retain their collection names.
-For Tribe deliveries without release metadata, the library delivery date supplies the month,
-not the model creation date. Explicit release months take priority. A real Tribe
-membership takes precedence over a duplicate Frontier entry for unrecorded files.
-Opening **MMF → Artists** refreshes creators directly from MMF while showing the saved list immediately. Unsaved selections are preserved; no availability check or download starts.
-Individual store purchases and standalone model/PDF downloads are not yet exposed.
-MMF's website endpoints can change; Cloudflare or account verification can still
-require reconnecting. Library access has been tested live; transfer and repackaging logic
-are covered by local tests, and live speed testing remains to be done.
+**MMF → Queue** checks for availability at its configured interval while a manager
+page is open. Downloads start manually. Use **Download detected** for files already
+found, **Check for downloads** to refresh availability, and **Resume** for an
+unfinished run. Failed releases are reported while the run continues with others.
 
-### Windows guided installation (test build)
+The starting-month cutoff uses each file's **last-updated date**, so an update to
+an older collection can still be detected. Undated files are excluded from
+month-limited checks; **All (archiving)** includes them. Historical records are
+retained even when they are outside the selected scope. Checks inspect older
+models too, because their timestamps do not reliably indicate changes to attached
+archives. Failed or stopped checks preserve the previous availability results.
 
-The Windows ZIP includes an installer and launcher for a dedicated WSL environment.
-Double-click `Install.cmd`, accept Windows approval/restart if needed, then use the
-desktop shortcut. In Configuration, connect Telegram, import your TOC and choose
-either a local folder or an optional network share. A mapped network drive is
-not a local disk; use Network share and its UNC path. MMF is optional Beta,
-hidden by default. First-time Configuration has four steps: **Telegram & artists
-→ Download location → Preferences → Review & finish**. Click **Save and review**
-in Preferences, then **Finish first-time configuration** on the final page.
-Missing or unsaved settings block finishing and include links to the relevant
-step. Other pages unlock only after validation passes. No manual WSL configuration is required. Installation, reboot continuation,
-reset, reinstallation and uninstall were tested in a Windows 11 VM, including
-preservation of download files. See `INSTALL.md` for validation scope and limitations.
+### Release names and folders
 
-The Table of Contents is the group’s artist-index message, containing links to
-individual artist topics. In Telegram, check pinned messages or a topic called
-“Table of Contents”, “TOC” or “Index”. Find the message listing artists, then
-right-click it (or press and hold on a phone) and copy its message link. Paste
-that into Configuration and click **Import artists**. Use the index message
-link, not a group invite or an individual artist topic. If you cannot find it
-or copy its link, ask the group administrator. Your connected account must
-already have access to the group.
+The queue follows the artist's collections: monthly releases, Welcome Packs,
+loyalty rewards and named Frontier collections. Expand a release to see its files.
 
-After installation finishes, close any remaining **Welcome to WSL** window and
-completed installer PowerShell windows. The desktop shortcut starts the server in
-the background with a Windows notification-area (tray) icon; no PowerShell window
-needs to stay open. Double-click the icon to open the app, or right-click for
-**Open Telegram STL Manager**, **View logs**, and **Stop and exit**. Windows may
-place the icon under the notification-area arrow. Closing the browser leaves the
-server and active transfers running; automatic availability checks still require
-an open app page. Use the desktop shortcut again after restarting Windows.
-Logs are saved under `%LOCALAPPDATA%\TelegramSTLManager\logs`. The app opens in
-your normal Windows browser at `http://127.0.0.1:6093`.
+- Monthly folders use **Artist YYYY-MM**.
+- Ordinary releases without a month in their name use the MMF release's creation
+  date. The interface identifies inferred months; subsequent file updates do not
+  move the release to a different month.
+- Tribe deliveries without release metadata use the library delivery date.
+- Welcome Packs, loyalty rewards and undated collections keep their names.
 
-The Git pre-commit hook increments the patch version in `VERSION` for each commit
-and refreshes the version shown beside the app copyright. Enable the repository
-hooks with `git config core.hooksPath .githooks` when cloning for development.
+Original archives retain their filenames under `MMF sources`. Only conflicting
+filenames need a readable model subfolder; multipart archives stay together.
+**Re-download release** retrieves fresh originals and extracts images without
+packaging a release or deleting history. Missing recorded files are highlighted.
 
-Copyright © 2026 trumphater77
+MMF's website endpoints, account checks or Cloudflare protection can change.
+Reconnect if the saved session expires.
 
-### Preparing MMF months for Telegram
+## Gumroad (Beta)
 
-MMF Download and Re-download automatically extract archive images into `release_images`. **Extract images** can repeat this separately. If no images are found, choose **Download images from MMF** to fetch the gallery images. Next use **Create collage**, save it, then click **Make release** and choose a destination. Building archives and uploading require a valid saved collage; marking an external release finished does not. The app creates a verified 7-Zip set with volumes up to 4000M, an image folder and the saved collage, directly in the monthly folder. Intermediate MMF archives are retained in its `MMF sources` subfolder.
+Gumroad uses the same artist selection, manual download, collage and release
+workflow. It is also hidden by default and subject to the Beta warning above.
 
-Preparation records which source file versions were included. Later additions or updated downloads use **Make Addendum 1**, then Addendum 2, and so on; unchanged files are excluded. A failed preparation retries the same number. Preparing successfully reserves that release number even before you upload it. Previously downloaded months remain eligible for update checks regardless of the subscription start month. The Make release dialog chooses what happens after preparation: upload to your release channel or run a bot conversation.
+Enable **Show Gumroad** in Configuration, save, then connect with your Gumroad email
+and password. If you normally sign in with Google, use **Forgot your password?**
+on [Gumroad login](https://gumroad.com/login) to set a separate Gumroad password.
+Enter any requested email or authenticator verification code.
 
-Gallery images are fetched only on request. Packaging uses the configured compression level, part size and thread setting (Auto by default). Legacy verified 7-Zip sets can be reused only when their contents, compression, cleanup policy and part sizes meet the requested settings.
+Select purchased-library creators under **Gumroad → Artists**. The queue has its
+own configurable availability-check interval, and revisits older products for
+new files. Named products keep their names when no release month is supplied;
+purchase dates are not treated as release dates. Membership updates can use their
+publication month, and undated releases remain in scope.
 
-Prepared MMF releases offer manual Upload and Re-upload actions. Every attempt sends a valid release collage as a Telegram photo first, then the existing archive volumes, and verifies the resulting messages. Re-upload remains available after success, failure, deletion, or interruption; it creates a separate receipt without downloading MMF sources again or creating an addendum. Choose the destination in Configuration. An uncertain attempt may have delivered some messages, so check the Release Pad before retrying.
+Originals go into `Gumroad sources`; extracted images go into `release_images`.
+The connector uses authenticated website JSON because the public seller API does
+not expose the purchased library. It needs no browser-cookie export, seller API
+token or additional background service. Sessions and purchase history stay in
+private application data. Website changes or account verification can interrupt
+this integration.
 
-MMF and Gumroad share a durable upload queue. Add another prepared release while
-one uploads, or queue **Release through bot** / **Build and upload** before its
-archive is prepared. The queue waits for other preparation/download work, builds
-the archive if needed, and then performs the saved delivery conversation. Add another release while
-one uploads; its queue position appears in the release panel. Uploads and bot
-conversations run one at a time. Remove waiting entries with **Remove from queue**.
-After failure or interruption, review any partially sent release, then use
-**Resume upload queue** for untouched waiting entries. Retry the failed release
-separately with Re-upload. Closing the browser does not stop the worker; after
-a server restart the queue waits for manual resume.
+## Artist search and tags
 
-MMF **Open tasks** tracks publication separately from downloading or uploading. After the release bot successfully publishes a package, use **Confirm released** to move it to **Finished releases**. Direct bot delivery records completion only after the configured bot confirms publication. New or changed source files reopen their month for an addendum; previously published file versions remain recorded.
+On the Telegram and MMF artist pages, leaving the destination folder blank uses
+the artist's name below your configured download base. Invalid filename
+characters are made safe. Saving subscriptions does not start downloads or
+create folders.
 
-On the download page, **Download detected** uses the last availability check's exact file queue without scanning subscriptions again. **Check and download all** performs a fresh check of every saved subscription. Starting a detected run replaces its notification with the next scheduled check; subsequent checks can notify about new files. Each new checking cycle hides inactive organizer results from view while preserving their records and any running organizer job.
+Telegram Artists also has a searchable, multi-select **Tags** filter. Tags come
+from the bracketed descriptions in your configured Table of Contents. Selecting
+several tags matches **any** of them, alongside the name and subscription filters.
+The artist's Info panel shows its tags; **Clear** resets the tag filter.
 
-### MMF archive cleanup and PDFCleaner credit
+Imports normalize duplicate spellings and exclude administrative notes. Rules
+such as `5E → Dungeons&Dragons` and `WH40K → 40K` are reapplied on every import.
+Tag assignments stay local.
 
-MMF repackaging excludes known operating-system metadata such as `__MACOSX`, AppleDouble `._*` files, `.DS_Store`, Windows thumbnail databases and `desktop.ini`. Other hidden files, models, images, readmes and licences are retained. Only local working copies are processed; source archives stay intact.
+## Preparing and publishing releases
 
-PDF footer processing is a **modified adaptation of PDFCleaner by RC**. Credit for the original tool and its footer-stamp profiles belongs to RC. This integration uses [pypdf content operations](https://pypdf.readthedocs.io/en/latest/modules/generic.html) instead of the original desktop GUI and PyMuPDF pipeline. It recognizes the known bottom-left order stamp and dark footer badge/text patterns. It does not remove arbitrary white text, small images, document metadata, or unknown watermark types, and does not rasterize pages. PDFs without a recognized stamp remain byte-identical. Processing failures stop that release's repackaging and retain the source.
+MMF and Gumroad share this workflow:
 
-Repack receipts record changed PDF pages/profiles, before/after hashes and additional metadata files omitted. An archive created with an older processing policy is not reused for a new repack under this policy. Already delivered releases are not rewritten automatically.
+1. **Download the release.** Originals are saved and archive images are extracted.
+2. **Prepare images.** If needed, use **Download images from MMF** to collect the
+   product gallery. Gallery downloads happen only when requested.
+3. **Create and save a collage.** Images retain their proportions. New collages
+   default to **Image-shaped rows**; choose **Slots → 1** for a single image.
+4. **Make release.** Build a verified 7-Zip set and choose where to send it.
+5. **Confirm publication.** Bot automation records success from the bot's reply.
+   For a manual publication, confirm it in the manager.
 
-### Source layout
+A saved collage is required before packaging or uploading. Merely marking an
+externally made release as finished does not require one.
 
-Application modules live in `app/`, automated tests in `tests/`, and build and
-packaging utilities in `tools/`. Windows integration stays in `windows/`; Docker
-launchers stay in `docker/`. Local settings, databases and generated state remain
-in `data/`, outside version control. Downloads keep their configured locations.
+### What gets saved
 
-Start a bundled installation with `start.sh`. For source development, run
-`python3 tools/build-catalog.py` and `python3 -m app.catalog_server` from the project
-root. Run the Python test suite with `python3 -m unittest discover -s tests -t .`.
+A typical release folder contains:
 
-### Application updates
+```text
+Artist/
+└── Artist YYYY-MM/
+    ├── Artist YYYY-MM.7z
+    ├── Artist-YYYY-MM.jpg
+    ├── release_images/
+    └── MMF sources/
+```
 
-Managed Windows installations can check and install GitHub Releases from Configuration.
-Updates are optional. A red **Update available** link beside the footer version
-opens Configuration; it does not install automatically. Public releases need no
-GitHub login or access token.
-Updates preserve local settings and history, wait for active jobs and verify the
-package checksum before installation. The visible updater backs up the previous
-version and restores it if the startup check fails. Older installations can use
-the standalone `Telegram-STL-Manager-Update.zip` once to gain this feature.
-Extract it into a new folder and run **Update.cmd** with the same normal Windows
-account, after finishing or stopping active jobs. No administrator elevation,
-reset or reinstall is needed. Keep the window open until **Update complete**;
-WSL's **The operation completed successfully** is only an intermediate message.
-The updater blocks competing app launches while replacing files. Update logs
-are under `%LOCALAPPDATA%\TelegramSTLManager\logs\update-*\update.log`.
-Linux and Docker use the manual update procedures in their guides, preserving
-application state and Docker volumes.
-See [Updating an existing installation](INSTALL.md#updating-an-existing-installation).
+The `.7z` is the prepared release, the `.jpg` is its collage, and
+`release_images` holds the previews. The source folder contains the original
+downloads used for packaging. Gumroad uses `Gumroad sources` instead.
 
-Maintainers: build the runtime with `python3 tools/package-runtime.py`, then run
-`python3 tools/package-update.py` and `python3 tools/package-windows.py`. Publish
-`Telegram-STL-Manager-Update.zip` as an asset on a stable GitHub Release tagged
-`vX.Y.Z` matching `VERSION`; the updater verifies GitHub's SHA-256 asset digest.
-Publish the Windows installer alongside it for new users. Packages must pass the
-public-file privacy check and must not contain local sessions or configuration.
+Release images are also included **inside the prepared archive**. Original model
+filenames are preserved, with model/archive subfolders where needed to avoid
+collisions. Large releases use numbered volumes: `.7z.001`, `.7z.002`, and so on.
 
-Keep `README.md`, `INSTALL.md` and `AI-INSTALL-PROMPT.md` synchronized whenever
-installation, dependencies, setup, startup, updates or recovery change. Review
-the corresponding packaged instructions and Docker guide before building a
-release; editing source documentation does not update already published ZIPs.
+### Packaging settings
 
-Network-share paths may include a trailing backslash, as copied from Windows
-Explorer. Connection errors appear directly below **Connect and use this folder**.
-If connection fails, correct the details and retry; the entered password stays
-in the form for that retry and is cleared after a successful connection.
+Set these under **Configuration → Release packaging**:
 
-NAS connection diagnostics distinguish hostname resolution, access denial,
-unreachable hosts, timeouts and SMB compatibility errors without displaying
-raw credential-bearing output. For a hostname-resolution error, retry with
-the NAS LAN IP address. Windows updates refresh the installed NAS helper;
-rollback restores the previous helper, while saved share credentials remain intact.
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| Compression level | 7 | Balance compression time and archive size. |
+| Maximum part size | 4000 MiB | Split large releases into uploadable volumes. |
+| Compression threads | Auto | Let 7-Zip choose, or select a fixed CPU-thread limit. |
+| STL cleaner | Off | Optionally process models before packaging. |
 
-After a successful NAS connection, Configuration reloads and shows the saved
-network path and username with a saved-share indicator. The password field
-is intentionally blank; it is not returned to the browser.
+Running jobs retain their settings. Preparation shows its current stage, with
+file and byte progress during input verification, compression and archive checks.
+Generated release archives omit member timestamps; original downloads are not
+rewritten.
 
-On Windows, NAS connection first resolves the name inside WSL, then tries the
-Windows resolver automatically if needed. If both fail, the connection form
-asks for the NAS LAN IPv4 address and keeps the share and subfolder unchanged.
-Automatically resolved names are looked up again on reconnect; they are not
-permanently replaced by a cached IP. A manually entered IP is saved in the path.
+### New files and addenda
 
-On both Telegram and MMF artist pages, leaving a creator folder blank when
-saving uses the artist’s name below the configured download base. Characters
-that are invalid in folder names are made safe. Explicit folder choices are
-preserved; saving subscriptions does not start downloads or create folders.
+Packaging records the exact source versions included. New or updated downloads
+become **Addendum 1**, **Addendum 2**, and so on; already packaged versions are not
+included again. Failed preparation retries reuse the same number. A successfully
+prepared package keeps its number even before publication.
+
+An older release reappears under **Open tasks** when new file versions are found
+within the subscription's selected scope. Previously published versions stay
+recorded.
 
 ### Choosing a release destination
 
-**Make release** opens three choices: upload to **Your Telegram Release Channel**,
-release directly through a bot, or **Just mark as finished**. Existing prepared
-archives are reused when unchanged; new file versions become numbered addenda.
-Channel delivery uses the destination configured in Configuration and still needs
-publication confirmation afterwards. Marking finished only records the displayed
-file versions and retains the files.
+**Make release** offers three actions:
 
-For bot delivery, enter its @username and the creator name exactly as shown by the
-bot. The Eve quick flow selects the creator's **This Month** or **Last Month** button,
-checks the upload prompt's creator and month, sends the collage and archives,
-clicks **Complete**, and waits for **Upload done and saved.** before recording
-publication. It supports creators visible in the opening menu. Other creators,
-older months, other named collections and bots with different menus need **Custom
-conversation**. Welcome Packs are detected automatically: the flow selects the
-creator, selects **Welcome Pack**, and verifies the creator's Welcome Pack prompt.
+| Action | What happens |
+| --- | --- |
+| Upload to Your Telegram Release Channel | Upload the collage and archives to your configured channel. Publication is confirmed separately. |
+| Release through a bot | Upload to your release channel first, then forward the messages anonymously to the bot and run its release conversation. |
+| Just mark as finished | Record the displayed file versions as published elsewhere, without uploading or deleting files. |
 
-Custom conversations use one `send: message`, `click: exact button text`, or
-`wait: reply text` step per line, separately before and after file upload. Supported
-placeholders are `{creator}`, `{month}` and `{title}`. Enter the bot's final success
-reply; completion requires a new matching reply. Commands and callbacks run without
-AI. Bot settings are remembered locally. A missing or changed prompt stops the
-attempt with an error; inspect the bot conversation before retrying, because some
-files or the final command may already have reached it. No real release is sent
-until you submit the dialog.
+Bot delivery reuses an existing verified channel upload when available.
+It does **not** upload the same archive bytes directly to the bot again.
 
-## Optional Gumroad Beta
+MMF and Gumroad share a persistent queue. You can queue **Build and upload** or
+**Release through bot** while another release runs; preparation and delivery
+follow in order. Uploads and bot conversations run one at a time. Waiting entries
+show their position and can be removed with **Remove from queue**.
 
-All Beta features are incomplete and buggy, for testers only. Gumroad is hidden
-and disabled by default. Enable **Show Gumroad** in **Configuration → Beta
-features**, save, then connect in **Gumroad account** using your Gumroad email
-and password. If you normally use Google sign-in, use **Forgot your password?**
-on [Gumroad login](https://gumroad.com/login) with the same account email to set
-a separate Gumroad password. Enter that password here, not your Google password.
-If asked, enter the emailed or authenticator verification code.
-The password is used only for sign-in; the session is kept locally under
-`data/gumroad/`. No logged-in browser, browser-cookie export, seller API token,
-or additional background service is required. Reconnect if Gumroad expires the
-session. Website verification or endpoint changes can interrupt this Beta.
+### Eve and custom bot conversations
 
-Use **Gumroad → Artists** to select purchased-library creators, destination
-folders and scope. **Gumroad → Queue** has Download detected, Check for
-downloads, Resume, Stop and Manage artists. Checks run on a separate configurable
-interval while the manager is open in a browser; downloads only start manually.
-Older products are checked again for newly added files. Named products and
-collections keep their names when no release month is supplied; purchase dates
-are never treated as release dates. Membership updates can use their publication
-month. Undated releases remain in scope.
+Enter the bot's @username and select its conversation profile. Eve automation
+supports creators visible in its opening menu:
 
-Downloads keep artist filenames in each release's `Gumroad sources` folder,
-extract images into a flat `release_images` folder, and use the shared collage
-and release-packaging workflow. Account sessions, purchase links and history
-stay in the private data directory and must not be included in public packages.
-Gumroad uses authenticated website JSON because its public seller API does not
-expose the purchased library. No additional Python dependency is required.
+- **Initial monthly releases:** select **This Month** or **Last Month** and verify
+  the creator/month in the upload prompt.
+- **Welcome Packs:** select the creator and **Welcome Pack**, then verify that
+  category's upload prompt.
+- **Addenda:** select the original creator, year and month, then **Append to
+  release**. Older months are supported. Welcome Pack addenda use their category
+  instead of a month.
 
-### Artist tags
+Files are forwarded only after the expected prompt appears. The workflow clicks
+**Complete** and waits for the bot's success reply before recording publication.
+If an addendum's original release is not found, it stops instead of creating a
+new monthly release.
 
-Telegram Artists includes a searchable multi-select **Tags** filter. Tags come
-from bracketed descriptions in the configured Table of Contents, with duplicate
-spellings normalized and administrative notes excluded. Selecting several tags
-shows artists matching **any** of them; name search and subscription filters
-still apply. Use **Clear** to show all tags again. Each artist’s Info panel lists
-its tags. Every TOC import reapplies the saved normalization rules, including
-`5E → Dungeons&Dragons` and `WH40K → 40K`, so source spelling changes do not
-reintroduce merged tags. Imports refresh assignments and counts, indexed locally in
-`data/creator-tags.sqlite3` and are not included in public packages.
+Use **Custom conversation** for other bots, menus or unsupported release types.
+Steps use `send: message`, `click: exact button text` or `wait: reply text`,
+with `{creator}`, `{month}` and `{title}` placeholders. Configure the steps before
+and after sending files, plus the final success reply. These conversations run
+without AI; settings are remembered locally.
 
-### Required usage acknowledgment
+### Confirm, retry and clean up
 
-Before installation changes begin, read the usage notice and explicitly acknowledge
-it (Windows: choose **Yes** in the dialog; Linux installer and Docker launcher:
-type **I AGREE**). Declining stops installation. Windows may ask again when it
-starts elevated prerequisite setup or resumes after a restart. Docker remembers
-the installation acknowledgment for that extracted package.
+**Uploading is not the same as publishing.**
 
-First-time browser configuration separately displays the same notice in a required
-modal. Read it, tick the acknowledgment checkbox, and select **Acknowledge and
-continue**. Closing the tab declines; setup stays locked. The acknowledgment is
-saved locally with its time and notice fingerprint. AI installation agents must
-leave these acknowledgments to the user and must not accept on their behalf.
-The tool supplies no illegal software, accounts, credentials or third-party access
-rights. It uses users’ own accounts (for example, MyMiniFactory) to download content
-they have purchased, licensed or otherwise have permission to access; this does
-not automatically grant redistribution rights. Private Telegram uploads are intended
+If you publish manually from your release channel, click **Confirm released**
+beneath the prepared archive. The confirmation modal records publication
+immediately. If the entire release was made outside this tool, use
+**Make release → Just mark as finished** instead.
+
+After confirmed publication of a prepared package, cleanup verifies and removes
+its unchanged source archives. It keeps the final release archive, collage,
+images and download history. Changed sources or cleanup errors are retained for
+review. Manual confirmation starts cleanup in the background; the queue shows
+the current file, bytes checked, speed and removal count, even when finished
+releases are filtered out.
+
+If something fails:
+
+- **Re-upload** sends an existing prepared package again without re-downloading
+  its source files or creating another addendum.
+- **Retry completion** retries only the bot's final step when all files were
+  delivered. It does not resend them and stops if the conversation has changed.
+- **Resume upload queue** continues untouched waiting entries after you have
+  reviewed the failed attempt. Retry the failed release separately.
+
+Check the Telegram conversation before retrying an uncertain result: a file or
+final command may already have arrived. Closing the browser does not stop a
+running worker. After a server restart, the upload queue waits for manual resume.
+
+### Optional archive processing
+
+Packaging excludes known operating-system metadata such as `__MACOSX`,
+AppleDouble `._*` files, `.DS_Store`, Windows thumbnail databases and
+`desktop.ini`. Other hidden files, models, readmes and licences are retained.
+
+PDF footer processing is a **modified adaptation of PDFCleaner by RC**. Credit
+for the original tool and footer-stamp profiles belongs to RC. The integration
+uses [pypdf content operations](https://pypdf.readthedocs.io/en/latest/modules/generic.html)
+to handle recognized order-stamp/footer patterns. It does not remove arbitrary
+watermarks or rasterize pages. PDFs without a recognized stamp remain unchanged.
+Processing failures stop packaging and retain the sources; receipts record
+changes. Existing delivered releases are not rewritten automatically.
+
+Optional **Delicates-style** and **Cotton** STL cleaning operates on staged copies.
+Both alter geometry and placement, can affect alignment between parts and
+supports, and do not guarantee printability or watermark removal. Cotton also
+reduces triangle counts and can remove detail. Keep cleaning **Off** unless you
+understand those effects.
+
+Delicates-style needs no extra dependency. Cotton requires separately supplied,
+trusted Linux binaries matching the application's architecture; they are not
+bundled. For setup, executable paths and processing limits, see the STL-cleaning
+instructions in [INSTALL.md](INSTALL.md).
+
+## Setup, startup and updates
+
+For complete steps, use [INSTALL.md](INSTALL.md), the
+[AI installation prompt](AI-INSTALL-PROMPT.md), or the
+[Docker guide](docker/README.md).
+
+### Windows startup
+
+The Windows package installs a dedicated WSL environment. Double-click
+`Install.cmd` and follow the visible administrator/restart prompts. No manual WSL
+configuration is required.
+
+First-time configuration has four steps: **Telegram & artists → Download location
+→ Preferences → Review & finish**. Save the preferences and finish the final
+review to unlock the other pages. Missing or unsaved settings are shown with
+links to the relevant step.
+
+After installation, close any leftover **Welcome to WSL** or completed installer
+PowerShell windows. The desktop shortcut starts the app with a notification-area
+icon; no terminal needs to remain open. The tray menu provides **Open Telegram
+STL Manager**, **View logs**, and **Stop and exit**. Use the shortcut again after
+restarting Windows. Logs are under `%LOCALAPPDATA%\TelegramSTLManager\logs`.
+
+Closing the browser leaves the server and active transfers running. Automatic
+availability checks require an open manager page.
+
+### Finding your Table of Contents
+
+Use your Telegram group's artist-index message, often pinned or in a topic named
+“Table of Contents”, “TOC” or “Index”. Copy the link to the message that lists
+artists and paste it into Configuration → **Import artists**.
+
+Use the index-message link, not an invite link or an individual artist topic.
+Your Telegram account must already have access. Ask the group administrator if
+you cannot find or copy the index link.
+
+### Updating
+
+Updates are optional. In managed Windows installations, the red **Update
+available** link beside the footer version opens the update controls. Public
+GitHub releases require no GitHub login or token.
+
+Finish active tasks first. The updater preserves settings and history, verifies
+the package checksum, backs up the previous version and restores it if startup
+fails. Older installations can use `Telegram-STL-Manager-Update.zip`: extract it
+into a new folder and run `Update.cmd` with the same Windows account. No reset,
+reinstall or administrator elevation is needed.
+
+Keep the updater open until **Update complete** appears. WSL's **The operation
+completed successfully** is only an intermediate message. Update logs are under
+`%LOCALAPPDATA%\TelegramSTLManager\logs\update-*\update.log`.
+
+Linux and Docker use their documented manual update procedures, preserving
+application state and volumes. See
+[Updating an existing installation](INSTALL.md#updating-an-existing-installation).
+
+## Troubleshooting
+
+### Network shares
+
+A mapped Windows network drive is **not a local disk**. Choose **Network share**
+and use its UNC path. Paths copied with a trailing backslash are accepted.
+
+Connection diagnostics distinguish hostname-resolution problems, access denial,
+unreachable hosts, timeouts and SMB compatibility errors. On Windows, the app
+tries WSL's resolver, then Windows' resolver. If both fail, it asks for the NAS's
+LAN IPv4 address. Automatically resolved names are looked up again on reconnect;
+a manually supplied IP is saved in the path.
+
+After connection, Configuration shows the saved path and username. The password
+field is blank because saved passwords are not returned to the browser. A failed
+connection retains the entered password for that retry; success clears it.
+Update and rollback preserve saved share credentials.
+
+### Telegram file errors and interrupted downloads
+
+`LOCATION_INVALID` means Telegram rejected a file-location request. The downloader
+tries smaller requests for the affected range and reports the failing offset if
+recovery fails. The file stays incomplete. Try **Resume** later, or try the same
+attachment in Telegram; if it also fails there, request a new upload.
+
+To restart one unfinished file, stop the run and choose **Restart from zero** on
+that file. **Restart unfinished** resets all unfinished files in the saved run.
+Neither action rescans artists or repeats completed downloads. Old local staging
+is retained under `redownload-backups` rather than reused.
+
+## Development and packaging
+
+Application modules are in `app/`, tests in `tests/`, and build tools in
+`tools/`. Windows integration is in `windows/`; Docker launchers are in
+`docker/`. Private settings, sessions, databases and generated state remain in
+`data/` outside version control.
+
+For source development, build the pages and start the server:
+
+```bash
+python3 tools/build-catalog.py
+```
+
+```bash
+python3 -m app.catalog_server
+```
+
+Run tests with `python3 -m unittest discover -s tests -t .`. Enable the repository
+hooks with `git config --local core.hooksPath .githooks`; the pre-commit hook checks
+public-file privacy and increments the patch version shown in the app footer.
+
+To build distribution packages, run `tools/package-runtime.py` first, then
+`tools/package-update.py` and `tools/package-windows.py`; use
+`tools/package-docker.py` for the Docker bundle. Stable GitHub releases use a
+`vX.Y.Z` tag matching `VERSION`. Publish the installer, update and Docker packages
+with their checksums. Public packages must not contain local sessions or settings.
+
+Keep `README.md`, `INSTALL.md`, `AI-INSTALL-PROMPT.md` and affected Docker/package
+instructions consistent when installation or recovery behavior changes.
+Documentation edits do not update already published ZIPs.
+
+## Usage notice and credits
+
+The software uses your own accounts to access files you are entitled to download.
+Access does not grant redistribution rights. Private Telegram uploads are intended
 for personal cloud backup where permitted by law and the content licence. Sharing
-with others requires redistribution permission or another lawful basis; “free” or
-“freeware” alone does not establish that permission.
-The notice covers lawful use, unauthorized sharing of copyrighted material,
-possible file loss or damage, independent backups, acceptance of the free-of-charge
-software "AS IS" without warranties, and liability limits subject to applicable law. See `USAGE-NOTICE.txt` for the full text.
+requires permission or another lawful basis; “free” or “freeware” alone does not
+establish that permission.
 
-### Optional STL cleaning during Make release
+Installation and first-time browser setup each require explicit acknowledgment
+of the usage notice. AI installation agents must leave this acknowledgment to
+the user. The notice covers independent backups, possible file loss or damage,
+free-of-charge software supplied **AS IS**, warranty exclusions and liability
+limits subject to applicable law. Read [USAGE-NOTICE.txt](USAGE-NOTICE.txt).
 
-In **Configuration → Release packaging → STL cleaner during Make release**,
-choose **Off** (default), **Delicates-style**, or **Cotton**, then save. Cleaning
-runs on all unpacked `.stl` files, including uppercase extensions, during Make
-release for MMF and other supported store downloads. Downloaded source archives
-are retained unchanged. Each Make release snapshots the saved cleaning choice; a manually started retry
-uses the current saved cleaning settings.
+PDFCleaner adaptation: original tool and footer-stamp profiles by **RC**.
 
-Delicates-style is a portable implementation inspired by STL Washer Delicates
-1.6.1. It clears headers, normals and attributes, shuffles triangles, translates
-the mesh and perturbs coordinates slightly. It fixes the original centring and
-unsafe-write behavior. It requires no new dependency. Cotton uses the separately
-supplied STL Washer Cotton executables, variants `a0`–`a5`; these are **not bundled**
-with public packages. Extract trusted Linux binaries matching the app's x64 or
-ARM64 architecture into a folder accessible inside its Linux/WSL/container
-environment, mark the executables runnable (`chmod u+x stlwasher-cotton-a*`), and
-enter that folder in **Cotton executable folder**. Alternatively place them under
-`data/stl-cleaners/x64` or `data/stl-cleaners/arm64` in the application directory
-and leave the override blank. Windows drive paths must be expressed as WSL paths;
-Docker paths must refer to a folder mounted inside the container. Missing or
-incompatible Cotton binaries block enabling Cotton with an actionable error.
-
-Cotton also reduces triangle counts and can remove substantial fine detail.
-Both modes alter geometry and placement and can break alignment between separate
-parts and supports. No watermark-removal guarantee is made. Processing uses staged
-copies, supports cancellation, and rejects empty or structurally invalid/non-finite
-output before replacement. This validates file structure, not printability. The
-queue shows the current filename, file count and progress; Cotton exposes only
-file-level progress and elapsed time, while Delicates also reports progress within
-a file. Archives nested inside downloaded archives block cleaning with an explanatory
-error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
-archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
-omit member timestamps; original downloads are not rewritten.
-
-### Telegram reports LOCATION_INVALID
-
-This means Telegram rejected a file-location request. The downloader tries
-smaller requests for the affected range and reports its byte offset if recovery
-fails. The file stays incomplete and is never marked downloaded. Try Resume
-later, or test the same attachment in Telegram. If that also fails, request a
-new upload. Other completed files remain recorded and are skipped on Resume.
-
-For an unfinished Telegram file, stop the run if it is active, then choose
-**Restart from zero** on that file. This resets its byte counter and saved
-transfer state and starts downloading again without rescanning artists. Old
-local staging is retained under `redownload-backups` for recovery; it is not
-reused. Completed files remain recorded. After Restart from zero, the main progress
-bar counts only files that were unfinished at restart; earlier completed files
-remain visible in history and do not inflate the new attempt’s progress.
-
-Use **Restart unfinished** beside Resume to reset every unfinished file in the
-saved run and download only those again. It skips earlier completed files and
-starts a new progress count for the unfinished work. Stop an active run first.
-When releasing a prepared release through a bot, an existing verified upload to
-your Telegram release channel is reused. The collage and archives are forwarded
-without sender attribution; they are not uploaded again from your computer.
-Forwarding failures stop the attempt for review, with no automatic re-upload.
-A release without a previous verified channel upload is uploaded to Your Telegram
-Release Channel first, then forwarded to the bot. Configure this channel before
-starting a bot release. Archive bytes are never uploaded directly to a bot.
-
-If all files reached the bot but final confirmation failed, use **Retry completion**
-in the release upload panel. This queues only the completion step, without
-restarting the conversation or resending files. Recovery stops if the bot
-conversation has since changed. Replaced button messages are refreshed automatically.
-
-After bot-confirmed publication (or explicit confirmation of a verified upload),
-the manager removes unchanged source archives included in that package. It keeps
-the final release archive, collage, images, and download history. Sources remain
-until publication succeeds; changed files or cleanup errors are retained for review.
-Manual publication confirmation returns immediately. Source verification and
-cleanup run in a separate background worker, with status shown on the release.
-The queue shows live cleanup progress, including the current file, bytes checked,
-verification speed and sources removed, even when finished releases are filtered out.
-The confirmation dialog remains closable and reports a timeout if the server
-does not respond; check the saved release status before retrying.
-
-In Configuration → Release packaging, Compression threads defaults to Auto,
-letting 7-Zip choose its thread count. Select a fixed limit to leave more CPU
-capacity for other work. Saved changes apply to subsequent packaging jobs;
-running jobs keep their current settings. Compression level remains independent.
-
-Numbered addenda sent through Eve select the original release's creator, year and
-month, then **Append to release**. Older monthly releases are supported for this
-append flow. The tool verifies the existing release and additional-files prompt
-before forwarding; it stops if the original release is not found. Welcome Pack
-addenda use the Welcome Pack category instead of a month.
+Copyright © 2026 trumphater77

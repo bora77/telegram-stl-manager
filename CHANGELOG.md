@@ -1,5 +1,10 @@
 # Version history
 
+## 0.1.34
+
+- Reorganize the README into platform features, release workflow, setup, troubleshooting and development sections.
+- Clarify packaging, publication, addenda and source cleanup, and remove repeated explanations. Application behavior is unchanged.
+
 ## 0.1.33
 
 - Use automatic 7-Zip threading by default, with a configurable fixed limit under Release packaging.

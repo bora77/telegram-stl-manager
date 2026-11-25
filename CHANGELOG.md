@@ -1,5 +1,10 @@
 # Version history
 
+## 0.2.1
+
+- Give Telegram and MMF Auto-download controls the same switch design, aligned with the queue action row.
+- Improve Off/On styling and mobile layout while preserving saved settings.
+
 ## 0.2.0
 
 - Add independent, saved Auto-download toggles to the Telegram and MMF queues, both off by default.

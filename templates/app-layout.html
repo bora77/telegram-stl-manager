@@ -36,6 +36,18 @@ main.app-main{max-width:1440px;height:100vh;height:100dvh;margin:0 auto;padding:
  .nav-group-links a{padding:8px 10px}.app-scroll{padding-top:16px;padding-right:6px}
 }
 </style>
+<style>
+:is(.queue-panel,#mmf-download-controls) button.queue-automation-toggle{display:inline-flex;align-items:center;justify-content:center;gap:10px;flex:0 0 auto;margin:0 0 0 auto;padding:0 12px;height:38px;min-height:38px;box-sizing:border-box;border:1px solid #dcd2e8;border-radius:9px;background:#fff;color:#51445f;font:500 13px/1 system-ui,sans-serif;cursor:pointer;box-shadow:none;white-space:nowrap;transition:background .15s,border-color .15s}
+:is(.queue-panel,#mmf-download-controls) button.queue-automation-toggle:hover{background:#f5f0fb;border-color:#b49bcf}
+:is(.queue-panel,#mmf-download-controls) button.queue-automation-toggle[aria-pressed=true]{background:#f2ecfa;border-color:#b9a1d4;color:#654091}
+:is(.queue-panel,#mmf-download-controls) button.queue-automation-toggle:focus-visible{outline:3px solid #aa8fce;outline-offset:3px}
+:is(.queue-panel,#mmf-download-controls) button.queue-automation-toggle:disabled{opacity:.5;cursor:wait}
+.auto-download-label{font-weight:600}.auto-download-state{width:20px;color:#81768a;font-size:12px;text-align:center}.queue-automation-toggle[aria-pressed=true] .auto-download-state{color:#654091}
+.auto-download-track{position:relative;display:block;flex:none;width:32px;height:18px;border-radius:20px;background:#d7d0df;transition:background .15s}.auto-download-track:before{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #30203d33;transition:transform .15s}.queue-automation-toggle[aria-pressed=true] .auto-download-track{background:#7651a6}.queue-automation-toggle[aria-pressed=true] .auto-download-track:before{transform:translateX(14px)}
+:is(.queue-panel,#mmf-download-controls) .auto-download-status{display:block;margin:10px 0 0;text-align:right;color:#776783;font:12px/1.5 system-ui,sans-serif}.auto-download-status:empty{display:none!important}.auto-download-status.is-error{color:#a12632}
+@media(max-width:650px){:is(.queue-panel,#mmf-download-controls) button.queue-automation-toggle{margin:8px 0 0;width:100%;justify-content:flex-start}.queue-automation-toggle .auto-download-state{margin-left:auto}:is(.queue-panel,#mmf-download-controls) .auto-download-status{text-align:left}}
+@media(prefers-reduced-motion:reduce){.queue-automation-toggle,.auto-download-track,.auto-download-track:before{transition:none!important}}
+</style>
 <script>__ARTIST_PROFILES__</script>
 <header class="app-header">
   <a class="app-brand" href="/" aria-label="Telegram STL manager home"><img src="/favicon.svg" width="44" height="44" alt=""><span><strong>Telegram STL manager</strong><small>Even chaos deserves a folder.</small></span></a>

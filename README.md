@@ -286,7 +286,22 @@ During organizer Preview, loose files whose names and sizes match an existing mo
 
 Split archives with mixed names such as `release.7z.001`, `release.002`, and `release.003` are grouped together. Extraction uses temporary consistent names while preserving the original filenames; retrying an older organizer job also repairs this grouping.
 
-The browser checks subscribed creators for available downloads at the interval saved in Configuration (four hours by default) while the tool is open; it never starts downloads automatically. The Linux x64 runtime package includes Python, the web server, SQLite, Pillow, Telegram CLI and 7-Zip. Run `start.sh`; Windows uses WSL2. See INSTALL.md for first-time account/source setup and supported platforms.
+The browser checks subscribed creators for available downloads at the interval saved in Configuration (four hours by default) while the tool is open; downloads stay manual unless Auto-download is enabled on that provider’s queue. The Linux x64 runtime package includes Python, the web server, SQLite, Pillow, Telegram CLI and 7-Zip. Run `start.sh`; Windows uses WSL2. See INSTALL.md for first-time account/source setup and supported platforms.
+
+## Optional automatic downloads
+
+Telegram and MMF each have an independent **Auto-download: Off / On** toggle on
+their queue page. Both default to Off and remember their saved state across
+browser and server restarts. A manager page must remain open: existing browser
+availability checks drive automatic starts, with no new system service or timer.
+Enabling a toggle also permits starting already detected, unclaimed files.
+MMF must be enabled and connected. Gumroad remains manual.
+
+Turning a toggle off prevents new automatic runs without stopping an active
+download. Failed or stopped queues require manual Resume instead of automatic
+retries. Keep the download location accessible. MMF image extraction runs as
+usual, but packaging, collages and publishing remain manual. Installation agents
+must leave Auto-download off unless the user requests it.
 
 ## MyMiniFactory (Beta)
 
@@ -313,7 +328,7 @@ purchases and standalone model/PDF downloads are not yet exposed.
 ### Check and download
 
 **MMF → Queue** checks for availability at its configured interval while a manager
-page is open. Downloads start manually. Use **Download detected** for files already
+page is open. Downloads start manually by default; the queue’s Auto-download toggle can enable automatic starts. Use **Download detected** for files already
 found, **Check for downloads** to refresh availability, and **Resume** for an
 unfinished run. Failed releases are reported while the run continues with others.
 

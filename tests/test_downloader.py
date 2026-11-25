@@ -12,6 +12,17 @@ from app.file_delivery import deliver, DeliveryError, release_lock
 from app.subscription_store import SubscriptionStore
 
 class DownloaderTests(unittest.TestCase):
+    def test_kronos_accepts_exact_short_or_full_host_only(self):
+        import os
+        from types import SimpleNamespace
+        from app.file_delivery import mount_identity
+        device=Path('/').stat().st_dev;number=f'{os.major(device)}:{os.minor(device)}'
+        for source,kind,accepted in (('//kronos/STL','cifs',True),('//kronos.fritz.box/STL','cifs',True),('//other/STL','cifs',False),('//kronos.fritz.box/other','cifs',False),('//kronos.fritz.box/STL','ext4',False)):
+            with self.subTest(source=source,kind=kind),patch('app.file_delivery.Path.resolve',return_value=Path('/mnt/kronos-stl')),patch('app.file_delivery.Path.stat',return_value=SimpleNamespace(st_dev=device)),patch('app.file_delivery.subprocess.check_output',return_value=json.dumps({'filesystems':[{'target':'/mnt/kronos-stl','source':source,'fstype':kind,'maj:min':number}]})):
+                if accepted:self.assertEqual(mount_identity('/mnt/kronos-stl')[1],source)
+                else:
+                    with self.assertRaises(DeliveryError):mount_identity('/mnt/kronos-stl')
+
     def test_mount_identity_selects_actual_device_below_automount(self):
         import os
         from app.file_delivery import mount_identity

@@ -102,7 +102,7 @@ Supported runtime target: Linux x86-64 with glibc, tested on Ubuntu/Zorin 24.04.
 
 First launch creates blank local configuration and a local `downloads` directory. Configure your own Telegram login, approved source/TOC, artist catalog and destination using the setup steps below. The bundled CLI is `.tools/tdl-stl/tdl`; substitute `runtime/python/bin/python3` for `python3` in those steps. You can skip dependency installation and CLI compilation. Keep the application folder writable; private settings and SQLite files live in its `data` directory. Do not replace this directory when upgrading. The CLI's per-user authentication location is described below and must never be distributed.
 
-The availability timer lives in the browser: while the app is open, it requests a metadata-only check at the configured interval (four hours by default; adjustable from 15 minutes to 7 days in Configuration), using saved incremental cursors and the selected creator scopes. Completed or explicitly ignored files are excluded. No download starts automatically, and no scheduled service is installed. Browsers may delay checks while sleeping or suspending tabs; an overdue check runs when the page becomes active again. A check already requested can finish after the tab closes.
+The availability timer lives in the browser: while the app is open, it requests a metadata-only check at the configured interval (four hours by default; adjustable from 15 minutes to 7 days in Configuration), using saved incremental cursors and the selected creator scopes. Completed or explicitly ignored files are excluded. Auto-download is off by default; Telegram and MMF can each opt in with their saved queue toggle. No scheduled service is installed. Browsers may delay checks while sleeping or suspending tabs; an overdue check runs when the page becomes active again. A check already requested can finish after the tab closes.
 
 Maintainers: `python3 tools/package-runtime.py` builds the bundled archive from the public allowlist and locally built CLI/7-Zip binaries. The builder downloads the pinned Python runtime, Pillow and pypdf wheels; recipients do not need those build-time downloads. The existing source-only package remains available separately.
 
@@ -722,8 +722,10 @@ or Telegram login is needed. Before logging in again, finish/stop active jobs
 and let the idle service exit. During an upgrade from the older CLI, its current
 standalone transfer must finish once before the shared service can start.
 
-Saving subscriptions/settings, logging in, starting the server and opening pages
-never start a download batch or apply an organizer plan. Choose **From month/year**
+With Auto-download off, saving subscriptions/settings, logging in, starting the
+server and opening pages do not start a download batch. Enabling Auto-download
+allows open manager pages to start detected downloads. Organizer plans always
+require manual Apply. Choose **From month/year**
 or **All (archiving)**. New subscriptions default to the **previous calendar month**;
 the selected starting month stays fixed and includes all later releases. Older
 saved scopes retain their starting month. Release months are inferred from filenames, not
@@ -897,6 +899,21 @@ Logs/queue output can include creator names and file paths. Share only the relev
 error if asking for help; never attach authentication databases or NAS credentials.
 See [CATALOG.md](CATALOG.md) for the application workflow and implementation notes.
 
+## Optional automatic downloads
+
+Telegram and MMF each have an independent **Auto-download: Off / On** toggle on
+their queue page. Both default to Off and remember their saved state across
+browser and server restarts. A manager page must remain open: existing browser
+availability checks drive automatic starts, with no new system service or timer.
+Enabling a toggle also permits starting already detected, unclaimed files.
+MMF must be enabled and connected. Gumroad remains manual.
+
+Turning a toggle off prevents new automatic runs without stopping an active
+download. Failed or stopped queues require manual Resume instead of automatic
+retries. Keep the download location accessible. MMF image extraction runs as
+usual, but packaging, collages and publishing remain manual. Installation agents
+must leave Auto-download off unless the user requests it.
+
 ## Optional MyMiniFactory connection
 
 **All Beta features are for testers only: they are incomplete and buggy, and should not be relied on for regular use.**
@@ -905,7 +922,7 @@ See [CATALOG.md](CATALOG.md) for the application workflow and implementation not
 Open **Configuration → MyMiniFactory account** in the manager and connect with your MMF username/email and
 MMF password. Google-only accounts may first need an MMF password from the site's
 Forgot password flow. Select creators from Shared with me, Tribes and Frontiers, their destination folders
-and starting months, then save and check availability. Start downloads manually.
+and starting months, then save and check availability. Start downloads manually, or enable the saved Auto-download toggle on the MMF queue.
 The MMF starting month filters each file's last-updated date, including updates
 to older collections; release names still determine destination folders. Files
 without a usable update date are flagged and excluded unless All (archiving) is

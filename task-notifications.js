@@ -197,6 +197,17 @@
 /* Gumroad availability is requested only while a manager page is open. */
 (()=>{let busy=false;async function check(){if(busy||!window.gumroadBetaEnabled)return;busy=true;try{const response=await fetch('/api/gumroad/status',{cache:'no-store'});if(!response.ok)return;const state=await response.json();const link=document.getElementById('gumroad-tab');if(link)link.title=state.counts.available+' Gumroad files available';if(state.connected&&!state.active&&state.settings.subscriptions.length&&Date.now()/1000>=state.next_check_at)await fetch('/api/gumroad/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({due:true})})}catch{}finally{busy=false}}window.addEventListener('gumroad-beta-changed',check);window.addEventListener('availability-config-saved',check);check();setInterval(check,60000)})();
 
+/* Independent, persisted opt-ins; only open app pages drive automatic starts. */
+(()=>{
+ let busy=false,changing=false,state=null,errors={};
+ const controls=()=>document.querySelectorAll('[data-auto-download]');
+ function render(value){state=value;for(const button of controls()){const provider=button.dataset.autoDownload,entry=state[provider];if(!entry){button.hidden=true;continue}button.disabled=changing;button.classList.toggle('secondary',!entry.enabled);button.setAttribute('aria-pressed',String(entry.enabled));button.textContent='Auto-download: '+(entry.enabled?'On':'Off');button.title='Automatically download detected files while an app page is open. This setting is saved. Turning it off does not stop an active download.';const label=document.querySelector('[data-auto-download-status="'+provider+'"]');if(label)label.textContent=errors[provider]||(entry.enabled?(entry.message||'Starts detected downloads after availability checks.'):'');}}
+ async function request(path,payload){const response=await fetch('/api/auto-download'+path,{cache:'no-store',...(payload!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{})});const value=await response.json();if(!response.ok)throw Error(value.error||'Could not update Auto-download');return value}
+ async function poll(){if(busy||changing)return;busy=true;try{const saved=await request('');if(changing)return;render(saved);if(Object.values(saved).some(s=>s.enabled)){render(await request('/tick',{}));window.dispatchEvent(new Event('auto-download-status-updated'));}}catch{}finally{busy=false}}
+ function start(){for(const button of controls())button.onclick=async()=>{if(!state||changing)return;changing=true;button.disabled=true;const provider=button.dataset.autoDownload;try{errors[provider]='';render(await request('',{provider,enabled:!state[provider].enabled}));}catch(e){const label=document.querySelector('[data-auto-download-status="'+provider+'"]');errors[provider]=e.message;if(label)label.textContent=e.message;}finally{changing=false;if(state)render(state);poll();}};poll();setInterval(poll,5000);}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+
 /* Initial setup is also enforced by the server for direct links and APIs. */
 (()=>{
  function apply(state){for(const link of document.querySelectorAll('.app-navigation a:not(#config-tab)')){if(state.setup_required){link.setAttribute('aria-disabled','true');link.tabIndex=-1;link.title='Complete initial setup first'}else{link.removeAttribute('aria-disabled');link.removeAttribute('tabindex');if(link.title==='Complete initial setup first')link.removeAttribute('title')}}}

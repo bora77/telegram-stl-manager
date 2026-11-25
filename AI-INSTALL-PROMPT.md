@@ -165,7 +165,8 @@ not the model creation date. Explicit release months take priority. A real Tribe
 membership takes precedence over a duplicate Frontier entry for unrecorded files.
 - Confirm saved configuration and any existing subscriptions/history survive.
   Fresh installations must contain no previous user's sessions or private data.
-- Downloads and organization start manually. Do not click Download detected,
+- Downloads default to manual; organization remains manual. Do not enable
+  Auto-download without the user's request. Do not click Download detected,
   Resume, Apply, upload or publish as a test unless I authorize that actual
   content operation and scope. A download can process multiple subscriptions.
 - Availability checks are metadata-only and triggered by an open browser at
@@ -257,6 +258,21 @@ quick flow covers this/last month and automatically selects the Welcome Pack
 category for named Welcome Packs, for creators in its initial menu. Use Custom
 conversation for other menus, older months or other named collections. See README.md,
 “Choosing a release destination”, before configuring bot automation.
+
+## Optional automatic downloads
+
+Telegram and MMF each have an independent **Auto-download: Off / On** toggle on
+their queue page. Both default to Off and remember their saved state across
+browser and server restarts. A manager page must remain open: existing browser
+availability checks drive automatic starts, with no new system service or timer.
+Enabling a toggle also permits starting already detected, unclaimed files.
+MMF must be enabled and connected. Gumroad remains manual.
+
+Turning a toggle off prevents new automatic runs without stopping an active
+download. Failed or stopped queues require manual Resume instead of automatic
+retries. Keep the download location accessible. MMF image extraction runs as
+usual, but packaging, collages and publishing remain manual. Installation agents
+must leave Auto-download off unless the user requests it.
 
 ## Optional Gumroad Beta
 

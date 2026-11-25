@@ -113,6 +113,7 @@ def write_page(name, content):
 
 def gumroad_page():
     template=(root/'templates/mmf.html').read_text()
+    template=re.sub(r'<button[^>]*data-auto-download="mmf".*?</button><small data-auto-download-status="mmf".*?</small>','',template)
     view=(root/'mmf-view.js').read_text()
     # Provider-specific strings are rendered before the shared navigation is inserted.
     def adapt(value):

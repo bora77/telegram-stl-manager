@@ -63,7 +63,7 @@ def mount_identity(base):
     if not matches or base.stat().st_dev!=device:raise DeliveryError('Destination mount could not be verified; local files retained.')
     data=max(matches,key=lambda entry:len(Path(entry['target']).parts))
     if str(base).startswith('/mnt/kronos-stl/') or base==Path('/mnt/kronos-stl'):
-        if data['fstype']!='cifs' or data['source'].lower()!='//kronos/stl':raise DeliveryError('Kronos is not mounted; staged files were kept locally.')
+        if data['fstype']!='cifs' or data['source'].lower() not in ('//kronos/stl','//kronos.fritz.box/stl'):raise DeliveryError('Kronos is not mounted; staged files were kept locally.')
     if str(base).startswith('/mnt/telegram-stl-share/') or base==Path('/mnt/telegram-stl-share'):
         if data['fstype']!='cifs' or data['target']!='/mnt/telegram-stl-share':raise DeliveryError('Network share is disconnected; staged files were kept locally.')
     return (data['target'],data['source'],data['fstype'],device)

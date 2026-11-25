@@ -89,7 +89,7 @@ behavior on macOS needs separate testing. No share credentials are bundled.
 The web port is published only on host localhost. This package does not expose
 the application to other computers. Existing installations using port 6093 must
 be stopped before launching this one. Availability checks run while the web UI
-is open; downloads still start manually.
+is open; downloads start manually unless that provider’s Auto-download toggle is enabled.
 
 Builds select the host's native architecture. Mac/ARM64 behavior has not yet
 been tested on real hardware. This is a tester build, not a signed Mac app.
@@ -100,6 +100,21 @@ host folder, content verification, overwrite protection, Stop and recreation.
 SQLite data, a synthetic session marker and host files survived container
 replacement. All 32 setup, collage and MMF repackaging tests passed in the
 container. No real account login/download or Mac network-share test was performed.
+
+## Optional automatic downloads
+
+Telegram and MMF each have an independent **Auto-download: Off / On** toggle on
+their queue page. Both default to Off and remember their saved state across
+browser and server restarts. A manager page must remain open: existing browser
+availability checks drive automatic starts, with no new system service or timer.
+Enabling a toggle also permits starting already detected, unclaimed files.
+MMF must be enabled and connected. Gumroad remains manual.
+
+Turning a toggle off prevents new automatic runs without stopping an active
+download. Failed or stopped queues require manual Resume instead of automatic
+retries. Keep the download location accessible. MMF image extraction runs as
+usual, but packaging, collages and publishing remain manual. Installation agents
+must leave Auto-download off unless the user requests it.
 
 ## Optional Gumroad Beta
 

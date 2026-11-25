@@ -1,5 +1,12 @@
 # Version history
 
+## 0.2.0
+
+- Add independent, saved Auto-download toggles to the Telegram and MMF queues, both off by default.
+- Automatically start detected downloads while a manager page is open, using each provider's existing check interval.
+- Prevent duplicate automatic starts across tabs and leave failed or stopped runs for manual Resume. Packaging and publishing remain manual.
+- Accept the full hostname of the configured local NAS in the mount verification check.
+
 ## 0.1.34
 
 - Reorganize the README into platform features, release workflow, setup, troubleshooting and development sections.

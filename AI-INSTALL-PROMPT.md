@@ -33,7 +33,7 @@ My preferences:
 - Operating system and architecture: [detect if unspecified].
 - Installation: [new installation, or update an existing installation].
 - Download destination: [local folder, or network share and folder].
-- Optional MyMiniFactory Beta: [disabled unless requested].
+- Optional MyMiniFactory: [disabled unless requested].
 - Existing data: [preserve current settings/history, or a supplied backup].
 
 I authorize installing the required software for the chosen route and checking
@@ -135,7 +135,7 @@ allows only Configuration until setup is complete:
    Preferences → Review & finish. Click Save and review in Preferences, then
    Finish first-time configuration on the final page. Resolve every missing
    or unsaved setting listed there using its link back to the relevant step.
-   Other pages stay locked until validation passes. MMF is optional Beta,
+   Other pages stay locked until validation passes. MMF is optional,
    hidden by default; connect that account if I choose to enable it.
 
 Keep application state, SQLite and staging in the package-managed Linux
@@ -152,7 +152,7 @@ update, troubleshooting or uninstall.
 
 - Confirm the web page loads and the displayed version matches the chosen
   release. Verify Telegram Queue/Artists, Organize folders, Collages and
-  Configuration; MMF navigation appears only if its Beta is enabled.
+  Configuration; MMF navigation appears only if Show MyMiniFactory is enabled under Configuration → Subscriber Distribution channels.
 - MMF supports Shared with me, Tribes and Frontiers archive downloads.
   MMF's month-limited scope uses each file's last-updated date, not its release
   name. Late additions to old collections qualify; folder placement keeps the
@@ -251,7 +251,7 @@ saving uses the artist’s name below the configured download base. Characters
 that are invalid in folder names are made safe. Explicit folder choices are
 preserved; saving subscriptions does not start downloads or create folders.
 
-MMF beta release delivery is configured from **Make release** in MMF Queue. Choose
+MMF release delivery is configured from **Make release** in MMF Queue. Choose
 the configured Telegram release channel, a bot conversation, or Just mark as
 finished. Bot delivery requires its @username and conversation settings; the Eve
 quick flow covers this/last month and automatically selects the Welcome Pack
@@ -319,8 +319,7 @@ must leave Auto-download off unless the user requests it.
 ## Optional Gumroad Beta
 
 All Beta features are incomplete and buggy, for testers only. Gumroad is hidden
-and disabled by default. Enable **Show Gumroad** in **Configuration → Beta
-features**, save, then connect in **Gumroad account** using your Gumroad email
+and disabled by default. Enable **Show Gumroad** in **Configuration → Subscriber Distribution channels**, save, then connect in **Gumroad account** using your Gumroad email
 and password. If you normally use Google sign-in, use **Forgot your password?**
 on [Gumroad login](https://gumroad.com/login) with the same account email to set
 a separate Gumroad password. Enter that password here, not your Google password.
@@ -404,6 +403,14 @@ a file. Archives nested inside downloaded archives block cleaning with an explan
 error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
 archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
 omit member timestamps; original downloads are not rewritten.
+
+STL cleaning is **Beta**, for testers only, under **Configuration → Release packaging**. Beta features stay in their relevant sections rather than a separate Beta section.
+
+The RC-based PDF washer runs during **Make release**, before compression, on
+staged copies only. It removes recognized footer-stamp patterns, shows file/page
+progress and verifies saved page content. Unrecognized PDFs remain unchanged by
+the washer; signed/encrypted or damaged PDFs stop packaging and retain sources.
+Organizing does not wash PDFs. Timestamp cleanup below is a separate step.
 
 **Configuration → Release packaging → PDF and image timestamp privacy** defaults
 to On. Make release removes known embedded dates from staged PDF, JPEG, PNG and

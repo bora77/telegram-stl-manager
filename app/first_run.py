@@ -44,6 +44,7 @@ class FirstRun:
     def __init__(self,store):
         self.store=store;self.root=store.root;self.lock=threading.RLock();self.child=None;self.master=None;self.phase='connected' if (self.root/'data/telegram-connected').exists() else 'idle';self.challenge=0;self.answer_pending=False;self.guard=None
         self.setup_required=not (self.root/'data/setup-complete').exists() and ((self.root/'data/setup-required').exists() or not self.configured_catalog())
+        self.account_refreshing=False;self.account_checked=0
     def consent_required(self):
         return self.setup_required and not (self.root/'data/usage-acknowledgment.json').is_file()
     def acknowledge(self,payload):
@@ -71,8 +72,8 @@ class FirstRun:
         except OSError:available=False
         if not available:missing.append('Choose an available download folder with read and write access.')
         if not (self.root/'data/setup-settings-reviewed').exists():missing.append('Review all configuration settings and press Save configuration.')
-        if settings.get('gumroad_beta_enabled') and not (self.root/'data/gumroad/session.cookies').is_file():missing.append('Connect Gumroad, or turn off its Beta feature and save.')
-        if settings.get('mmf_beta_enabled') and not (self.root/'data/mmf/session.cookies').is_file():missing.append('Connect MyMiniFactory, or turn off its Beta feature and save.')
+        if settings.get('gumroad_beta_enabled') and not (self.root/'data/gumroad/session.cookies').is_file():missing.append('Connect Gumroad, or turn off Show MyMiniFactory and save.')
+        if settings.get('mmf_beta_enabled') and not (self.root/'data/mmf/session.cookies').is_file():missing.append('Connect MyMiniFactory, or turn off Show MyMiniFactory and save.')
         return missing
     def complete(self,mmf=None,gumroad=None):
         with self.lock,self.idle():
@@ -96,10 +97,41 @@ class FirstRun:
                 try:fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
                 except BlockingIOError:raise ValueError('Wait for running tasks to finish before changing setup.')
             yield
+    def account_identity(self):
+        from app.telegram_cli import read_json
+        data=read_json(self.root/'data/telegram-account.json',{})
+        account={key:str(data.get(key,'') or '')[:200] for key in ('name','username')} if isinstance(data,dict) else {}
+        if self.phase!='connected':return {}
+        with self.lock:
+            if not self.account_refreshing and time.monotonic()-self.account_checked>300 and (self.root/'.tools/tdl-stl/tdl').is_file() and (self.root/'data/source.json').is_file():
+                self.account_refreshing=True;self.account_checked=time.monotonic()
+                threading.Thread(target=self._refresh_account,daemon=True).start()
+        return account
+
+    def _refresh_account(self):
+        from app.telegram_cli import TelegramCLI
+        import tempfile
+        client=None
+        try:
+            client=TelegramCLI(root=self.root)
+            with tempfile.TemporaryDirectory(dir=client.state) as directory:
+                output=Path(directory)/'account.json'
+                client._run(['stl','account','--output',output],Path(directory),lambda:self.phase!='connected',timeout=30)
+                data=json.loads(output.read_text())
+                account={key:data.get(key,'') for key in ('name','username')}
+                if not all(isinstance(value,str) and len(value)<=200 for value in account.values()):return
+                if self.phase=='connected':self.store.atomic_write(self.root/'data/telegram-account.json',account)
+        except Exception:pass  # Keep the last known name during network interruptions.
+        finally:
+            if client:client.close()
+            self.account_refreshing=False
+
     def state(self):
+        if self.phase=='idle' and (self.root/'data/telegram-connected').exists():self.phase='connected'
+        account=self.account_identity()
         try:source=load_source(self.root).home_url
         except ValueError:source=''
-        return {'consent_required':self.consent_required(),'usage_notice':(Path(__file__).resolve().parent.parent/'USAGE-NOTICE.txt').read_text() if self.consent_required() else '', 'setup_required':self.setup_required,'missing_setup':self.missing_setup(),'application':'telegram-stl-manager','version':(self.root/'VERSION').read_text().strip() if (self.root/'VERSION').exists() else 'unknown','source':source,'login':self.phase,'challenge':self.challenge,'share_supported':Path('/etc/telegram-stl-managed').exists(),'share':json.loads((self.root/'data/setup-share.json').read_text()) if (self.root/'data/setup-share.json').exists() else {},'creators':len(json.loads((self.root/'data/creators.json').read_text()).get('creators',[])) if (self.root/'data/creators.json').exists() else 0}
+        return {'consent_required':self.consent_required(),'usage_notice':(Path(__file__).resolve().parent.parent/'USAGE-NOTICE.txt').read_text() if self.consent_required() else '', 'setup_required':self.setup_required,'missing_setup':self.missing_setup(),'application':'telegram-stl-manager','version':(self.root/'VERSION').read_text().strip() if (self.root/'VERSION').exists() else 'unknown','source':source,'login':self.phase,'account':account,'challenge':self.challenge,'share_supported':Path('/etc/telegram-stl-managed').exists(),'share':json.loads((self.root/'data/setup-share.json').read_text()) if (self.root/'data/setup-share.json').exists() else {},'creators':len(json.loads((self.root/'data/creators.json').read_text()).get('creators',[])) if (self.root/'data/creators.json').exists() else 0}
     def start_login(self):
         with self.lock,self.idle():
             if self.child and self.child.poll() is None:raise ValueError('Telegram sign-in is already open.')
@@ -109,6 +141,8 @@ class FirstRun:
             try:fcntl.flock(guard,fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError:guard.close();raise ValueError('Telegram is busy.')
             self.guard=guard;self.master,slave=pty.openpty()
+            (self.root/'data/telegram-account.json').unlink(missing_ok=True)
+            self.account_checked=0
             try:self.child=subprocess.Popen(self.command('login','-T','code'),stdin=slave,stdout=slave,stderr=slave,start_new_session=True,env={**os.environ,'TERM':'xterm','NO_COLOR':'1'})
             finally:os.close(slave)
             self.phase='connecting';self.answer_pending=False

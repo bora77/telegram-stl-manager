@@ -48,7 +48,9 @@ def private_markers(root):
         if match:
             markers.add(match[1])
             name = source.get('name', '').split('/')[0].strip()
-            if len(name) >= 8:
+            # FirstRun.parse_toc writes this literal placeholder, not a group
+            # title. Keep scanning the source ID and every actual source name.
+            if len(name) >= 8 and name != 'Configured Table of Contents':
                 markers.add(name)
     return markers
 

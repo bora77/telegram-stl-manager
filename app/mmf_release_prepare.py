@@ -418,6 +418,8 @@ def execute(manager,plan):
         manager.progress(phase=phase,message=plan['title'],bytes=percent,expected=100,progress_unit='percent',cleaner_file=None,cleaner_total=None,current_file=None,file_index=None,file_total=None,speed_mbps=0)
     def metadata_progress(filename,index,total):
         manager.progress(phase='processing_metadata',message='Removing timestamps · '+filename,bytes=round(100*index/max(1,total),1),expected=100,progress_unit='percent',current_file=filename,file_index=index+1,file_total=total,speed_mbps=0)
+    def pdf_progress(filename,index,total,stage,page,pages,percent):
+        manager.progress(phase='processing_pdfs',message=('Verifying washed PDF' if stage=='verifying' else 'Washing PDF')+' · '+filename+' · file '+str(index)+'/'+str(total)+' · page '+str(page)+'/'+str(pages),bytes=round(percent,1),expected=100,progress_unit='percent',current_file=filename,file_index=index,file_total=total,speed_mbps=0)
     last_clean=[0,None]
     cleaner_started=[time.monotonic()]
     def cleaning_progress(filename,index,total,percent):
@@ -484,7 +486,7 @@ def execute(manager,plan):
             manager.progress(phase='moving',message='Reusing verified archive · '+plan['title'],bytes=0,expected=0)
         else:
             identity=hashlib.sha256((plan['id']+json.dumps(sorted(plan['keys']))).encode()).hexdigest()
-            packed=repack(sources[0]['path'],work/'packed',identity,progress,manager.stopped,compression_level=compression,compression_threads=threads,metadata_privacy=metadata_privacy,metadata_progress=metadata_progress,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress,release_images=sorted(image_paths))
+            packed=repack(sources[0]['path'],work/'packed',identity,progress,manager.stopped,compression_level=compression,compression_threads=threads,metadata_privacy=metadata_privacy,metadata_progress=metadata_progress,pdf_progress=pdf_progress,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress,release_images=sorted(image_paths))
         for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
             images.setdefault(record['path'],record)
         fallback=[]

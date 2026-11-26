@@ -7,6 +7,28 @@ from app.subscription_store import SubscriptionStore
 from tests.test_support import configure_source
 
 class SetupCompletionTests(unittest.TestCase):
+    def test_account_display_excludes_private_fields_and_hides_during_login(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);store=SubscriptionStore(configure_source(root));manager=FirstRun(store)
+            store.atomic_write(root/'data/telegram-account.json',{'name':'Example User','username':'example','phone':'private','access_hash':'private'})
+            manager.phase='connected'
+            self.assertEqual(manager.state()['account'],{'name':'Example User','username':'example'})
+            manager.phase='password'
+            self.assertEqual(manager.state()['account'],{})
+
+    def test_existing_session_status_updates_after_successful_cli_operation(self):
+        from app.telegram_cli import TelegramCLI
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);store=SubscriptionStore(configure_source(root));manager=FirstRun(store)
+            self.assertEqual(manager.phase,'idle')
+            cli=object.__new__(TelegramCLI);cli.root=root
+            cli._record_connected(['stl','health'])
+            self.assertEqual(manager.state()['login'],'idle')
+            cli._record_connected(['stl','release-history'])
+            self.assertEqual(manager.state()['login'],'connected')
+            manager.phase='password'
+            self.assertEqual(manager.state()['login'],'password')
+
     def test_usage_acknowledgment_is_explicit_persistent_and_blocks_completion(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);store=SubscriptionStore(configure_source(root))

@@ -5,8 +5,10 @@
 These unchecked items appear on the What's new page, linked from the footer. Check an item off when it ships
 to remove it from the upcoming list on the next page build.
 
+- [ ] **Cults3D importer** — Import owned Cults3D downloads into the manager, with artist/release organization and download-history tracking. Investigate supported account access and download methods before implementation.
+
 - [ ] **STL ↔ DRC conversion** — Optional conversion in both directions while organizing releases, with configurable compression and precision.
-- [ ] **PDF washer in the organizer** — Optional cleaning of supported PDF stamps, using the RC-based cleaner and preserving original archives.
+- [x] **PDF washer during Make release** — Clean recognized footer stamps on staged PDFs before release compression, preserving original downloads. Show file/page progress and verify saved content; no organizer washing.
 - [x] **PDF and image timestamp privacy** — Configurable, default-on cleanup of known date fields in PDF/JPEG/PNG/WebP staged contents during Make release, with file progress, lossless image handling and normalized staged times. Generated archives omit member times; original downloads and existing prepared archives remain unchanged. Other formats and arbitrary identifying marks are outside this feature's scope.
 - [ ] **Linux and Docker updates** — Install updates from the app while keeping accounts, settings and download history.
 - [ ] **Packaging on another device** — Optionally run archive preparation, compression and verification on a more powerful computer, with shared-storage access, progress reporting and recovery after connection interruptions. Keep release management and uploads in the main app.
@@ -33,7 +35,7 @@ to remove it from the upcoming list on the next page build.
 ## Organizer enhancements
 
 - [ ] Add an optional DRC converter during organization, enabled only when selected by the user. Define the conversion format and handling of originals before implementation.
-- [ ] Add an optional PDF washer during organization, reusing the existing PDFCleaner adaptation by RC from MMF repackaging. Preserve original archives, process staged copies, and record cleaning status. Test representative PDFs before enabling it for real releases.
+- [x] Keep PDF washing in release packaging, not organization, as requested. Reuse the RC-based cleaner on staged copies and record changes in packaging receipts.
 
 ## Self-updater
 

@@ -31,51 +31,80 @@ def strip_stamps(operations):
                 and numbers(inner[6][0],[2]) and numbers(inner[7][0],[0,0])):
             removed.update(range(start,start+end+2));profiles.append('order_footer')
     # Known dark footer badge. Restrict the candidate to path operations.
-    badge=False
+    badge_ends=[]
     for start,(args,op) in enumerate(operations):
         if op!=b'g' or not numbers(args,[0]) or start+1>=len(operations):continue
         point,operator=operations[start+1]
         if operator!=b'm' or not numbers(point,[18.43,42.52]):continue
         for end in range(start+2,min(len(operations),start+65)):
             if operations[end][1]==b'f':
-                removed.update(range(start+1,end+1));profiles.append('footer_badge');badge=True;break
+                removed.update(range(start+1,end+1));profiles.append('footer_badge');badge_ends.append(end);break
             if operations[end][1] not in (b'm',b'l',b'c',b'v',b'y',b'h'):break
-    if badge:
-        for start in range(len(operations)-4):
+    for end in badge_ends:
+        # Only text immediately attached to this badge is eligible. A matching
+        # y-coordinate elsewhere on the page can be an unrelated artist credit.
+        for start in range(end+1,min(len(operations)-4,end+11),5):
             block=operations[start:start+5]
-            if [op for _,op in block]!=[b'rg',b'BT',b'Td',b'Tj',b'ET']:continue
-            if not numbers(block[0][0],[1,1,1]) or len(block[2][0])!=2:continue
+            if [op for _,op in block]!=[b'rg',b'BT',b'Td',b'Tj',b'ET']:break
+            if not numbers(block[0][0],[1,1,1]) or len(block[2][0])!=2:break
             y=float(block[2][0][1])
             if 21<=y<22 or 33<=y<34:
                 removed.update(range(start+1,start+5));profiles.append('badge_footer_text')
     return [entry for i,entry in enumerate(operations) if i not in removed],profiles
 
 
-def clean_pdf(path, stopped=lambda:False):
+def require_unsigned(reader,stopped):
+    from pypdf.generic import DictionaryObject,ArrayObject,IndirectObject
+    pending=[reader.trailer];seen=set()
+    while pending:
+        if stopped():raise ValueError('PDF processing stopped.')
+        obj=pending.pop()
+        if isinstance(obj,IndirectObject):obj=obj.get_object()
+        if id(obj) in seen:continue
+        seen.add(id(obj))
+        if len(seen)>200000:raise ValueError('PDF exceeds processing limit.')
+        if isinstance(obj,DictionaryObject):
+            if obj.get('/FT')=='/Sig' or obj.get('/Type')=='/Sig' or '/ByteRange' in obj:
+                raise ValueError('Signed PDF cannot be washed automatically; original retained.')
+            pending.extend(obj.values())
+        elif isinstance(obj,ArrayObject):pending.extend(obj)
+
+
+def clean_pdf(path, stopped=lambda:False,progress=lambda *args:None):
     """Replace only a verified staged copy; unchanged PDFs remain byte-identical."""
     from pypdf import PdfReader, PdfWriter
     path=Path(path)
+    if path.is_symlink() or not path.is_file():raise ValueError('PDF input must be a regular staged file.')
+    if stopped():raise ValueError('PDF processing stopped.')
     reader=PdfReader(path,strict=True)
     if reader.is_encrypted:raise ValueError('Encrypted PDF cannot be processed automatically.')
-    writer=PdfWriter(clone_from=reader);changed=[];page_count=len(reader.pages)
+    require_unsigned(reader,stopped)
+    writer=PdfWriter(clone_from=reader);changed=[];page_count=len(reader.pages);expected=[]
     for number,page in enumerate(writer.pages,1):
         if stopped():raise ValueError('PDF processing stopped.')
+        progress('cleaning',number,page_count)
         stream=page.get_contents()
-        if stream is None:continue
+        if stream is None:expected.append(None);continue
         operations,profiles=strip_stamps(stream.operations)
         if profiles:
             stream.operations=operations;page.replace_contents(stream)
             changed.append({'page':number,'profiles':profiles})
+        expected.append(operations)
     if not changed:return {'changed':False,'pages':page_count}
     fd,temporary=tempfile.mkstemp(prefix='.pdf-clean-',suffix='.pdf',dir=path.parent)
     try:
-        with os.fdopen(fd,'wb') as output:writer.write(output)
+        with os.fdopen(fd,'wb') as output:
+            writer.compress_identical_objects(remove_duplicates=False,remove_unreferenced=True)
+            writer.write(output)
         result=PdfReader(temporary,strict=True)
         if len(result.pages)!=page_count:raise ValueError('PDF page count changed unexpectedly.')
-        for page in result.pages:
+        for number,page in enumerate(result.pages,1):
             if stopped():raise ValueError('PDF processing stopped.')
+            progress('verifying',number,page_count)
             stream=page.get_contents()
-            if stream is not None:stream.operations
+            if (stream.operations if stream is not None else None)!=expected[number-1]:
+                raise ValueError('PDF content changed unexpectedly during save; original retained.')
+        if stopped():raise ValueError('PDF processing stopped.')
         os.replace(temporary,path)
     finally:Path(temporary).unlink(missing_ok=True)
     return {'changed':True,'pages':page_count,'changes':changed}

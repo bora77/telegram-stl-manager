@@ -36,6 +36,19 @@ class GitPrivacyTests(unittest.TestCase):
         (self.root/'public.txt').write_text(str(TEST_SOURCE.chat_id))
         self.assertEqual(checker.verify_index(self.root), 2)
 
+    def test_generated_toc_label_is_public_but_actual_names_and_ids_are_private(self):
+        catalog=self.root/'data/creators.json'
+        source={'name':'Configured Table of Contents','url':TEST_SOURCE.home_url}
+        catalog.write_text(json.dumps({'source':source}))
+        (self.root/'public.txt').write_text(source['name'])
+        self.git('add','public.txt');self.assertEqual(checker.verify_index(self.root),2)
+        source['name']='Private Example Group';catalog.write_text(json.dumps({'source':source}))
+        (self.root/'public.txt').write_text(source['name']);self.git('add','public.txt')
+        with self.assertRaisesRegex(ValueError,'Private source reference'):checker.verify_index(self.root)
+        source['name']='Configured Table of Contents';catalog.write_text(json.dumps({'source':source}))
+        (self.root/'public.txt').write_text(str(TEST_SOURCE.chat_id));self.git('add','public.txt')
+        with self.assertRaisesRegex(ValueError,'Private source reference'):checker.verify_index(self.root)
+
     def test_clean_working_copy_cannot_hide_private_content_in_the_index(self):
         (self.root/'public.txt').write_text(str(TEST_SOURCE.chat_id))
         self.git('add', '--', 'public.txt')
@@ -71,13 +84,14 @@ class GitPrivacyTests(unittest.TestCase):
 
     def test_installed_hook_blocks_bad_commit_then_allows_clean_commit(self):
         (self.root/'tools').mkdir();(self.root/'.githooks').mkdir()
-        for name in ('check-git.py', 'package-release.py'):
+        for name in ('check-git.py', 'package-release.py', 'bump-version.py'):
             shutil.copy2(ROOT/'tools'/name, self.root/'tools'/name)
         shutil.copy2(ROOT/'.githooks/pre-commit', self.root/'.githooks/pre-commit')
         self.manifest['files'].append('.githooks/pre-commit')
+        (self.root/'VERSION').write_text('0.1.0\n');self.manifest['files'].append('VERSION')
         self.manifest['trees'].append('tools');self.write_manifest()
         (self.root/'public.txt').write_text(str(TEST_SOURCE.chat_id))
-        self.git('add', '--', 'distribution.json', 'public.txt', 'tools', '.githooks')
+        self.git('add', '--', 'distribution.json', 'public.txt', 'tools', '.githooks','VERSION')
         self.git('config', '--local', 'core.hooksPath', '.githooks')
         commit = ('-c', 'user.name=Test Author', '-c', 'user.email=test@example.invalid',
                   '-c', 'commit.gpgsign=false', 'commit', '-m', 'Fixture commit')

@@ -54,3 +54,35 @@ class PDFTests(unittest.TestCase):
         path=self.root/'bad.pdf';path.write_bytes(b'bad pdf');original=path.read_bytes()
         with self.assertRaises(Exception):clean_pdf(path)
         self.assertEqual(path.read_bytes(),original)
+
+    def test_badge_does_not_remove_unrelated_white_credit(self):
+        path=self.root/'badge.pdf'
+        pdf(path,BODY+b'0 g 18.43 42.52 m 40 42.52 l 40 10 l h f\n1 1 1 rg BT 20 21.5 Td (Buyer footer) Tj ET\nq Q\n1 1 1 rg BT 200 21.5 Td (Artist credit) Tj ET')
+        clean_pdf(path);text=PdfReader(path).pages[0].extract_text()
+        self.assertNotIn('Buyer footer',text);self.assertIn('Artist credit',text)
+
+    def test_signed_input_retained_even_without_timestamp_cleanup(self):
+        path=self.root/'signed.pdf';pdf(path,BODY+STAMP)
+        writer=PdfWriter(clone_from=path);writer.pages[0][NameObject('/Test')]=DictionaryObject({NameObject('/FT'):NameObject('/Sig')});writer.write(path)
+        original=path.read_bytes()
+        with self.assertRaisesRegex(ValueError,'Signed'):clean_pdf(path)
+        self.assertEqual(path.read_bytes(),original)
+
+    def test_progress_cancellation_and_removed_stream_bytes(self):
+        path=self.root/'guide.pdf';pdf(path,BODY+STAMP);original=path.read_bytes();events=[]
+        clean_pdf(path,progress=lambda *event:events.append(event))
+        self.assertEqual(events,[('cleaning',1,1),('verifying',1,1)])
+        self.assertNotIn(b'Buyer order',path.read_bytes())
+        path.write_bytes(original);cancel=[False]
+        def progress(stage,*args):
+            if stage=='verifying':cancel[0]=True
+        with self.assertRaisesRegex(ValueError,'stopped'):clean_pdf(path,lambda:cancel[0],progress)
+        self.assertEqual(path.read_bytes(),original);self.assertFalse(list(self.root.glob('.pdf-clean-*')))
+
+    def test_mixed_pages_preserve_operations_despite_noncanonical_spacing(self):
+        path=self.root/'mixed.pdf';pdf(path,BODY+STAMP)
+        writer=PdfWriter(clone_from=path);page=writer.add_blank_page(width=400,height=500)
+        stream=DecodedStreamObject();stream.set_data(b'q   1  0  0 1 0 0 cm\n\nQ\n');page[NameObject('/Contents')]=writer._add_object(stream)
+        writer.write(path);expected=PdfReader(path).pages[1].get_contents().operations
+        result=clean_pdf(path)
+        self.assertTrue(result['changed']);self.assertEqual(PdfReader(path).pages[1].get_contents().operations,expected)

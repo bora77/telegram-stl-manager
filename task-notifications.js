@@ -177,7 +177,7 @@ window.renderDownloadAvailability=(label,state)=>{
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();
 
-/* MMF beta is opt-in. Hidden by default, including automatic checks. */
+/* MMF is opt-in. Hidden by default, including automatic checks. */
 (()=>{
  window.mmfBetaEnabled=false;
  function apply(config){const enabled=config.mmf_beta_enabled===true;window.mmfBetaEnabled=enabled;const tab=document.getElementById('mmf-nav-group'),account=document.getElementById('mmf-account');if(tab)tab.hidden=!enabled;if(account)account.hidden=!enabled;window.dispatchEvent(new Event('mmf-beta-changed'))}

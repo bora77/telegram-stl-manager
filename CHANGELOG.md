@@ -1,5 +1,14 @@
 # Version history
 
+## 0.2.7
+
+- Improve packaging-time PDF washing with page progress, signed-document protection and verification of saved content.
+- Show the connected Telegram account name, with consistent account status styling and reconnect controls.
+- Simplify configuration: contextual Beta labels, clearer STL cleaner explanations and upload-size warnings only above 4000 MiB.
+- Remove MyMiniFactory's Beta label while retaining its visibility setting; Gumroad and STL cleaning remain Beta.
+- Hide TOC help after a successful import and show a lighter Update artists button for subsequent imports.
+- Add the Cults3D importer to Upcoming features.
+
 ## 0.2.6
 
 - Add a default-on timestamp privacy option for PDF, JPEG, PNG and WebP files in newly generated release archives.

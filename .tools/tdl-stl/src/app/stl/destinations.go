@@ -7,8 +7,18 @@ import (
 	"github.com/gotd/td/telegram/query/dialogs"
 	"github.com/gotd/td/tg"
 	"sort"
+	"strings"
 	"time"
 )
+
+// Account returns display identity only: never session keys, phone or access hash.
+func Account(ctx context.Context, c *telegram.Client, output string) error {
+	user, err := c.Self(ctx)
+	if err != nil {
+		return err
+	}
+	return WriteJSON(output, map[string]any{"name": strings.TrimSpace(user.FirstName + " " + user.LastName), "username": user.Username})
+}
 
 type Destination struct {
 	ID       string `json:"id"`

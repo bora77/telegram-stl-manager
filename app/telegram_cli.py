@@ -271,7 +271,10 @@ class TelegramCLI:
                 require_release_collage(path)
         if self.use_service and args and args[0]=='stl':
             from app.telegram_service import TelegramService, ServiceError
-            try:return TelegramService(self.root,self.state,self.command).run(args,stopped,tick,timeout,waiting)
+            try:
+                result=TelegramService(self.root,self.state,self.command).run(args,stopped,tick,timeout,waiting)
+                self._record_connected(args)
+                return result
             except (ServiceError,OSError,ValueError) as error:raise CLIError(str(error)) from error
         # The CLI's Bolt storage needs exclusive access only while its command
         # runs. Release it during extraction/moves and between attachments so
@@ -284,8 +287,17 @@ class TelegramCLI:
                 now=time.monotonic()
                 if now-last>=1:waiting();last=now
                 time.sleep(.2)
-        try:self._run_locked(args,directory,stopped,tick,timeout)
+        try:
+            self._run_locked(args,directory,stopped,tick,timeout)
+            self._record_connected(args)
         finally:fcntl.flock(self.lock,fcntl.LOCK_UN)
+
+    def _record_connected(self,args):
+        if len(args)<2 or args[0]!='stl' or args[1] not in ('account','files','download','destinations','servers','release-history','release-upload','release-forward','release-bot'):return
+        # A successful authenticated request also proves legacy/imported logins.
+        # A status-marker write must never turn a completed transfer into failure.
+        try:(self.root/'data/telegram-connected').touch(mode=0o600)
+        except OSError:pass
 
     def _run_locked(self, args, directory, stopped, tick, timeout):
         started = time.monotonic()

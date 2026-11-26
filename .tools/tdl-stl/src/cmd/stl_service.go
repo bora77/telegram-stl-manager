@@ -108,7 +108,7 @@ func runSTLRequest(ctx context.Context, c *telegram.Client, kv storage.Storage, 
 		f.StringVar(&caption, "caption", "", "")
 		f.StringVar(&events, "progress", "", "")
 		f.BoolVar(&photo, "photo", false, "")
-	case "servers", "destinations":
+	case "servers", "destinations", "account":
 		f.StringVar(&output, "output", "", "")
 	case "files":
 		f.IntVar(&topic, "topic", 0, "")
@@ -144,6 +144,11 @@ func runSTLRequest(ctx context.Context, c *telegram.Client, kv storage.Storage, 
 	switch request.Args[0] {
 	case "release-bot":
 		return stl.ReleaseBot(ctx, c, kv, destination, botAction, botValue, forwardID, output)
+	case "account":
+		if output == "" {
+			return fmt.Errorf("missing account output")
+		}
+		return stl.Account(ctx, c, output)
 	case "release-forward":
 		return stl.ForwardReleaseMessage(ctx, c, kv, forwardSource, destination, forwardID, randomID, output)
 	case "release-history":

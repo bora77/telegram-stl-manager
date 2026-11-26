@@ -160,9 +160,12 @@ must leave Auto-download off unless the user requests it.
 
 ## Optional Gumroad Beta
 
+MyMiniFactory is no longer marked Beta. Enable **Show MyMiniFactory** under
+**Configuration → Subscriber Distribution channels** and connect your account. Gumroad alone
+remains marked **Beta** under **Subscriber Distribution channels**; existing platform visibility settings are kept.
+
 All Beta features are incomplete and buggy, for testers only. Gumroad is hidden
-and disabled by default. Enable **Show Gumroad** in **Configuration → Beta
-features**, save, then connect in **Gumroad account** using your Gumroad email
+and disabled by default. Enable **Show Gumroad** in **Configuration → Subscriber Distribution channels**, save, then connect in **Gumroad account** using your Gumroad email
 and password. If you normally use Google sign-in, use **Forgot your password?**
 on [Gumroad login](https://gumroad.com/login) with the same account email to set
 a separate Gumroad password. Enter that password here, not your Google password.
@@ -246,6 +249,14 @@ a file. Archives nested inside downloaded archives block cleaning with an explan
 error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
 archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
 omit member timestamps; original downloads are not rewritten.
+
+STL cleaning is **Beta**, for testers only, under **Configuration → Release packaging**. Beta features stay in their relevant sections rather than a separate Beta section.
+
+The RC-based PDF washer runs during **Make release**, before compression, on
+staged copies only. It removes recognized footer-stamp patterns, shows file/page
+progress and verifies saved page content. Unrecognized PDFs remain unchanged by
+the washer; signed/encrypted or damaged PDFs stop packaging and retain sources.
+Organizing does not wash PDFs. Timestamp cleanup below is a separate step.
 
 **Configuration → Release packaging → PDF and image timestamp privacy** defaults
 to On. Make release removes known embedded dates from staged PDF, JPEG, PNG and

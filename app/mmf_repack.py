@@ -9,7 +9,7 @@ from app.release_images import command, listing, safe_component, member_path, sp
 
 VOLUME_BYTES=4000*1024*1024  # 7-Zip's 4000M (MiB) volume size.
 COMPRESSION_LEVEL=7
-POLICY_VERSION=8
+POLICY_VERSION=9
 
 
 def is_metadata_file(name):
@@ -26,7 +26,7 @@ def archive_name(filename):
     return safe_component(stem)+'.7z'
 
 
-def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None,release_images=None,compression_threads=0,metadata_privacy=True,metadata_progress=None):
+def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None,release_images=None,compression_threads=0,metadata_privacy=True,metadata_progress=None,pdf_progress=None):
     if type(compression_level) is not int or compression_level not in (0,1,3,5,7,9):raise ValueError('Invalid compression level.')
     if type(compression_threads) is not int or not 0<=compression_threads<=256:raise ValueError('Invalid compression thread count.')
     threading_option='-mmt='+('on' if compression_threads==0 else str(compression_threads))
@@ -122,16 +122,21 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
             all_entries[member]=image['size']
         if not all_entries:raise ExtractionError('No release files remain after removing operating-system metadata; source retained.')
         from app.mmf_pdf import clean_pdf
-        for member_name in list(all_entries):
-            if Path(member_name).suffix.lower()!='.pdf':continue
+        pdf_names=[name for name in all_entries if Path(name).suffix.lower()=='.pdf']
+        for index,member_name in enumerate(pdf_names):
             if stopped():raise ExtractionError('Stopped before PDF processing; source retained.')
-            progress('processing_pdfs',0)
+            progress('processing_pdfs',int(100*index/len(pdf_names)))
             path=members/member_name
             before={'size':path.stat().st_size,'sha256':digest(path)}
-            try:result=clean_pdf(path,stopped)
+            def page_progress(stage,page,total):
+                percent=100*(index+((page-1)/max(1,total)+(1 if stage=='verifying' else 0))/2)/len(pdf_names)
+                progress('processing_pdfs',round(percent,1))
+                if pdf_progress:pdf_progress(member_name,index+1,len(pdf_names),stage,page,total,percent)
+            try:result=clean_pdf(path,stopped,page_progress)
             except Exception as error:raise ExtractionError('PDF processing failed for '+member_name+': '+str(error)) from error
             all_entries[member_name]=path.stat().st_size
             pdfs.append({'name':member_name,'before':before,'after':{'size':path.stat().st_size,'sha256':digest(path)},**result})
+        if pdf_names:progress('processing_pdfs',100)
         privacy=[]
         if metadata_privacy:
             from app.metadata_privacy import clean_timestamps,SUPPORTED

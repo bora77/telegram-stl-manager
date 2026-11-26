@@ -78,7 +78,7 @@ class SubscriptionStore:
             gumroad_interval=payload.get('gumroad_availability_interval_hours',current['gumroad_availability_interval_hours'])
             if type(gumroad_interval) not in (int,float) or not math.isfinite(gumroad_interval) or not .25<=gumroad_interval<=168:raise ValueError('Choose a Gumroad check interval between 0.25 and 168 hours.')
             mmf_beta=payload.get('mmf_beta_enabled',current['mmf_beta_enabled'])
-            if type(mmf_beta) is not bool:raise ValueError('Choose whether to show the MyMiniFactory beta.')
+            if type(mmf_beta) is not bool:raise ValueError('Choose whether to show MyMiniFactory.')
             release_pad=payload.get('release_pad_destination',current['release_pad_destination'])
             if not isinstance(release_pad,str):raise ValueError('Enter a Release Pad username or numeric chat ID.')
             release_pad=release_pad.strip()

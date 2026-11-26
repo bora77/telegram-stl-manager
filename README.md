@@ -35,7 +35,7 @@ being delivered to your chosen local folder or mounted network share.
 | 7-Zip | Reads supported archive formats, including RAR, extracts release contents and builds prepared MMF `.7z` sets with configurable compression and part size (defaults: level 7, 4000 MiB). |
 | Pillow | Processes images, creates previews and renders the final JPEG collages. |
 | pypdf | Processes recognized PDF footer stamps during MMF repackaging, without rasterizing pages. |
-| Direct MMF HTTP client (beta) | Python's HTTP and cookie libraries authenticate to MyMiniFactory, read the supported library collections and fetch files. Checks and downloads do not require a separate MMF browser window or Tampermonkey. |
+| Direct MMF HTTP client | Python's HTTP and cookie libraries authenticate to MyMiniFactory, read the supported library collections and fetch files. Checks and downloads do not require a separate MMF browser window or Tampermonkey. |
 | WSL2, Ubuntu and PowerShell on Windows | The installer prepares a dedicated Linux environment and the launcher starts the app inside it. You use the interface in your normal Windows browser. Linux installations run directly. |
 
 The runtime package bundles Python, the application web server, SQLite, Pillow, pypdf,
@@ -327,14 +327,11 @@ retries. Keep the download location accessible. MMF image extraction runs as
 usual, but packaging, collages and publishing remain manual. Installation agents
 must leave Auto-download off unless the user requests it.
 
-## MyMiniFactory (Beta)
-
-**Beta features are hidden by default and intended for testers only. They are
-incomplete and buggy; do not rely on them for regular use.**
+## MyMiniFactory
 
 ### Connect and select artists
 
-Enable MMF in **Configuration → Beta features**, then connect under
+Enable MMF in **Configuration → Subscriber Distribution channels**, then connect under
 **MyMiniFactory account** with your MMF username/email and password. Google
 sign-in users may need to set a separate MMF password using MMF's password-reset
 page first. Passwords are used for login; the session is stored privately on your
@@ -393,7 +390,7 @@ Reconnect if the saved session expires.
 ## Gumroad (Beta)
 
 Gumroad uses the same artist selection, manual download, collage and release
-workflow. It is also hidden by default and subject to the Beta warning above.
+workflow. It is hidden by default and intended for testers only. Gumroad features are incomplete and buggy; do not rely on them for regular use.
 
 Enable **Show Gumroad** in Configuration, save, then connect with your Gumroad email
 and password. If you normally sign in with Google, use **Forgot your password?**
@@ -618,8 +615,12 @@ to handle recognized order-stamp/footer patterns. It does not remove arbitrary
 watermarks or rasterize pages. PDFs without a recognized stamp remain unchanged.
 Processing failures stop packaging and retain the sources; receipts record
 changes. Existing delivered releases are not rewritten automatically.
+Washing happens during **Make release**, before compression, with file/page
+progress. Saved page content is checked against the intended result; signed or
+encrypted PDFs are refused. Text elsewhere on a page is not removed merely
+because it shares the footer's height. Organizing does not wash PDFs.
 
-Optional **Delicates-style** and **Cotton** STL cleaning operates on staged copies.
+Optional **Delicates-style** and **Cotton** STL cleaning operates on staged copies. Both STL cleaners are **Beta**, for testers only, and remain under Release packaging.
 Both alter geometry and placement, can affect alignment between parts and
 supports, and do not guarantee printability or watermark removal. Cotton also
 reduces triangle counts and can remove detail. Keep cleaning **Off** unless you

@@ -19,6 +19,18 @@ func NewSTL() *cobra.Command {
 	var sourcePath string
 	cmd.PersistentFlags().StringVar(&sourcePath, "source", filepath.Clean(filepath.Join(filepath.Dir(executable), "../../data/source.json")), "Private source configuration file")
 	var output string
+	var accountOutput string
+	account := &cobra.Command{Use: "account", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if handled, err := proxySTL(cmd, sourcePath); handled {
+			return err
+		}
+		return tRun(cmd.Context(), func(ctx context.Context, c *telegram.Client, kv storage.Storage) error {
+			return stl.Account(ctx, c, accountOutput)
+		})
+	}}
+	account.Flags().StringVar(&accountOutput, "output", "", "Account display identity output")
+	account.MarkFlagRequired("output")
+	cmd.AddCommand(account)
 	servers := &cobra.Command{Use: "servers", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		if handled, err := proxySTL(cmd, sourcePath); handled {
 			return err

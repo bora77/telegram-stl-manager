@@ -12,5 +12,5 @@ if not defined STL_WSL_PATH (
  pause
  exit /b 1
 )
-wsl.exe -d Ubuntu-24.04 --cd "%STL_WSL_PATH%" bash ./start.sh
+wsl.exe -d Ubuntu-24.04 --cd "%STL_WSL_PATH%" bash ./tools/start-runtime.sh
 pause

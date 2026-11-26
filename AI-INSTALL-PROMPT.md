@@ -105,6 +105,10 @@ Never remove them from an existing installation merely to tidy its directory.
 
 **Source installation — only when explicitly requested for development**
 
+Maintainer manifests are in `tools/source-manifest.json` and `tools/distribution.json`.
+The bundled Windows/WSL runtime starts through `tools/start-runtime.sh`; normal
+users should use the OS-specific package launchers rather than these internal files.
+
 Follow the source-build sections of `INSTALL.md`, including the matching Python,
 Pillow, pinned pypdf, Go, custom Telegram CLI and 7-Zip/RAR requirements. Preserve
 `.tools/tdl-stl/src`, `.tools/tdl-stl/gotd`, workspace/lockfiles and licenses; a

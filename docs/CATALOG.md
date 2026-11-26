@@ -14,7 +14,7 @@ returned chat, topic and attachment identities are checked before use.
 
 The repository and source archive contain blank examples only. Private source
 IDs, catalog contents, generated pages, screenshots and session notes must stay
-out of Git and release archives. `distribution.json`, the Git ignore rules and
+out of Git and release archives. `tools/distribution.json`, the Git ignore rules and
 `tools/package-release.py` define the public files. The packager checks public
 content for locally configured source references before creating an archive.
 

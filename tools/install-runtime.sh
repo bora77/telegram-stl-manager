@@ -12,4 +12,4 @@ if [[ -e "$stl_destination" ]]; then
 fi
 mkdir -p -- "$(dirname -- "$stl_destination")"
 cp -a -- "$stl_source" "$stl_destination"
-printf 'Installed. Start with: %q/start.sh\nNo services were installed.\n' "$stl_destination"
+printf 'Installed. Start with: %q/tools/start-runtime.sh\nNo services were installed.\n' "$stl_destination"

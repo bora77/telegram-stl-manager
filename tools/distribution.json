@@ -32,7 +32,7 @@
     },
     "windows": {
       "files": [
-        "start.sh",
+        "tools/start-runtime.sh",
         "windows/session.sh",
         "windows/share-helper.py"
       ],

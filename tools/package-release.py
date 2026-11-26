@@ -13,7 +13,7 @@ OMIT = {'.git', '__pycache__', 'node_modules', '.pytest_cache'}
 
 def public_files(root):
     root = Path(root)
-    manifest = json.loads((root / 'source-manifest.json').read_text())
+    manifest = json.loads((root / 'tools/source-manifest.json').read_text())
     paths = set()
     for name in manifest['files'] + manifest['trees']:
         relative = Path(name)
@@ -35,7 +35,7 @@ def public_files(root):
 def deployment_files(root,profile):
     """Select runtime/build files from public source, never from private folders."""
     root=Path(root);public=set(public_files(root))
-    profiles=json.loads((root/'distribution.json').read_text())['profiles']
+    profiles=json.loads((root/'tools/distribution.json').read_text())['profiles']
     selected=set()
     for name in ([profile] if profile=='docker_build' else ['common',profile]):
         group=profiles[name];files={Path(p) for p in group.get('files',[])}

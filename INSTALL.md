@@ -107,7 +107,7 @@ Build with `python3 tools/package-runtime.py` followed by
 
 ## Internal Linux runtime bundle (maintainers / Windows WSL2)
 
-This is the internal payload used by the Windows/WSL package, not the recommended Linux installation. Linux users should use the Docker ZIP. Maintainers can build `telegram-stl-linux-x64.tar.gz`, verify its accompanying SHA-256 file, extract it into a writable directory and run `bash start.sh`. Open `http://localhost:6093`. The source-only `tools/install-runtime.sh` is a maintainer helper, not a separately tested public Linux installer.
+This is the internal payload used by the Windows/WSL package, not the recommended Linux installation. Linux users should use the Docker ZIP. Maintainers can build `telegram-stl-linux-x64.tar.gz`, verify its accompanying SHA-256 file, extract it into a writable directory and run `bash tools/start-runtime.sh`. Open `http://localhost:6093`. The source-only `tools/install-runtime.sh` is a maintainer helper, not a separately tested public Linux installer.
 
 This package includes a relocatable CPython 3.12 runtime, Python's HTTP web server and SQLite database engine, Pillow, pypdf, the compiled Telegram CLI, and 7-Zip with the RAR codec. No separate Python, pip, Go compiler, database server, or web server installation is needed. SQLite databases are created locally on first use; no existing user's database, account session or Telegram source configuration is included. The package uses the [Astral standalone Python distribution](https://github.com/astral-sh/python-build-standalone), with its download SHA-256 pinned in the runtime builder.
 
@@ -217,7 +217,7 @@ If you will edit or commit code, enable the bundled privacy check in this clone:
 git config --local core.hooksPath .githooks
 ```
 
-Before each commit, it checks the staged sources against `source-manifest.json` and rejects private state or locally configured Telegram source details.
+Before each commit, it checks the staged sources against `tools/source-manifest.json` and rejects private state or locally configured Telegram source details.
 Run `python3 tools/check-git.py` to check the index manually.
 
 If the owner specifies a release tag, check it out before continuing and run
@@ -244,7 +244,7 @@ To prepare a source archive from a complete checkout, run:
 python3 tools/package-release.py
 ```
 
-This uses the explicit `source-manifest.json` allowlist and checks the selected
+This uses the explicit `tools/source-manifest.json` allowlist and checks the selected
 files for references to the locally configured source before packaging. It
 creates `dist/telegram-stl-source.tar.gz` and refuses to overwrite an existing
 archive. Use `--output /path/to/a-new-name.tar.gz` to choose another filename.

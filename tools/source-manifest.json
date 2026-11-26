@@ -1,7 +1,7 @@
 {
   "files": [
     ".gitignore",
-    "distribution.json",
+    "tools/distribution.json",
     "README.md",
     "CHANGELOG.md",
     "COPYRIGHT.md",
@@ -78,7 +78,7 @@
     "tests/test_collage_auto.py",
     "tests/test_auto_downloads.py",
     "tests/test_availability.py",
-    "start.sh",
+    "tools/start-runtime.sh",
     "app/mmf_client.py",
     "app/mmf_manager.py",
     "app/mmf_reconcile.py",
@@ -138,7 +138,7 @@
     "USAGE-NOTICE.md",
     "app/stl_cleaner.py",
     "tests/test_stl_cleaner.py",
-    "source-manifest.json",
+    "tools/source-manifest.json",
     "ROADMAP.md",
     "tests/test_distribution.py",
     "windows/Install-Windows.cmd",

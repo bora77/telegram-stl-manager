@@ -1,5 +1,10 @@
 # Version history
 
+## 0.2.11
+
+- Move source/package manifests and the internal runtime launcher into tools/ to keep the project root focused on documentation.
+- Update Windows startup, packaging checks and installation guides for the new internal paths. User-facing OS-specific launchers remain unchanged.
+
 ## 0.2.10
 
 - Separate public source files from deployed application packages; exclude tests, Git helpers, package builders and obsolete Desktop automation from runtimes.

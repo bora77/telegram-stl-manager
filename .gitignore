@@ -7,7 +7,6 @@
 !/.githooks/
 /.githooks/*
 !/.githooks/pre-commit
-!/distribution.json
 !/README.md
 /TODO.md
 !/INSTALL.md
@@ -45,7 +44,6 @@
 **/node_modules/
 **/.pytest_cache/
 
-!/start.sh
 
 !/mmf-view.js
 
@@ -79,5 +77,4 @@
 !/tests/
 **/__pycache__/
 
-!/source-manifest.json
 !/ROADMAP.md

@@ -49,8 +49,8 @@ These screenshots show the real interface with demonstration data, not private a
 **Organize folders is Beta**, intended for testers. Review previews and keep
 independent backups before applying changes to existing archives.
 
-Public source is checked with `source-manifest.json`; deployed files are selected
-separately by `distribution.json`. Installers contain application code, assets,
+Public source is checked with `tools/source-manifest.json`; deployed files are selected
+separately by `tools/distribution.json`. Installers contain application code, assets,
 startup helpers, user guides and licence notices. Tests, Git hooks, package
 builders and internal maintainer files are not installed. Docker keeps the CLI's
 source in its separate build context, not in the running application image.
@@ -322,7 +322,7 @@ For development, enable the staged-file privacy check:
 git config --local core.hooksPath .githooks
 ```
 
-The source check uses `source-manifest.json` and validates staged content against the public
+The source check uses `tools/source-manifest.json` and validates staged content against the public
 file list and locally configured source identity. Keep that allowlist intact.
 You can also run it manually with `python3 tools/check-git.py`.
 

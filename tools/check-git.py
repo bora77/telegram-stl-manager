@@ -46,8 +46,8 @@ def staged_files(root):
 def verify_index(root):
     root = Path(root)
     contents = staged_files(root)
-    if Path('source-manifest.json') not in contents:raise ValueError('Stage the public distribution manifest first.')
-    manifest = json.loads(contents[Path('source-manifest.json')])
+    if Path('tools/source-manifest.json') not in contents:raise ValueError('Stage the public source manifest first.')
+    manifest = json.loads(contents[Path('tools/source-manifest.json')])
     approved = {}
     for kind in ('files', 'trees'):
         values = manifest.get(kind)

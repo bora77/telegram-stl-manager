@@ -10,7 +10,7 @@ import sys
 import time
 import uuid
 from app.file_delivery import digest, release_lock
-from app.telegram_cli import TelegramCLI, CLIError, require_release_collage
+from app.telegram_cli import TelegramCLI, CLIError, require_release_collage,require_release_collages
 
 ACTIVE={'queued','uploading','verifying','preparing','conversation'}
 
@@ -72,7 +72,13 @@ def pad_source(manager,plan_id):
     from app.mmf_release_prepare import rows
     plan=next((p for p in rows(manager) if p['id']==plan_id),{})
     expected={Path(o['path']).name:o for o in plan.get('outputs',[])}
+    from app.collage_sets import read as read_collage_set
+    collage_set=read_collage_set(plan['directory']) if plan.get('directory') else None
     def matches_plan(row):
+        if collage_set:
+            wanted={(f['filename'],f['size'],f['sha256']) for f in collage_set['files']}
+            actual={(f.get('name'),f.get('size'),f.get('sha256')) for f,m in zip(row.get('files',[]),row.get('messages',[])) if m.get('kind')=='collage'}
+            if actual!=wanted:return False
         archives=[f for f in row.get('files',[]) if f.get('name') in expected]
         return len(archives)==len(expected) and all(
             ('size' not in expected[f['name']] or f.get('size')==expected[f['name']]['size']) and
@@ -85,7 +91,7 @@ def pad_source(manager,plan_id):
     if (len(files)<2 or len(files)!=len(messages)
             or not re.fullmatch(r'-[1-9][0-9]{0,18}',source.get('destination',''))
             or any(f.get('state')!='complete' or not m.get('message_id') or
-                   m.get('kind')!=('collage' if n==0 else 'archive')
+                   m.get('kind')!=('collage' if str(f.get('name','')).lower().endswith('.jpg') else 'archive')
                    for n,(f,m) in enumerate(zip(files,messages)))):
         raise ValueError('The saved release-channel receipt is incomplete. Review it before releasing; no files were re-uploaded.')
     return source
@@ -293,7 +299,7 @@ def execute(manager,row,client=None):
             return
         with release_lock(manager.root,plan['base'],plan['folder'],plan['release_folder']):
             collage,archives=inputs(manager,plan)
-            sources=[collage,*archives]
+            collages=require_release_collages(archives[0]);sources=[*collages,*archives]
             if shutil.disk_usage(work).free<sum(p.stat().st_size for p in sources)+64*1024*1024:raise ValueError('Not enough local space to stage the release upload.')
             staged=[]
             # Snapshot the current release files, including deliberate local replacements.
@@ -303,7 +309,7 @@ def execute(manager,row,client=None):
                 if source.stat().st_size!=target.stat().st_size or digest(source)!=checksum:raise ValueError('Release changed while staging. Retry when editing is finished.')
                 expected=next((o for o in plan.get('outputs',[]) if Path(o['path'])==source),{})
                 if expected.get('sha256') and checksum!=expected['sha256']:raise ValueError('The release archive checksum differs from its prepared version. Restore or rebuild it before uploading.')
-                staged.append({'path':str(source),'name':source.name,'size':target.stat().st_size,'sha256':checksum,'uploaded':0,'state':'queued'})
+                staged.append({'path':str(source),'name':source.name,'kind':'collage' if source in collages else 'archive','size':target.stat().st_size,'sha256':checksum,'uploaded':0,'state':'queued'})
             row['files']=staged;row['total']=sum(f['size'] for f in staged);row['bytes']=0;save(manager,row)
         if conversation:conversation.begin()
         for info in staged:
@@ -311,17 +317,20 @@ def execute(manager,row,client=None):
         for index,info in enumerate(staged):
             if conversation:conversation.checkpoint()
             path=work/Path(info['path']).name
+            photo=info['kind']=='collage'
             before={m['id'] for m in export(f'before-{index}')}
             update('uploading',f'Uploading {index+1}/{len(staged)}: {path.name}')
             # The app's archive gate expects the artist/month folder structure.
             send_dir=work/'send'/Path(plan['folder'])/Path(plan['release_folder']);send_dir.mkdir(parents=True,exist_ok=True)
             sent_path=send_dir/info['name']
             if not sent_path.exists():os.link(path,sent_path)
-            if index and not (send_dir/collage.name).exists():os.link(work/collage.name,send_dir/collage.name)
-            if index:require_release_collage(sent_path)
+            from app.collages import collage_filename
+            gate_collage=send_dir/collage_filename({'folder':plan['folder'],'month':plan['release_folder']})
+            if not photo and not gate_collage.exists():os.link(work/collages[0].name,gate_collage)
+            if not photo:require_release_collage(sent_path)
             progress_file=work/(f'progress-{index}.json')
             args=['stl','release-upload','--chat',row['destination'],'--path',sent_path,'--caption',plan['title'],'--progress',progress_file]
-            if index==0:args.append('--photo')
+            if photo:args.append('--photo')
             info['state']='uploading';row['current']=index;row['speed_mbps']=0
             def tick():
                 try:progress=json.loads(progress_file.read_text())
@@ -337,11 +346,11 @@ def execute(manager,row,client=None):
             for m in export(f'after-{index}'):
                 raw=m['raw'];media=raw.get('Media') or {}
                 if m['id'] in before or not raw.get('Out') or raw.get('Message')!=plan['title']:continue
-                if index==0 and media.get('Photo'):matches.append(m)
-                if index and m.get('file')==sent_path.name and (media.get('Document') or {}).get('Size')==info['size']:matches.append(m)
+                if photo and media.get('Photo'):matches.append(m)
+                if not photo and m.get('file')==sent_path.name and (media.get('Document') or {}).get('Size')==info['size']:matches.append(m)
             if len(matches)!=1:raise CLIError('Could not verify delivery. Check the selected destination before re-uploading; the message may already exist.')
             info.update(uploaded=info['size'],state='complete');row['bytes']=sum(f['uploaded'] for f in staged)
-            row['messages'].append({'message_id':matches[0]['id'],'filename':sent_path.name,'kind':'collage' if index==0 else 'archive','caption':plan['title']});save(manager,row)
+            row['messages'].append({'message_id':matches[0]['id'],'filename':sent_path.name,'kind':info['kind'],'caption':plan['title']});save(manager,row)
         if conversation:
             first=min(m['message_id'] for m in row['messages'])
             conversation.baseline={k:v for k,v in conversation.baseline.items() if k<first}
@@ -389,8 +398,8 @@ def forward_existing(manager,row,source,conversation,client,work,export,update):
             # Legacy queued receipts kept the monthly title before packaging
             # assigned an Addendum title. The prepared plan supplied the caption.
             if raw.get('Message')!=message.get('caption',plan['title']):continue
-            if index==0 and media.get('Photo'):matches.append(m)
-            elif index and m.get('file')==message['filename'] and (media.get('Document') or {}).get('Size')==info['size']:matches.append(m)
+            if message['kind']=='collage' and media.get('Photo'):matches.append(m)
+            elif message['kind']=='archive' and m.get('file')==message['filename'] and (media.get('Document') or {}).get('Size')==info['size']:matches.append(m)
         if len(matches)!=1:raise CLIError('Could not verify the forwarded message. Check the bot before retrying. No local files were uploaded.')
         info.update(uploaded=info['size'],state='complete');row['bytes']=sum(f['uploaded'] for f in row['files'])
         row['messages'].append({**message,'message_id':matches[0]['id']});save(manager,row)

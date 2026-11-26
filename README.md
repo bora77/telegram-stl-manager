@@ -416,17 +416,26 @@ externally made release as finished does not require one.
 
 ### Auto-fill a collage
 
-The collage editor's **Auto-fill** suggests up to nine images, with up to two per
-detected model or product set. It runs locally without AI models or services.
+The collage editor's **Auto-fill** creates an editable set of collage cards.
+Models/sets with several useful images get a dedicated collage, with the group
+shot featured when a filename hint identifies one. Models with one useful image
+are combined into shared overview collages. Each collage contains up to nine
+images. Analysis runs locally without AI models or services.
 Exact and near-duplicates are removed; resolution, color and group-shot filename
 hints guide selection. Model archives, collection subfolders and model names
 provide grouping evidence. Unresolved choices use a repeatable random fallback.
 **Shuffle** tries alternatives; **Undo auto-fill** restores the previous grid.
 **Create collage** from a release queue starts Auto-fill for an empty grid;
 existing drafts are preserved. New collages default to square output.
+Select a card to edit it. Model/set names appear in the picture title; overview
+images have editable model labels underneath. Drag a different image into the
+Featured slot to change the lead image. Cards can be added, removed, renamed or
+excluded with **Include in upload**. **Save selected collages** saves the checked
+cards and records exactly which JPGs belong to the release upload. Unselected or
+older JPGs are not included just because they remain in the folder.
 Analysis shows progress and a **Why these images?** explanation. Review the result:
 unnamed group shots, component sheets and individual models inside a set cannot
-always be distinguished by these rules. Only **Save collage** replaces the JPG.
+always be distinguished by these rules. Only **Save collage** or **Save selected collages** writes the final JPGs.
 
 ### What gets saved
 
@@ -444,6 +453,10 @@ Artist/
 The `.7z` is the prepared release, the `.jpg` is its collage, and
 `release_images` holds the previews. The source folder contains the original
 downloads used for packaging. Gumroad uses `Gumroad sources` instead.
+For a collage set, filenames add the editable card name, for example
+`Artist-YYYY-MM-Grinda Bikes.jpg` and `Artist-YYYY-MM-Release Overview.jpg`.
+All selected collages are uploaded before the archive volumes. Bot delivery
+forwards that same saved set; old or unrelated JPGs are excluded.
 
 Release images are also included **inside the prepared archive**. Original model
 filenames are preserved, with model/archive subfolders where needed to avoid

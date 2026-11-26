@@ -182,7 +182,21 @@ def choose(candidates,seed=0):
         if len(selected)>=9:break
         if counts[item['group']]<2 and all((item['dhash']^s['dhash']).bit_count()>=10 for s in selected if s['group']==item['group']):
             selected.append(item);counts[item['group']]+=1
-    return {'images':[i['id'] for i in selected],'selected':[{'id':i['id'],'name':i['name'],'group':i['group'],'reason':i['reason'],'uncertain':i['uncertain'] or i['diagram_hint'],
+    cards=[];singles=[]
+    for group,items in sorted(groups.items()):
+        useful=[i for i in items if not i['diagram_hint'] and min(i['width'],i['height'])>=256] or items[:1]
+        name=re.sub(r'\bV (\d+)\b',r'V\1',group.title()) if not group.startswith('unknown:') else 'Unidentified model'
+        if len(useful)<2:singles.append((useful[0],name));continue
+        useful=sorted(useful,key=lambda i:(not i['group_shot_hint'],-i['score'],i['_tie']))[:9]
+        cards.append({'id':hashlib.sha256(('set:'+group).encode()).hexdigest()[:32],'name':name[:80],'enabled':True,'layout':'featured',
+                      'images':[i['id'] for i in useful],'labels':{},'uncertain':any(i['uncertain'] for i in useful)})
+    for offset in range(0,len(singles),9):
+        chunk=singles[offset:offset+9];name='Release Overview'+(' '+str(offset//9+1) if len(singles)>9 else '')
+        cards.append({'id':hashlib.sha256(('overview:'+str(offset//9)).encode()).hexdigest()[:32],'name':name,'enabled':True,'layout':'rows',
+                      'images':[i['id'] for i,n in chunk],'labels':{i['id']:n[:80] for i,n in chunk},'uncertain':any(i['uncertain'] for i,n in chunk)})
+    card_ids={i for card in cards for i in card['images']}
+    card_selected=[{'id':i['id'],'name':i['name'],'group':i['group'],'reason':i['reason'],'uncertain':i['uncertain'] or i['diagram_hint'],'quality':('Group-shot filename hint; ' if i['group_shot_hint'] else '')+('diagram fallback' if i['diagram_hint'] else 'resolution and color preference')} for i in unique if i['id'] in card_ids]
+    return {'cards':cards,'card_selected':card_selected,'images':[i['id'] for i in selected],'selected':[{'id':i['id'],'name':i['name'],'group':i['group'],'reason':i['reason'],'uncertain':i['uncertain'] or i['diagram_hint'],
             'quality':('Group-shot filename hint; ' if i['group_shot_hint'] else '')+('diagram fallback' if i['diagram_hint'] else 'resolution and color preference')} for i in selected],
             'duplicates_removed':len(duplicates),'groups_found':len(groups),'candidates':len(candidates),'uncertain':sum(i['uncertain'] or i['diagram_hint'] for i in selected)}
 

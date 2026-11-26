@@ -63,6 +63,15 @@ def collage_title(folder,release):
     return artist+' · '+label
 
 
+def output_filename(release,settings):
+    name=collage_filename(release)
+    if settings.get('card_name'):
+        from app.release_images import safe_component
+        name=name[:-4]+'-'+safe_component(settings['card_name'])+'.jpg'
+    if len(os.fsencode(name))>255:raise CollageError('Collage name is too long. Shorten the model/set name.')
+    return name
+
+
 class CollageStore:
     def __init__(self, store):
         self.store = store
@@ -263,6 +272,13 @@ class CollageStore:
         title = payload.get('title', '')
         if not isinstance(title,str) or len(title)>120 or re.search(r'[\x00-\x1f\x7f]', title):raise CollageError('Use a title of up to 120 characters.')
         settings = {k:payload[k] for k in ('layout','shape','theme')};settings['title'] = title.strip()
+        labels=payload.get('labels',{})
+        if not isinstance(labels,dict) or len(labels)>5000 or any(not isinstance(k,str) or not isinstance(v,str) or len(v)>80 or re.search(r'[\x00-\x1f\x7f]',v) for k,v in labels.items()):raise CollageError('Image labels must be text of up to 80 characters.')
+        settings['labels']={k:v for k,v in labels.items() if k in filled}
+        if payload.get('card_name') is not None:
+            name=payload['card_name']
+            if not isinstance(name,str) or not name.strip() or len(name)>80 or re.search(r'[\x00-\x1f\x7f]',name):raise CollageError('Use a collage name of 1–80 characters.')
+            settings['card_name']=name.strip()
         return release, records, settings
 
     def layout(self, payload):
@@ -275,6 +291,18 @@ class CollageStore:
     def save_selection(self, payload):
         release, _, settings = self.validate_selection(payload)
         data = dict(settings, images=payload['images'])
+        cards=payload.get('cards')
+        if cards is not None:
+            if not isinstance(cards,list) or not 1<=len(cards)<=1000:raise CollageError('Choose 1–1000 collage cards.')
+            checked=[];seen=set()
+            for card in cards:
+                card_id=token(card.get('id'));name=card.get('name')
+                if card_id in seen or type(card.get('enabled')) is not bool:raise CollageError('Invalid collage card.')
+                seen.add(card_id)
+                _,_,options=self.validate_selection({**card.get('draft',{}),'release_id':release['id'],'card_name':name})
+                checked.append({'id':card_id,'name':options['card_name'],'enabled':card['enabled'],'uncertain':bool(card.get('uncertain')),'draft':{**options,'images':card['draft']['images']}})
+            if payload.get('active_card') not in seen:raise CollageError('Select a collage card.')
+            data.update(cards=checked,active_card=payload['active_card'])
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT revision FROM selections WHERE release_id=?', (release['id'],)).fetchone()
@@ -301,7 +329,7 @@ class CollageStore:
             with IMAGE_SLOTS:report = render(self._sources(records), settings, output, preview=True)
             recipe = {'release_id': release['id'], 'settings': settings, 'images': [{'id':r['id'],'sha256':r['sha256']} for r in records]}
             with self.db() as db:db.execute('INSERT INTO previews VALUES(?,?,?,?)', (preview_id, release['id'], json.dumps(recipe), time.time()))
-            return dict(report, id=preview_id, url='/api/collages/preview/'+preview_id, output_size=FORMATS[settings['shape']])
+            return dict(report, id=preview_id, url='/api/collages/preview/'+preview_id, output_size=FORMATS[settings['shape']],filename=output_filename(release,settings))
         except Exception:
             output.unlink(missing_ok=True);raise
         finally:PREVIEW_SLOT.release()
@@ -343,11 +371,11 @@ class CollageStore:
                 job = self.export_status(payload['retry_id'])
                 if job['state'] not in ('failed','interrupted'):raise CollageError('Only an unfinished collage export can be retried.')
                 self.preview_data(job['preview_id']);export_id = job['id']
-                self.update_export(export_id, filename=collage_filename(self.release(job['release_id'])), state='queued', message='Retrying saved collage.', phase='preparing', done=0, total=None)
+                self.update_export(export_id, state='queued', message='Retrying saved collage.', phase='preparing', done=0, total=None)
             else:
                 preview = self.preview_data(payload.get('preview_id'))
                 release = self.release(preview['release_id']);export_id = uuid.uuid4().hex
-                filename = collage_filename(release)
+                filename = output_filename(release,json.loads(preview['recipe'])['settings'])
                 with self.db() as db:db.execute('INSERT INTO exports(id,release_id,preview_id,filename,state,message,phase,done,heartbeat,created) VALUES(?,?,?,?,?,?,?,?,?,?)',
                     (export_id,release['id'],preview['id'],filename,'queued','Preparing full-size collage.','preparing',0,time.time(),time.time()))
             try:
@@ -490,5 +518,8 @@ if __name__=='__main__':
     store=CollageStore(SubscriptionStore(Path(__file__).resolve().parent.parent))
     if len(sys.argv)!=3 or sys.argv[1]!='export':raise SystemExit('Expected export identifier.')
     with (store.cache/'worker.lock').open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        # A preceding export may have recorded completion just before releasing
+        # this lock. Wait for its final housekeeping instead of losing the next
+        # collage in a multi-image save.
+        fcntl.flock(lock,fcntl.LOCK_EX)
         store.run_export(token(sys.argv[2]))

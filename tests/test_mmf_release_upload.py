@@ -175,6 +175,29 @@ class BotCLI(FakeCLI):
         if '--photo' not in args:self.incoming('Your upload looks complete',[{'Text':'Complete','Data':'Y29tcGxldGU='}])
 
 class BotUploadTests(UploadTests):
+    def test_multiple_collages_upload_before_archives_then_all_forward(self):
+        from app.file_delivery import digest
+        from app.collage_sets import FORMAT,MANIFEST
+        images=[]
+        for name,color in (('Example-2026-09-Bikes.jpg','red'),('Example-2026-09-Overview.jpg','blue')):
+            path=self.folder/name;Image.new('RGB',(64,64),color).save(path)
+            images.append({'filename':name,'size':path.stat().st_size,'sha256':digest(path)})
+        (self.folder/MANIFEST).write_text(json.dumps({'format':FORMAT,'files':images}))
+        pad=self.begin();pad_client=FakeCLI();execute(self.manager,pad,pad_client)
+        self.assertEqual(pad_client.uploads,[i['filename'] for i in images]+[self.archive.name])
+        self.assertEqual([m['kind'] for m in pad['messages']],['collage','collage','archive'])
+        bot=self.begin_bot();client=BotCLI();client.pad_messages=pad_client.messages
+        execute(self.manager,bot,client)
+        self.assertEqual(client.uploads,[]);self.assertEqual(client.events.count('release-forward'),3)
+        self.assertEqual([m['kind'] for m in bot['messages']],['collage','collage','archive'])
+        self.assertTrue(client.completed);self.assertEqual(bot['state'],'complete')
+        from app.mmf_release_upload import pad_source
+        self.assertIsNotNone(pad_source(self.manager,self.plan['id']))
+        extra=self.folder/'Example-2026-09-New Model.jpg';Image.new('RGB',(64,64),'green').save(extra)
+        images.append({'filename':extra.name,'size':extra.stat().st_size,'sha256':digest(extra)})
+        (self.folder/MANIFEST).write_text(json.dumps({'format':FORMAT,'files':images}))
+        self.assertIsNone(pad_source(self.manager,self.plan['id']))
+
     def test_addendum_selects_original_year_month_and_append(self):
         self.check_append_flow(True)
 

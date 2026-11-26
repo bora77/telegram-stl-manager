@@ -19,6 +19,15 @@ def candidate(i,group,confidence=3,name=None):
 
 
 class SelectionTests(unittest.TestCase):
+    def test_hybrid_collects_singletons_and_features_group_shot(self):
+        inputs=[candidate(i,'set',name='combo.png' if i==3 else 'view.png') for i in range(5)]
+        inputs.extend(candidate(i,'model-'+str(i)) for i in range(5,11))
+        result=choose(inputs);self.assertEqual(len(result['cards']),2)
+        dedicated=next(c for c in result['cards'] if c['layout']=='featured')
+        overview=next(c for c in result['cards'] if c['layout']=='rows')
+        self.assertEqual(len(dedicated['images']),5);self.assertEqual(dedicated['images'][0],'3')
+        self.assertEqual(len(overview['images']),6);self.assertEqual(len(overview['labels']),6)
+
     def test_quota_coverage_and_nine_image_limit(self):
         inputs=[candidate(i,'model-'+str(i//3)) for i in range(18)]
         result=choose(inputs)

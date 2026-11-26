@@ -89,16 +89,26 @@ def render(sources, settings, destination, *, preview=False):
         source = sources[i]
         cell = tuple(round(v*scale) for v in rect)
         size = (max(1, cell[2]-cell[0]), max(1, cell[3]-cell[1]))
+        caption=settings.get('labels',{}).get(source.get('id'),'')
+        label_height=min(size[1]//4,max(16,round(min(width,height)/45*scale))) if caption else 0
+        picture_size=(size[0],max(1,size[1]-label_height))
         if min((rect[2]-rect[0])/source['width'], (rect[3]-rect[1])/source['height']) > 1.1:
             warnings.append(source['name']+' has limited resolution for its frame.')
         with source['open']() as stream, Image.open(stream) as original:
             image = ImageOps.exif_transpose(original)
             try:
                 tile = Image.new('RGB', size, COLORS[theme][1])
-                fitted = ImageOps.contain(image, size, Image.Resampling.LANCZOS)
+                fitted = ImageOps.contain(image, picture_size, Image.Resampling.LANCZOS)
                 rgba = fitted.convert('RGBA');fitted.close()
-                try:tile.paste(rgba, ((size[0]-rgba.width)//2, (size[1]-rgba.height)//2), rgba)
+                try:tile.paste(rgba, ((size[0]-rgba.width)//2, (picture_size[1]-rgba.height)//2), rgba)
                 finally:rgba.close()
+                if caption:
+                    draw=ImageDraw.Draw(tile);font_size=max(9,int(label_height*.65))
+                    while True:
+                        font=ImageFont.truetype('DejaVuSans.ttf',font_size)
+                        if draw.textbbox((0,0),caption,font=font)[2]<=size[0]-8 or font_size<=8:break
+                        font_size-=1
+                    draw.text((size[0]/2,picture_size[1]+label_height/2),caption,anchor='mm',fill=COLORS[theme][2],font=font)
                 canvas.paste(tile, cell[:2]);tile.close()
             finally:image.close()
     if settings['title']:

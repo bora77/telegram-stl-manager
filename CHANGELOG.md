@@ -1,5 +1,12 @@
 # Version history
 
+## 0.2.3
+
+- Create dedicated featured collages for multi-image model sets and shared overviews for single-image models.
+- Add editable collage cards, model/set titles, image labels and upload inclusion controls.
+- Save explicit collage sets and upload all selected images before archives; forward the same set during bot delivery.
+- Keep legacy single-collage releases compatible and reject incomplete or changed collage sets before upload.
+
 ## 0.2.2
 
 - Add local, AI-free collage Auto-fill with duplicate removal, source-based grouping, quality preferences and editable fallback selections.

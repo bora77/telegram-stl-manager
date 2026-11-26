@@ -262,14 +262,20 @@ conversation for other menus, older months or other named collections. See READM
 ## Local collage Auto-fill
 
 In the collage editor, **Auto-fill** analyzes images from the selected archive
-filter (or the whole release) and proposes up to nine images, at most two per
-detected model/set. No AI service, model download or additional dependency is
+filter (or the whole release) and creates collage cards. Multi-image model/sets
+get dedicated collages with a featured lead image; single-image models share
+overview cards. Each collage contains at most nine images. No AI service,
+model download or additional dependency is
 used. Analysis runs in a background worker with progress; repeated runs reuse
 cached image measurements. Source archive/folder evidence and filenames guide
 grouping. Quality and group-shot preferences are heuristics, so review uncertain
 choices under **Why these images?**. **Shuffle** changes alternatives and fallback
 choices; **Undo auto-fill** restores the previous grid. The saved JPG changes only
-when the user clicks **Save collage**. Source files are not modified.
+when the user clicks **Save collage** or **Save selected collages**. Source files are not modified.
+For a collage set, edit each card's model/set name, title and image labels, then
+use **Save selected collages**. Only cards checked **Include in upload** enter
+the saved upload set. Release delivery sends all selected collages before the
+archives and forwards that same set to the bot; unrelated JPGs are excluded.
 
 ## Optional automatic downloads
 

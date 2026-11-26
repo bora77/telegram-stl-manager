@@ -188,9 +188,15 @@ def confirm_released(manager, payload):
             raise ValueError('A verified successful upload is required before confirming publication.')
         # A replaced/test archive must not mark the original source versions as published.
         expected={(Path(f['path']).name,f.get('size'),f.get('sha256')) for f in plan.get('outputs',[])}
-        actual={(f['name'],f.get('size'),f.get('sha256')) for f in upload.get('files',[])[1:]}
+        actual={(f['name'],f.get('size'),f.get('sha256')) for f in upload.get('files',[]) if f.get('kind')=='archive' or not f.get('name','').lower().endswith('.jpg')}
         if not expected or expected!=actual or any(not f[2] for f in expected):
             raise ValueError('Uploaded archives differ from the prepared release. Upload the real prepared archives first.')
+        from app.collage_sets import read as read_collage_set
+        collage_set=read_collage_set(plan['directory']) if plan.get('directory') else None
+        if collage_set:
+            expected_images={(i['filename'],i['size'],i['sha256']) for i in collage_set['files']}
+            actual_images={(i.get('name'),i.get('size'),i.get('sha256')) for i in upload.get('files',[]) if i.get('kind')=='collage' or i.get('name','').lower().endswith('.jpg')}
+            if expected_images!=actual_images:raise ValueError('Uploaded collages differ from the selected collage set. Upload the saved set first.')
         plan['publication']={'confirmed_at':time.time(),'method':'user_confirmation',
                              'upload_id':upload['id'],'keys':list(plan['keys'])}
         db.execute('UPDATE telegram_preparations SET data=? WHERE id=?',(json.dumps(plan),plan['id']))
@@ -229,7 +235,7 @@ def release_collages(items, base):
             images=directory/'release_images'
             try:require_release_collage(directory/'release.7z',action='making the release');valid=True
             except CLIError:valid=False
-            result[key]={'valid':valid,'exists':collage.is_file() and not collage.is_symlink(),
+            result[key]={'valid':valid,'exists':valid or (collage.is_file() and not collage.is_symlink()),
                          'ready':has_release_images(images),
                          'folder':folder,'release':release}
         except OSError:continue

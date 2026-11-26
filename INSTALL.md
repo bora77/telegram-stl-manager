@@ -1,5 +1,18 @@
 # Installation routes
 
+| Action | Windows | Linux (Docker) | macOS (Docker) |
+| --- | --- | --- | --- |
+| Install | `Install-Windows.cmd` | `bash Install-Linux.sh` | `Install-macOS.command` |
+| Start | `Start-Windows.cmd` | `bash Start-Linux.sh` | `Start-macOS.command` |
+| Stop | `Stop-Windows.cmd` | `bash Stop-Linux.sh` | `Stop-macOS.command` |
+| Update | `Update-Windows.cmd` | `bash Update-Linux.sh` | `Update-macOS.command` |
+
+Extract the complete package first. Generic Docker `.command` names and the
+Windows in-app update payload retain legacy filenames for update compatibility;
+new users should use the OS-specific launchers above. Windows manual updates use
+the Windows ZIP, which includes Update-Windows.cmd. The separate Update ZIP is a
+compatibility payload used by already-installed versions.
+
 - **Windows:** use the guided Windows/WSL package below.
 - **Linux and macOS:** use **Docker for Linux and macOS**, distributed as
   `Telegram-STL-Manager-Docker.zip`. Follow [the Docker guide](docker/README.md).
@@ -17,7 +30,7 @@ entries. Failed/interrupted attempts require a separate Re-upload; they are not
 automatically resent. Closing the browser leaves an active upload worker running.
 
 Download and extract `Telegram-STL-Manager-Windows.zip`, then double-click
-`Install.cmd`. This Intel/AMD x64 test package enables WSL when necessary,
+`Install-Windows.cmd`. This Intel/AMD x64 test package enables WSL when necessary,
 imports a dedicated `TelegramSTL` Ubuntu environment, installs its dependencies,
 and creates desktop Start/Stop shortcuts. Internet access is needed for Ubuntu
 and OS package downloads. Setup requests Windows administrator approval automatically; choose Yes. No right-click or “Run as administrator” is needed;
@@ -72,12 +85,8 @@ Logs are saved under `%LOCALAPPDATA%\TelegramSTLManager\logs`. The app opens in
 your normal Windows browser at `http://127.0.0.1:6093`.
 
 The runtime is bundled; Ubuntu is downloaded from Canonical with a pinned SHA-256.
-The installer and launcher are currently unsigned and are a Windows test build:
-Validated on Windows 11 Enterprise 25H2 in a QEMU/KVM VM: WSL installation,
-reboot continuation, browser access, shortcuts, reset, cached reinstallation and
-full uninstall. Tests verified preservation of finished local downloads and
-external destination files, including a disconnected share configuration. Real
-NAS authentication and account downloads were not exercised in that VM.
+The installer and launcher are unsigned. Use the normal Windows approval prompts;
+do not disable Windows security protections.
 Use the desktop Stop shortcut before restarting or upgrading; it stops only
 `TelegramSTL`, including any unfinished transfers. Do not delete its environment
 folder: it contains the local database, settings and staged downloads.
@@ -86,15 +95,11 @@ The ZIP’s top level contains only the user-facing `.cmd` launchers and instruc
 Internal scripts, runtime archives and checksums are in `support/`; leave that
 folder intact and do not run its files directly.
 
-For repeated installation testing, double-click `Reset-test-install.cmd` and
-confirm removal of local app data. It unregisters only this app's WSL environment
-and removes its shortcuts/reboot continuation, retaining cached installer files
-and Windows logs. Run `Install.cmd` again for a clean app setup. For full removal,
-use `Uninstall.cmd` or **Windows Settings → Installed apps → Telegram STL Manager**.
-Both remove local sessions, settings, history and unfinished staged downloads after
-confirmation. Finished downloads inside the WSL disk are first copied to Windows
-Documents and verified; failure cancels removal. All configured external download
-destinations, other WSL distributions and the shared WSL feature remain.
+Use **Uninstall-Windows.cmd** or Windows Settings → Installed apps for removal.
+The uninstaller asks for confirmation and preserves configured external download
+destinations. Finished downloads inside WSL are copied to Windows Documents and
+verified before removal. Development reset/profile-import helpers are not included
+in public installer packages.
 The uninstaller verifies the registered environment's storage path before removal.
 
 Build with `python3 tools/package-runtime.py` followed by
@@ -102,11 +107,11 @@ Build with `python3 tools/package-runtime.py` followed by
 
 ## Internal Linux runtime bundle (maintainers / Windows WSL2)
 
-This is the internal payload used by the Windows/WSL package, not the recommended Linux installation. Linux users should use the Docker ZIP. Maintainers can build `telegram-stl-linux-x64.tar.gz`, verify its accompanying SHA-256 file, extract it into a writable directory and run `bash start.sh`. Open `http://localhost:6093`. The optional `install.sh` is a maintainer helper, not a separately tested public Linux installer.
+This is the internal payload used by the Windows/WSL package, not the recommended Linux installation. Linux users should use the Docker ZIP. Maintainers can build `telegram-stl-linux-x64.tar.gz`, verify its accompanying SHA-256 file, extract it into a writable directory and run `bash start.sh`. Open `http://localhost:6093`. The source-only `tools/install-runtime.sh` is a maintainer helper, not a separately tested public Linux installer.
 
 This package includes a relocatable CPython 3.12 runtime, Python's HTTP web server and SQLite database engine, Pillow, pypdf, the compiled Telegram CLI, and 7-Zip with the RAR codec. No separate Python, pip, Go compiler, database server, or web server installation is needed. SQLite databases are created locally on first use; no existing user's database, account session or Telegram source configuration is included. The package uses the [Astral standalone Python distribution](https://github.com/astral-sh/python-build-standalone), with its download SHA-256 pinned in the runtime builder.
 
-Supported runtime target: Linux x86-64 with glibc, tested on Ubuntu/Zorin 24.04. The OS still provides normal Linux utilities (`bash`, `findmnt`) and any required network-share mount support. On Windows, install WSL2 with Ubuntu 24.04 (`wsl --install -d Ubuntu-24.04`), then use `Start-Windows.cmd`, or run `bash start.sh` inside that distribution. For the tested guided Windows installer, use the Windows ZIP described above; this is not a native Windows executable. This internal runtime is x86-64 Linux only; the separate Docker package targets Linux/macOS hosts on x86-64 and ARM64.
+The internal runtime targets Linux x86-64 with glibc. Windows users should use the guided Windows ZIP instead of installing this tarball manually. Linux/macOS users should use the Docker package, which builds for x86-64 or ARM64.
 
 First launch creates blank local configuration and a local `downloads` directory. Configure your own Telegram login, approved source/TOC, artist catalog and destination using the setup steps below. The bundled CLI is `.tools/tdl-stl/tdl`; substitute `runtime/python/bin/python3` for `python3` in those steps. You can skip dependency installation and CLI compilation. Keep the application folder writable; private settings and SQLite files live in its `data` directory. Do not replace this directory when upgrading. The CLI's per-user authentication location is described below and must never be distributed.
 
@@ -125,8 +130,8 @@ folder organizer. For an AI-assisted installation, use
 
 Last checked against the source on **2026-09-17**. Linux operation has been
 tested on Zorin/Ubuntu 24.04, x86-64. Windows uses **WSL2 with Ubuntu 24.04**.
-The guided Windows ZIP was tested in a Windows 11 VM as described above; the
-manual source installation below is an alternative for advanced users.
+Use the guided Windows package for normal installation. The manual source
+installation below is for developers and advanced troubleshooting.
 
 ## 1. Choose the installation route
 
@@ -180,7 +185,7 @@ projects on the Linux filesystem for performance.
 [WSL filesystem guidance](https://learn.microsoft.com/en-us/windows/wsl/filesystems).
 
 Mount an SMB destination from **inside Ubuntu** using step 6. A working
-`\\kronos\STL` connection in Windows does not establish that Linux mount. Avoid
+`\\nas\STL` connection in Windows does not establish that Linux mount. Avoid
 using a mapped Windows drive as the application's database or staging location.
 
 ## 2. Get the application from Git
@@ -212,8 +217,7 @@ If you will edit or commit code, enable the bundled privacy check in this clone:
 git config --local core.hooksPath .githooks
 ```
 
-Before each commit, it checks the staged sources against the distribution
-manifest and rejects private state or locally configured Telegram source details.
+Before each commit, it checks the staged sources against `source-manifest.json` and rejects private state or locally configured Telegram source details.
 Run `python3 tools/check-git.py` to check the index manually.
 
 If the owner specifies a release tag, check it out before continuing and run
@@ -240,7 +244,7 @@ To prepare a source archive from a complete checkout, run:
 python3 tools/package-release.py
 ```
 
-This uses the explicit `distribution.json` allowlist and checks the selected
+This uses the explicit `source-manifest.json` allowlist and checks the selected
 files for references to the locally configured source before packaging. It
 creates `dist/telegram-stl-source.tar.gz` and refuses to overwrite an existing
 archive. Use `--output /path/to/a-new-name.tar.gz` to choose another filename.
@@ -456,23 +460,22 @@ mkdir -p "$HOME/STL-INCOMING"
 Select its full Linux path in Configuration later. Inside WSL, prefer this Linux
 filesystem location over `/mnt/c` for the first functional test.
 
-### Option B: Kronos or another SMB server
+### Option B: a NAS or another SMB server
 
 Create or obtain a NAS account with read, create, rename and delete access to the
 intended STL directory. A dedicated account scoped to those folders is enough;
 NAS administration rights are not required for daily use.
 
-The original layout is:
+Example layout (substitute your own server and folders):
 
 ```text
-Windows share:       \\kronos\STL
-Linux mount:         /mnt/kronos-stl
-Download base:       /mnt/kronos-stl/!! 3D STLs - INCOMING
-Example destination: .../- Atlan Forge/2026-08/
+Windows share:       \\nas\STL
+Linux mount:         /mnt/stl-share
+Download base:       /mnt/stl-share/Incoming
+Example destination: .../Example Artist/Example Artist 2026-08/
 ```
 
-Do not run `setup-kronos-stl.py` unchanged on another machine: that historical
-helper hardcodes the Linux account `bora`. Use the generic procedure below.
+Use your own server, share and Linux account in the procedure below.
 
 1. Create a root-only credential directory, then open a local editor:
 
@@ -506,11 +509,11 @@ helper hardcodes the Linux account `bora`. Use the generic procedure below.
    ```bash
    stl_uid=$(id -u)
    stl_gid=$(id -g)
-   sudo mkdir -p /mnt/kronos-stl
-   sudo mount -t cifs '//kronos/STL' /mnt/kronos-stl \
+   sudo mkdir -p /mnt/stl-share
+   sudo mount -t cifs '//nas/STL' /mnt/stl-share \
      -o "credentials=/etc/samba/credentials/telegram-stl,uid=${stl_uid},gid=${stl_gid},file_mode=0600,dir_mode=0700,serverino,nosuid,nodev"
-   findmnt -T /mnt/kronos-stl -o TARGET,SOURCE,FSTYPE
-   ls -ld '/mnt/kronos-stl/!! 3D STLs - INCOMING'
+   findmnt -T /mnt/stl-share -o TARGET,SOURCE,FSTYPE
+   ls -ld '/mnt/stl-share/Incoming'
    ```
 
    Do not mount over an already mounted path. If the Incoming folder does not
@@ -519,9 +522,8 @@ helper hardcodes the Linux account `bora`. Use the generic procedure below.
 
    For another NAS, substitute `//YOUR_SERVER/YOUR_SHARE` and use a separate
    mountpoint such as `/mnt/stl-storage`; set Configuration to a directory there.
-   `/mnt/kronos-stl` is intentionally reserved by the code for `//kronos/STL`.
-   To fix Kronos hostname resolution, add the correct LAN address to local name
-   resolution rather than weakening the mount-identity check. Leave an unmounted
+   Resolve your NAS hostname or use its LAN IP; do not weaken mount checks.
+   Leave an unmounted
    mountpoint root-owned and empty so it cannot become an accidental download
    directory.
 
@@ -530,7 +532,7 @@ helper hardcodes the Linux account `bora`. Use the generic procedure below.
    below with the outputs of `id -u` and `id -g` respectively:
 
    ```fstab
-   //kronos/STL /mnt/kronos-stl cifs credentials=/etc/samba/credentials/telegram-stl,uid=1000,gid=1000,file_mode=0600,dir_mode=0700,serverino,nosuid,nodev,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=15s 0 0
+   //nas/STL /mnt/stl-share cifs credentials=/etc/samba/credentials/telegram-stl,uid=1000,gid=1000,file_mode=0600,dir_mode=0700,serverino,nosuid,nodev,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=15s 0 0
    ```
 
    On systemd Linux/WSL, run `sudo systemctl daemon-reload` after editing. The
@@ -545,7 +547,7 @@ that destination**, checks verified delivery and an archive-style rename, then
 removes only its own test files. This does not access Telegram or import history.
 
 ```bash
-python3 - '/mnt/kronos-stl/!! 3D STLs - INCOMING' <<'PY'
+python3 - '/mnt/stl-share/Incoming' <<'PY'
 from pathlib import Path
 import sys, tempfile
 from file_delivery import deliver, mount_identity
@@ -658,7 +660,7 @@ browser; WSL supports accessing Linux web applications via localhost.
 Configure the application:
 
 1. Open **Configuration**, enter the full **Linux** destination path from step 6,
-   and save. The default is `/mnt/kronos-stl/!! 3D STLs - INCOMING`.
+   and save. Choose your own download folder; the app has no predefined NAS.
 2. Press **Refresh server list** to check the saved CLI login. Leave each data
    center on **Auto (fastest)** initially. This refresh reads Telegram server
    configuration and does not download an attachment.
@@ -716,7 +718,7 @@ Configure the application:
    archives when its image option is checked. Stop/Resume use the saved job.
 8. Under **Collages**, open a release with extracted images, drag 5–9 images into
    the numbered grid slots, then drag between slots to swap them. Drafts and
-   previews stay local. **Save to Kronos** explicitly writes a new full-size JPEG
+   previews stay local. **Save collage** explicitly writes a new full-size JPEG
    under `creator/YYYY-MM/`, beside the release archives, named `ARTIST-YYYY-MM.jpg`.
    Further saves replace that collage and keep previous versions locally under
    `data/collages/versions/`. See IMAGE-WORKFLOW.md for layouts,
@@ -1002,7 +1004,7 @@ verified delivery and completion recording; delivered originals remain available
 
 The optional Docker tester package has a separate [step-by-step guide](docker/README.md).
 Install Docker Desktop on macOS, or Docker Engine with Compose on Linux, then
-extract `Telegram-STL-Manager-Docker.zip` and run `Start.command`. First startup
+extract `Telegram-STL-Manager-Docker.zip` and run `Install-Linux.sh` (Linux) or `Install-macOS.command` (macOS). First startup
 builds the image with visible output. Account configuration remains in the app.
 The selected host destination is mapped to `/downloads`; application data uses
 the persistent `telegram-stl-manager-data` Docker volume. Do not remove that
@@ -1023,9 +1025,9 @@ The updater blocks another app launch while replacing files. A WSL message
 saying **The operation completed successfully** is an intermediate step, not
 confirmation that the update is finished.
 
-For versions without the updater, download `Telegram-STL-Manager-Update.zip`
+For versions without the updater, download `Telegram-STL-Manager-Windows.zip`
 from this repository's GitHub Releases, extract it into a new folder and run
-`Update.cmd` using the same Windows account as the original installation. Finish
+`Update-Windows.cmd` using the same Windows account as the original installation. Finish
 all tasks first and type `UPDATE` when prompted. Do not use Reset or Uninstall.
 This bootstrap update also installs the in-app updater for future versions.
 
@@ -1035,7 +1037,7 @@ Private backups remain inside the dedicated distribution under
 `/home/stl/telegram-stl-update-backups`; they can contain account data and must not
 be shared. Update logs are in
 `%LOCALAPPDATA%\TelegramSTLManager\logs\update-*\update.log`.
-If interrupted, rerun `Update.cmd`; the updater recovers its previous transaction
+If interrupted, rerun `Update-Windows.cmd`; the updater recovers its previous transaction
 before trying again. Keep backup folders until you have checked the new version.
 
 The default update source is `bora77/telegram-stl-manager`. Public releases need
@@ -1136,7 +1138,7 @@ with others requires redistribution permission or another lawful basis; “free�
 “freeware” alone does not establish that permission.
 The notice covers lawful use, unauthorized sharing of copyrighted material,
 possible file loss or damage, independent backups, acceptance of the free-of-charge
-software "AS IS" without warranties, and liability limits subject to applicable law. See `USAGE-NOTICE.txt` for the full text.
+software "AS IS" without warranties, and liability limits subject to applicable law. See `USAGE-NOTICE.md` for the full text.
 
 ### Optional STL cleaning during Make release
 
@@ -1247,6 +1249,6 @@ addenda use the Welcome Pack category instead of a month.
 
 ## Docker updates on Linux and macOS
 
-Use **Update.command** from the installed Docker package folder (Linux: `bash Update.command`). Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use `bash Update.command --recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
+Use **Update-macOS.command** on macOS or **`bash Update-Linux.sh`** on Linux from the installed Docker package folder. Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use the same OS-specific Update launcher with `--recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
 
 Older packages without the launcher/reservation endpoint need one manual package update first, after finishing tasks and stopping the app. Reuse the existing named volume and download folder. After guided updates, preserve `support/data-volume.txt` and `support/download-folder.txt` during manual replacement. See [the Docker guide](docker/README.md) for full recovery instructions. The app shows all release notes newer than the installed version, once per new version, with optional reminders.

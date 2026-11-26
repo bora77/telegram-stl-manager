@@ -10,7 +10,7 @@ helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
 class DockerPackageTests(unittest.TestCase):
     def make(self,path,extra=None,version='0.2.9'):
         with zipfile.ZipFile(path,'w') as z:
-            for name in ('Start.command','Stop.command','Update.command','compose.yaml','README.md','support/app/VERSION','support/Dockerfile','support/update-helper.py'):
+            for name in ('Start.command','Stop.command','Update.command','compose.yaml','README.md','support/app/VERSION','support/Dockerfile','support/update-helper.py')+helper.LAUNCHERS:
                 z.writestr('Telegram-STL-Manager-Docker/'+name,version if name.endswith('VERSION') else 'test')
             if extra:z.writestr(*extra)
     def test_verified_layout_extracts_and_rejects_wrong_version(self):

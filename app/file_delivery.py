@@ -14,6 +14,23 @@ from contextlib import contextmanager
 
 class DeliveryError(RuntimeError):pass
 
+MOUNT_GUARDS=Path(__file__).resolve().parent.parent/'data/mount-guards.json'
+
+def verify_configured_mount(base,mount):
+    """Optional private destination constraints; never ship machine-specific mounts."""
+    try:raw=MOUNT_GUARDS.read_text()
+    except FileNotFoundError:return
+    except OSError as error:raise DeliveryError('Private mount constraints could not be read; local files retained.') from error
+    try:
+        guards=json.loads(raw)
+        if not isinstance(guards,list):raise ValueError()
+        for guard in guards:
+            path=Path(guard['path']);sources=guard['sources'];fstype=guard['fstype']
+            if not path.is_absolute() or '..' in path.parts or not isinstance(sources,list) or not sources or not all(isinstance(s,str) for s in sources) or not isinstance(fstype,str):raise ValueError()
+            if base==path or base.is_relative_to(path):
+                if mount['fstype']!=fstype or mount['source'].lower() not in {s.lower() for s in sources}:raise DeliveryError('Configured network storage is not mounted; staged files were kept locally.')
+    except (OSError,ValueError,TypeError,KeyError) as error:raise DeliveryError('Private mount constraints could not be verified; local files retained.') from error
+
 def rename_no_replace(sourcefd, source, targetfd, target):
     """Publish without overwriting, including WSL drives lacking RENAME_NOREPLACE."""
     libc=ctypes.CDLL(None,use_errno=True)
@@ -63,8 +80,7 @@ def mount_identity(base):
     matches=[entry for entry in mounts if entry.get('maj:min')==number and entry['fstype']!='autofs']
     if not matches or base.stat().st_dev!=device:raise DeliveryError('Destination mount could not be verified; local files retained.')
     data=max(matches,key=lambda entry:len(Path(entry['target']).parts))
-    if str(base).startswith('/mnt/kronos-stl/') or base==Path('/mnt/kronos-stl'):
-        if data['fstype']!='cifs' or data['source'].lower() not in ('//kronos/stl','//kronos.fritz.box/stl'):raise DeliveryError('Kronos is not mounted; staged files were kept locally.')
+    verify_configured_mount(base,data)
     if str(base).startswith('/mnt/telegram-stl-share/') or base==Path('/mnt/telegram-stl-share'):
         if data['fstype']!='cifs' or data['target']!='/mnt/telegram-stl-share':raise DeliveryError('Network share is disconnected; staged files were kept locally.')
     return (data['target'],data['source'],data['fstype'],device)

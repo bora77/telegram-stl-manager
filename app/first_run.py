@@ -50,7 +50,7 @@ class FirstRun:
     def acknowledge(self,payload):
         if payload.get('accepted') is not True:
             raise ValueError('Read and acknowledge the usage notice before continuing.')
-        notice=(Path(__file__).resolve().parent.parent/'USAGE-NOTICE.txt').read_text()
+        notice=(Path(__file__).resolve().parent.parent/'USAGE-NOTICE.md').read_text()
         import hashlib
         with self.lock:
             self.store.atomic_write(self.root/'data/usage-acknowledgment.json',{'accepted_at':time.time(),'notice_sha256':hashlib.sha256(notice.encode()).hexdigest()})
@@ -131,7 +131,7 @@ class FirstRun:
         account=self.account_identity()
         try:source=load_source(self.root).home_url
         except ValueError:source=''
-        return {'consent_required':self.consent_required(),'usage_notice':(Path(__file__).resolve().parent.parent/'USAGE-NOTICE.txt').read_text() if self.consent_required() else '', 'setup_required':self.setup_required,'missing_setup':self.missing_setup(),'application':'telegram-stl-manager','version':(self.root/'VERSION').read_text().strip() if (self.root/'VERSION').exists() else 'unknown','source':source,'login':self.phase,'account':account,'challenge':self.challenge,'share_supported':Path('/etc/telegram-stl-managed').exists(),'share':json.loads((self.root/'data/setup-share.json').read_text()) if (self.root/'data/setup-share.json').exists() else {},'creators':len(json.loads((self.root/'data/creators.json').read_text()).get('creators',[])) if (self.root/'data/creators.json').exists() else 0}
+        return {'consent_required':self.consent_required(),'usage_notice':(Path(__file__).resolve().parent.parent/'USAGE-NOTICE.md').read_text() if self.consent_required() else '', 'setup_required':self.setup_required,'missing_setup':self.missing_setup(),'application':'telegram-stl-manager','version':(self.root/'VERSION').read_text().strip() if (self.root/'VERSION').exists() else 'unknown','source':source,'login':self.phase,'account':account,'challenge':self.challenge,'share_supported':Path('/etc/telegram-stl-managed').exists(),'share':json.loads((self.root/'data/setup-share.json').read_text()) if (self.root/'data/setup-share.json').exists() else {},'creators':len(json.loads((self.root/'data/creators.json').read_text()).get('creators',[])) if (self.root/'data/creators.json').exists() else 0}
     def start_login(self):
         with self.lock,self.idle():
             if self.child and self.child.poll() is None:raise ValueError('Telegram sign-in is already open.')

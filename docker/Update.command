@@ -2,8 +2,10 @@
 # Docker stays on the host. The application never receives its socket.
 set -Eeuo pipefail
 cd -- "$(dirname -- "$0")"
+bash support/sync-launchers.sh
 export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:$HOME/.docker/bin"
 root=$PWD
+launchers=(Install-Linux.sh Start-Linux.sh Stop-Linux.sh Update-Linux.sh Install-macOS.command Start-macOS.command Stop-macOS.command Update-macOS.command)
 command -v docker >/dev/null || { echo 'Install/start Docker first.'; exit 1; }
 docker info >/dev/null
 [[ $(id -u) != 0 ]] || { echo 'Run as your normal Docker user, not root.'; exit 1; }
@@ -28,7 +30,7 @@ helper(){ docker exec -i --user "$STL_UID:$STL_GID" "$container" python - "$@" <
 compose(){ docker compose -f "$root/compose.yaml" -f "$tx/image.yaml" "$@"; }
 restore_files(){
     failed_package=$(mktemp -d "$tx/failed-package.XXXXXX") || return 1
-    for name in support Start.command Stop.command Update.command compose.yaml README.md; do
+    for name in support Start.command Stop.command Update.command compose.yaml README.md "${launchers[@]}"; do
         if [[ -e "$tx/previous/$name" ]]; then
             if [[ -e "$root/$name" ]]; then mv "$root/$name" "$failed_package/$name" || return 1; fi
             mv "$tx/previous/$name" "$root/$name" || return 1
@@ -121,7 +123,7 @@ mkdir "$tx/previous"
 cp support/download-folder.txt "$tx/candidate/support/download-folder.txt"
 if [[ -f support/installation-acknowledged ]]; then cp support/installation-acknowledged "$tx/candidate/support/installation-acknowledged";fi
 printf '%s\n' "$new_volume" > "$tx/candidate/support/data-volume.txt"
-for name in support Start.command Stop.command Update.command compose.yaml README.md; do
+for name in support Start.command Stop.command Update.command compose.yaml README.md "${launchers[@]}"; do
     if [[ -e "$root/$name" ]]; then mv "$root/$name" "$tx/previous/$name";fi
     mv "$tx/candidate/$name" "$root/$name"
 done

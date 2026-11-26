@@ -8,7 +8,7 @@ const assert=require('node:assert/strict');
  assert((await page.locator('#release-update-summary').innerText()).includes('0.2.5'));
  assert.equal(await page.locator('#release-update-changes section').count(),3);
  assert.equal(await page.locator('#release-update-changes img').count(),0);
- assert((await page.locator('#release-update-route').innerText()).includes('Update.command'));
+ assert((await page.locator('#release-update-route').innerText()).includes('Update-Linux.sh'));
  await page.locator('#release-update-close').click();await page.reload();await page.waitForTimeout(300);
  assert(!(await page.locator('#release-update-dialog').isVisible()));
  await page.locator('#footer-update').click();assert(await page.locator('#release-update-dialog').isVisible());

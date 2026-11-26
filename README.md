@@ -5,7 +5,7 @@
 **[Download the latest Windows installer](https://github.com/bora77/telegram-stl-manager/releases/latest/download/Telegram-STL-Manager-Windows.zip)**
  · [Release notes and other downloads](https://github.com/bora77/telegram-stl-manager/releases/latest)
 
-New users: extract the entire ZIP, double-click **Install.cmd**, and accept the
+New users: extract the entire ZIP, double-click **Install-Windows.cmd**, and accept the
 administrator prompt. The installer sets up WSL automatically; configure the app
 in your browser afterward.
 
@@ -42,7 +42,24 @@ These screenshots show the real interface with demonstration data, not private a
 
 ![Artist subscriptions, destination folders and release scopes](assets/screenshots/artist-subscriptions.png)
 
+![Collage editor with a layout selected by Auto-fill using demo images](assets/screenshots/collage-editor.png)
+
 ## Software components and how they work together
+
+**Organize folders is Beta**, intended for testers. Review previews and keep
+independent backups before applying changes to existing archives.
+
+Public source is checked with `source-manifest.json`; deployed files are selected
+separately by `distribution.json`. Installers contain application code, assets,
+startup helpers, user guides and licence notices. Tests, Git hooks, package
+builders and internal maintainer files are not installed. Docker keeps the CLI's
+source in its separate build context, not in the running application image.
+
+Use the launcher matching your OS: **Install-Windows.cmd**, **Install-Linux.sh**
+or **Install-macOS.command**. Start, Stop and Update launchers use the same suffix.
+The app's automatic Windows updater retains a compatibility ZIP with its original
+filenames; Docker's generic `.command` names are compatibility aliases for older
+updaters. New installation instructions use the OS-specific names.
 
 Repository layout: Python application code is in `app/`, browser code in `web/`,
 HTML in `templates/`, supporting guides in `docs/`, and maintenance tools in
@@ -251,10 +268,10 @@ need attention before retrying.
 For new Windows testers, use the
 [latest GitHub release](https://github.com/bora77/telegram-stl-manager/releases/latest)
 and download **Telegram-STL-Manager-Windows.zip**. Extract the entire ZIP, then
-double-click **Install.cmd**. It requests administrator approval automatically
+double-click **Install-Windows.cmd**. It requests administrator approval automatically
 and prepares its own WSL environment; no manual WSL configuration is needed.
 Existing users should use the optional in-app updater or the separate
-**Telegram-STL-Manager-Update.zip**, preserving their configuration and history.
+**Telegram-STL-Manager-Windows.zip**, preserving their configuration and history.
 
 For Linux and macOS, use **Docker for Linux and macOS**, distributed as the
 **Telegram-STL-Manager-Docker.zip** package. It includes a launcher, persistent
@@ -288,7 +305,7 @@ catalog. The app limits its content operations to that configured source and
 catalog. The repository includes no real Telegram group identity, creator
 catalog, login session or downloaded release content.
 
-Local configuration, databases, generated pages, screenshots and credentials stay
+Local configuration, databases, generated pages, private screenshots and credentials stay
 outside the public source package. Back up private state separately if you need
 to preserve history, subscriptions, unfinished jobs or previous collage versions.
 
@@ -305,7 +322,7 @@ For development, enable the staged-file privacy check:
 git config --local core.hooksPath .githooks
 ```
 
-The check uses `distribution.json` and validates staged content against the public
+The source check uses `source-manifest.json` and validates staged content against the public
 file list and locally configured source identity. Keep that allowlist intact.
 You can also run it manually with `python3 tools/check-git.py`.
 
@@ -667,7 +684,7 @@ For complete steps, use [INSTALL.md](INSTALL.md), the
 ### Windows startup
 
 The Windows package installs a dedicated WSL environment. Double-click
-`Install.cmd` and follow the visible administrator/restart prompts. No manual WSL
+`Install-Windows.cmd` and follow the visible administrator/restart prompts. No manual WSL
 configuration is required.
 
 First-time configuration has four steps: **Telegram & artists → Download location
@@ -702,15 +719,15 @@ GitHub releases require no GitHub login or token.
 
 Finish active tasks first. The updater preserves settings and history, verifies
 the package checksum, backs up the previous version and restores it if startup
-fails. Older installations can use `Telegram-STL-Manager-Update.zip`: extract it
-into a new folder and run `Update.cmd` with the same Windows account. No reset,
+fails. Older installations can use `Telegram-STL-Manager-Windows.zip`: extract it
+into a new folder and run `Update-Windows.cmd` with the same Windows account. No reset,
 reinstall or administrator elevation is needed.
 
 Keep the updater open until **Update complete** appears. WSL's **The operation
 completed successfully** is only an intermediate message. Update logs are under
 `%LOCALAPPDATA%\TelegramSTLManager\logs\update-*\update.log`.
 
-Linux and macOS Docker installations use the host-side Update.command launcher, preserving
+Linux and macOS Docker installations use the host-side OS-specific Update launcher, preserving
 application state and volumes. See
 [Updating an existing installation](INSTALL.md#updating-an-existing-installation).
 
@@ -791,7 +808,7 @@ Installation and first-time browser setup each require explicit acknowledgment
 of the usage notice. AI installation agents must leave this acknowledgment to
 the user. The notice covers independent backups, possible file loss or damage,
 free-of-charge software supplied **AS IS**, warranty exclusions and liability
-limits subject to applicable law. Read [USAGE-NOTICE.txt](USAGE-NOTICE.txt).
+limits subject to applicable law. Read [USAGE-NOTICE.md](USAGE-NOTICE.md).
 
 PDFCleaner adaptation: original tool and footer-stamp profiles by **RC**.
 STL washers: **Anne O'Nymous**. Cotton uses supplied binaries; our Delicates-style
@@ -802,6 +819,6 @@ Copyright © 2026 trumphater77
 
 ## Docker updates on Linux and macOS
 
-Use **Update.command** from the installed Docker package folder (Linux: `bash Update.command`). Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use `bash Update.command --recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
+Use **Update-macOS.command** on macOS or **`bash Update-Linux.sh`** on Linux from the installed Docker package folder. Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use the same OS-specific Update launcher with `--recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
 
 Older packages without the launcher/reservation endpoint need one manual package update first, after finishing tasks and stopping the app. Reuse the existing named volume and download folder. After guided updates, preserve `support/data-volume.txt` and `support/download-folder.txt` during manual replacement. See [the Docker guide](docker/README.md) for full recovery instructions. The app shows all release notes newer than the installed version, once per new version, with optional reminders.

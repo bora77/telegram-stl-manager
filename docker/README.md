@@ -1,337 +1,111 @@
 # Telegram STL Manager — Docker for Linux and macOS
 
-This is the user-facing Linux/macOS installation package. No separate native
-Linux installer is needed. **Update.command** runs Docker updates from the host;
-the application container never receives the host Docker socket.
-
 Copyright © 2026 trumphater77
 
-MMF and Gumroad uploads share a persistent queue. Uploads and bot conversations
-include queued **Release through bot** / **Build and upload** workflows, which
-wait for preparation/download work and build missing release archives before delivery. Uploads
-run one at a time. After a container restart or upload failure, review any
-partially sent attempt and use **Resume upload queue** for waiting entries.
-Failed attempts are not retried automatically. Waiting uploads can be removed
-from their release panels without deleting their local files.
+Use this package on Linux or macOS. Docker builds the application and its dependencies;
+Python, Go, SQLite and 7-Zip do not need separate host installations. The first build
+requires internet access, at least 4 GB available to Docker, and room for staged downloads.
 
-This package builds the app for Linux x86-64 or ARM64, including Intel and
-Apple Silicon Macs through Docker Desktop. It contains public source only:
-no accounts, passwords, sessions, creator selections or download history.
-The initial build needs internet access and may take several minutes. Allow
-at least 4 GB of memory for Docker and space for the build plus staged releases.
+## Launchers
 
-## First start on macOS
+| Action | Linux | macOS |
+| --- | --- | --- |
+| First installation | `bash Install-Linux.sh` | `Install-macOS.command` |
+| Start | `bash Start-Linux.sh` | `Start-macOS.command` |
+| Stop | `bash Stop-Linux.sh` | `Stop-macOS.command` |
+| Update | `bash Update-Linux.sh` | `Update-macOS.command` |
 
-1. Install [Docker Desktop for your Mac](https://docs.docker.com/desktop/setup/install/mac-install/)
-   and start it. Complete Docker's own first-time setup.
-2. Extract this ZIP into a permanent folder. Double-click **Start.command**.
-   This test launcher is not signed. If macOS blocks it, inspect the script and
-   use the normal macOS Open Anyway approval for this file; do not disable system security.
-   If executable permissions were lost during extraction, run
-   `bash Start.command` from Terminal inside the extracted folder.
-3. Choose a writable download folder when prompted. For the first test, use a
-   local folder. Grant Docker folder access if requested.
-4. Leave the Terminal window open while the image builds. All build output is
-   visible. Your browser opens at **http://localhost:6093** when the app is ready.
-5. Complete initial Configuration. The selected host folder appears inside the
-   app as **`/downloads`**; keep that as the download base. Set accounts, source,
-   and other settings in the web interface. Follow Telegram & artists →
-   Download location → Preferences → Review & finish. Click **Save and review**,
-   resolve any listed missing or unsaved settings, then **Finish first-time
-   configuration** to unlock the artist selection and other pages.
+Install and Start use the same startup routine; installation is needed only once.
+On macOS, double-click the `.command` file. If permissions were lost, run it with
+`bash` in Terminal. If macOS blocks an unsigned launcher, inspect it and use the
+normal Open Anyway approval; do not disable system security.
 
-Only the app interface needs a browser. Telegram Desktop, Tampermonkey, Python,
-Go and 7-Zip do not need installing separately on your Mac.
+Legacy `Start.command`, `Stop.command` and `Update.command` remain compatibility
+aliases for already-released updaters. If an older updater left only those names,
+run a legacy launcher once to restore the OS-specific shortcuts from `support/launchers`.
+Use the OS-specific names for new installations.
 
-## First start on Linux
+## First installation
 
-Install [Docker Engine](https://docs.docker.com/engine/install/) and its
-[Compose plugin](https://docs.docker.com/compose/install/linux/). Your normal
-user must be able to run `docker info`. Run **`bash Start.command`** from the
-extracted folder. The default destination is `~/Downloads/Telegram STL Manager`.
-To choose another existing folder, run:
+1. Install and start [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/)
+   on macOS, or [Docker Engine](https://docs.docker.com/engine/install/) and the
+   [Compose plugin](https://docs.docker.com/compose/install/linux/) on Linux.
+   Your normal user must be able to run `docker info`; do not run these launchers as root.
+2. Extract the complete ZIP into a permanent folder. Keep `support/` intact.
+3. Run the Install launcher for your OS and acknowledge the usage notice.
+   Linux defaults to `~/Downloads/Telegram STL Manager`; macOS asks for a folder.
+   To use another existing writable folder on Linux:
+
+   ```sh
+   bash Install-Linux.sh "/path/to/downloads"
+   ```
+
+4. Keep the build window open. Your normal browser opens at http://localhost:6093.
+5. Complete Configuration: Telegram & artists → Download location → Preferences →
+   Review & finish. The selected host folder appears inside the app as `/downloads`;
+   keep that as the download base. Save settings and resolve missing requirements
+   before clicking Finish first-time configuration.
+
+Mount network shares on the host before selecting them. Docker must have access
+and your host user must have write permission. Supplemental host groups are not
+passed through to the container. The application uses your UID/GID for its files.
+The web port is bound to localhost only; do not expose the current interface to
+other computers or give the application a Docker socket or privileged container access.
+
+Only checks made while an app browser page is open are scheduled automatically.
+Downloads stay manual unless you enable the provider's Auto-download toggle.
+Closing the browser or log window does not stop active work. Stop uses the Stop
+launcher; restarting the computer does not automatically start this package.
+
+## Updates and recovery
+
+Leave the app running and use the OS-specific Update launcher. It downloads the
+latest stable release, verifies its GitHub SHA-256 digest and version, and builds
+before stopping the app. It blocks new tasks and waits for active work to finish,
+then copies application state to a new volume and starts the updated container.
+Accounts, settings, history, user IDs, timezone and the download-folder mapping
+are retained. The external download folder is never duplicated or deleted.
+
+A failed startup restores the original image and data volume. After a failed or
+interrupted attempt, use the same Update launcher with `--recover`, for example:
 
 ```sh
-bash Start.command "/path/to/your/download folder"
+bash Update-Linux.sh --recover
 ```
 
-The launcher uses your user and group IDs for files, so downloads are not owned
-by root. Shared folders must be writable by that user directly; supplemental
-host groups are not passed into the container. Do not start this launcher as root.
+On macOS use `bash Update-macOS.command --recover`. Keep `.updates/current`, its
+lock and saved volumes until recovery finishes. Previous images, volumes and
+package files remain as recovery copies. Allow disk space for an additional copy
+of app state, including unfinished local downloads. Updates need no host Python.
 
-## Stop, restart and update
+Older packages without the updater/reservation endpoint need one manual upgrade:
+finish active work, stop the app, extract the new package and use the same download
+folder and named data volume. The initial volume is `telegram-stl-manager-data`.
+After guided updates, its active replacement is recorded in `support/data-volume.txt`.
+Preserve that file and `support/download-folder.txt` when manually replacing a package.
+Never run two packages against the same volume or use `docker compose down --volumes`
+for an ordinary update.
 
-**Stop.command** stops only this application's container. Closing the log window
-or pressing Ctrl+C detaches the logs; the app stays running. Start.command starts
-it again. It does not automatically start after a computer restart.
+The app announces a new version once, with all release notes since your installed
+version. You can close it, request a reminder, or reopen it from the footer.
+Updates are optional and Docker control stays on the host.
 
-For an update, leave the app running and double-click **Update.command** on macOS,
-or run **`bash Update.command`** on Linux from the same package folder. The launcher
-downloads the latest stable Docker release, verifies its GitHub SHA-256 digest
-and version, and builds its image before stopping the current app. Build and
-download progress remain visible. It pauses new tasks and waits for running work
-to finish, then copies application state to a new named volume and starts the new
-container. Settings, sessions, history, user IDs, timezone and the download-folder
-mapping are retained. The external download folder is never copied or removed.
+## Files, removal and documentation
 
-The previous image, original state volume and package are retained for recovery.
-A failed startup automatically restores them. After a failed or interrupted attempt,
-run **`bash Update.command --recover`** to finish recovery/archive the transaction
-before starting another update. Do not
-delete `.updates/current`, its lock or any saved Docker volumes to bypass recovery.
-State copies need enough disk space for another copy of application data, including
-unfinished local downloads. They do not duplicate the external download folder.
-No host Python installation, Docker socket mount or privileged container is needed.
+To change the host download folder, stop the app and run the Start launcher with
+its new path. This changes the mapping; it does not move existing files. The app
+still uses `/downloads` internally.
 
-**One-time upgrade for older packages without Update.command/update reservation:**
-finish active work, use Stop.command, extract the new package and start it with
-the same download folder. Keep the named volume. After using the guided updater,
-the active volume name is saved in `support/data-volume.txt`; carry this file and
-`support/download-folder.txt` across any later manual package replacement. Never
-run two packages against the same data volume. The first installation defaults to
-`telegram-stl-manager-data`; guided updates retain that original as a backup and
-switch to a copied volume with a transaction-specific name.
+Stopping/removing the container does not delete external downloads. Removing the
+application's data volume deletes its settings, accounts, history and staged work;
+back it up before any deliberate full removal. Do not remove recovery volumes casually.
 
-The app announces new versions with the changelog for every stable release newer
-than your installed version. It shows the modal once per version, with a reminder
-option; the footer link can reopen it. Updates remain optional and are launched
-from the host package folder, not automatically by the container.
+`support/app/` contains only the application, user guides and licence notices.
+`support/build/` contains the CLI source needed to build the image; it is not copied
+into the running app image. Maintainer instructions, internal TODO files, tests and
+package-building utilities are excluded from the runtime. The app's public roadmap
+is separate from the maintainer's private TODO.
 
-To change your host download folder later, stop the app and run Start.command
-with the new folder path as shown above. This changes the mapping only; it does
-not move existing files. Inside the app the base remains `/downloads`.
-
-Download files live outside Docker's application volume. Container removal does
-not delete them. Removing the named volume would delete accounts, history and
-staged work, so **do not use `docker compose down --volumes` for routine updates**.
-To uninstall while retaining data, stop the app and remove its container/image
-in Docker Desktop, then remove the extracted package. Keep the named volume if
-you want to restore the installation later.
-
-## Network folders and limitations
-
-Mount a network share on the host first, then pass an existing writable folder
-to Start.command. Docker Desktop must be allowed to share that path. Keep the
-share mounted during the run. The launcher refuses a missing folder rather than
-creating it, but a host mount point alone is not proof that a network share is
-still connected. Local storage is the recommended first test; disconnected-share
-behavior on macOS needs separate testing. No share credentials are bundled.
-
-The web port is published only on host localhost. This package does not expose
-the application to other computers. Existing installations using port 6093 must
-be stopped before launching this one. Availability checks run while the web UI
-is open; downloads start manually unless that provider’s Auto-download toggle is enabled.
-
-Builds select the host's native architecture. Mac/ARM64 behavior has not yet
-been tested on real hardware. This is a tester build, not a signed Mac app.
-
-Validated in a clean Ubuntu 24.04 x86-64 VM: Docker installation, image build,
-healthy first start, blank setup, localhost host checks, non-root delivery to a
-host folder, content verification, overwrite protection, Stop and recreation.
-SQLite data, a synthetic session marker and host files survived container
-replacement. All 32 setup, collage and MMF repackaging tests passed in the
-container. No real account login/download or Mac network-share test was performed.
-
-## Local collage Auto-fill
-
-In the collage editor, **Auto-fill** analyzes images from the selected archive
-filter (or the whole release) and creates collage cards. Multi-image model/sets
-get dedicated collages with a featured lead image; single-image models share
-overview cards. Each collage contains at most nine images. No AI service,
-model download or additional dependency is
-used. Analysis runs in a background worker with progress; repeated runs reuse
-cached image measurements. Source archive/folder evidence and filenames guide
-grouping. Quality and group-shot preferences are heuristics, so review uncertain
-choices under **Why these images?**. **Shuffle** changes alternatives and fallback
-choices; **Undo auto-fill** restores the previous grid. The saved JPG changes only
-when the user clicks **Save collage** or **Save selected collages**. Source files are not modified.
-For a collage set, edit each card's model/set name, title and image labels, then
-use **Save selected collages**. Only cards checked **Include in upload** enter
-the saved upload set. Release delivery sends all selected collages before the
-archives and forwards that same set to the bot; unrelated JPGs are excluded.
-
-## Network interruptions and recovery
-
-Transient read/download failures retry up to four times with visible reconnect
-status and short, cancellable waits. Partial MMF/Gumroad downloads resume using
-validated byte ranges and server validators when available; refreshed requests
-resolve the current network route and obtain fresh download links. A server
-that does not support ranges restarts that partial transfer from zero.
-Changed-file, authentication and storage-capacity errors require review rather
-than repeated retries. If recovery fails, the queue reports an error and retains
-staged files for **Resume**. A failed Telegram availability check retains the
-previous detections for affected artists and reports the check as incomplete.
-
-Storage outages do not discard local staged originals or mark an unfinished
-transfer complete. Restore the configured share, then Resume. The app does not
-force-remount system shares. Uploads, forwarding and bot commands are not blindly
-replayed after an uncertain response; check the destination before retrying.
-
-## Optional automatic downloads
-
-Availability checks use fixed clock slots in the application's time zone, shared
-by every queue. A four-hour interval means 00:00, 04:00, 08:00, 12:00, 16:00 and
-20:00; manual scans do not shift those slots. Fractional intervals use their
-corresponding minute boundaries. The first check can run immediately; missed
-slots are checked once when a browser page is open again. Docker uses
-`STL_TIMEZONE` from its launcher environment for the application clock.
-
-Telegram and MMF each have an independent **Auto-download: Off / On** toggle on
-their queue page. Both default to Off and remember their saved state across
-browser and server restarts. A manager page must remain open: existing browser
-availability checks drive automatic starts, with no new system service or timer.
-Enabling a toggle also permits starting already detected, unclaimed files.
-MMF must be enabled and connected. Gumroad remains manual.
-
-Turning a toggle off prevents new automatic runs without stopping an active
-download. Failed or stopped queues require manual Resume instead of automatic
-retries. Keep the download location accessible. MMF image extraction runs as
-usual, but packaging, collages and publishing remain manual. Installation agents
-must leave Auto-download off unless the user requests it.
-
-## Optional Gumroad Beta
-
-MyMiniFactory is no longer marked Beta. Enable **Show MyMiniFactory** under
-**Configuration → Subscriber Distribution channels** and connect your account. Gumroad alone
-remains marked **Beta** under **Subscriber Distribution channels**; existing platform visibility settings are kept.
-
-All Beta features are incomplete and buggy, for testers only. Gumroad is hidden
-and disabled by default. Enable **Show Gumroad** in **Configuration → Subscriber Distribution channels**, save, then connect in **Gumroad account** using your Gumroad email
-and password. If you normally use Google sign-in, use **Forgot your password?**
-on [Gumroad login](https://gumroad.com/login) with the same account email to set
-a separate Gumroad password. Enter that password here, not your Google password.
-If asked, enter the emailed or authenticator verification code.
-The password is used only for sign-in; the session is kept locally under
-`data/gumroad/`. No logged-in browser, browser-cookie export, seller API token,
-or additional background service is required. Reconnect if Gumroad expires the
-session. Website verification or endpoint changes can interrupt this Beta.
-
-Use **Gumroad → Artists** to select purchased-library creators, destination
-folders and scope. **Gumroad → Queue** has Download detected, Check for
-downloads, Resume, Stop and Manage artists. Checks run on a separate configurable
-interval while the manager is open in a browser; downloads only start manually.
-Older products are checked again for newly added files. Named products and
-collections keep their names when no release month is supplied; purchase dates
-are never treated as release dates. Membership updates can use their publication
-month. Undated releases remain in scope.
-
-Downloads keep artist filenames in each release's `Gumroad sources` folder,
-extract images into a flat `release_images` folder, and use the shared collage
-and release-packaging workflow. Account sessions, purchase links and history
-stay in the private data directory and must not be included in public packages.
-Gumroad uses authenticated website JSON because its public seller API does not
-expose the purchased library. No additional Python dependency is required.
-
-### Required usage acknowledgment
-
-Before installation changes begin, read the usage notice and explicitly acknowledge
-it (Windows: choose **Yes** in the dialog; Docker launcher (Linux/macOS) or maintainer install helper:
-type **I AGREE**). Declining stops installation. Windows may ask again when it
-starts elevated prerequisite setup or resumes after a restart. Docker remembers
-the installation acknowledgment for that extracted package.
-
-First-time browser configuration separately displays the same notice in a required
-modal. Read it, tick the acknowledgment checkbox, and select **Acknowledge and
-continue**. Closing the tab declines; setup stays locked. The acknowledgment is
-saved locally with its time and notice fingerprint. AI installation agents must
-leave these acknowledgments to the user and must not accept on their behalf.
-The tool supplies no illegal software, accounts, credentials or third-party access
-rights. It uses users’ own accounts (for example, MyMiniFactory) to download content
-they have purchased, licensed or otherwise have permission to access; this does
-not automatically grant redistribution rights. Private Telegram uploads are intended
-for personal cloud backup where permitted by law and the content licence. Sharing
-with others requires redistribution permission or another lawful basis; “free” or
-“freeware” alone does not establish that permission.
-The notice covers lawful use, unauthorized sharing of copyrighted material,
-possible file loss or damage, independent backups, acceptance of the free-of-charge
-software "AS IS" without warranties, and liability limits subject to applicable law. See `USAGE-NOTICE.txt` for the full text.
-
-### Optional STL cleaning during Make release
-
-In **Configuration → Release packaging → STL cleaner during Make release**,
-choose **Off** (default), **Delicates-style**, or **Cotton**, then save. Cleaning
-runs on all unpacked `.stl` files, including uppercase extensions, during Make
-release for MMF and other supported store downloads. Downloaded source archives
-are retained unchanged. Each Make release snapshots the saved cleaning choice; a manually started retry
-uses the current saved cleaning settings.
-
-Delicates-style is a portable implementation inspired by STL Washer Delicates
-1.6.1. It clears headers, normals and attributes, shuffles triangles, translates
-the mesh and perturbs coordinates slightly. It fixes the original centring and
-unsafe-write behavior. It requires no new dependency. Cotton uses the separately
-supplied STL Washer Cotton executables, variants `a0`–`a5`; these are **not bundled**
-with public packages. Extract trusted Linux binaries matching the app's x64 or
-ARM64 architecture into a folder accessible inside its Linux/WSL/container
-environment, mark the executables runnable (`chmod u+x stlwasher-cotton-a*`), and
-enter that folder in **Cotton executable folder**. Alternatively place them under
-`data/stl-cleaners/x64` or `data/stl-cleaners/arm64` in the application directory
-and leave the override blank. Windows drive paths must be expressed as WSL paths;
-Docker paths must refer to a folder mounted inside the container. Missing or
-incompatible Cotton binaries block enabling Cotton with an actionable error.
-
-Cotton also reduces triangle counts and can remove substantial fine detail.
-Both modes alter geometry and placement and can break alignment between separate
-parts and supports. No watermark-removal guarantee is made. Processing uses staged
-copies, supports cancellation, and rejects empty or structurally invalid/non-finite
-output before replacement. This validates file structure, not printability. The
-queue shows the current filename, file count and progress; Cotton exposes only
-file-level progress and elapsed time, while Delicates also reports progress within
-a file. Archives nested inside downloaded archives block cleaning with an explanatory
-error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
-archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
-omit member timestamps; original downloads are not rewritten.
-
-STL cleaning is **Beta**, for testers only, under **Configuration → Release packaging**. Beta features stay in their relevant sections rather than a separate Beta section.
-
-The RC-based PDF washer runs during **Make release**, before compression, on
-staged copies only. It removes recognized footer-stamp patterns, shows file/page
-progress and verifies saved page content. Unrecognized PDFs remain unchanged by
-the washer; signed/encrypted or damaged PDFs stop packaging and retain sources.
-Organizing does not wash PDFs. Timestamp cleanup below is a separate step.
-
-**Configuration → Release packaging → PDF and image timestamp privacy** defaults
-to On. Make release removes known embedded dates from staged PDF, JPEG, PNG and
-WebP files, including release images, without recompressing image pixels. It also
-removes opaque camera MakerNotes and normalizes staged file times. Attribution,
-orientation and colour profiles are retained. Existing prepared archives, other
-formats and original downloads are unchanged. This reduces timestamp exposure;
-it does not remove every identifying mark. Signed/encrypted PDFs and malformed
-metadata stop packaging with an error while retaining sources. File progress is
-shown, and the option can be disabled. No new dependency or AI is required.
-When releasing a prepared release through a bot, an existing verified upload to
-your Telegram release channel is reused. The collage and archives are forwarded
-without sender attribution; they are not uploaded again from your computer.
-Forwarding failures stop the attempt for review, with no automatic re-upload.
-A release without a previous verified channel upload is uploaded to Your Telegram
-Release Channel first, then forwarded to the bot. Configure this channel before
-starting a bot release. Archive bytes are never uploaded directly to a bot.
-
-If all files reached the bot but final confirmation failed, use **Retry completion**
-in the release upload panel. This queues only the completion step, without
-restarting the conversation or resending files. Recovery stops if the bot
-conversation has since changed. Replaced button messages are refreshed automatically.
-
-After bot-confirmed publication (or explicit confirmation of a verified upload),
-the manager removes unchanged source archives included in that package. It keeps
-the final release archive, collage, images, and download history. Sources remain
-until publication succeeds; changed files or cleanup errors are retained for review.
-Manual publication confirmation returns immediately. Source verification and
-cleanup run in a separate background worker, with status shown on the release.
-The queue shows live cleanup progress, including the current file, bytes checked,
-verification speed and sources removed, even when finished releases are filtered out.
-The confirmation dialog remains closable and reports a timeout if the server
-does not respond; check the saved release status before retrying.
-
-In Configuration → Release packaging, Compression threads defaults to Auto,
-letting 7-Zip choose its thread count. Select a fixed limit to leave more CPU
-capacity for other work. Saved changes apply to subsequent packaging jobs;
-running jobs keep their current settings. Compression level remains independent.
-
-Numbered addenda sent through Eve select the original release's creator, year and
-month, then **Append to release**. Older monthly releases are supported for this
-append flow. The tool verifies the existing release and additional-files prompt
-before forwarding; it stops if the original release is not found. Welcome Pack
-addenda use the Welcome Pack category instead of a month.
-
-Eve bot delivery recognizes named Welcome Packs and selects the creator's Welcome
-Pack category automatically. Other named collections still require a Custom conversation.
+See `support/app/README.md`, `INSTALL.md` and `AI-INSTALL-PROMPT.md` for account setup,
+release workflows and AI-assisted installation. Read `support/app/USAGE-NOTICE.md`
+for the required acknowledgment. macOS/ARM64 has not been verified on native hardware.

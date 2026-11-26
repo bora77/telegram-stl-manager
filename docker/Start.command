@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
+bash support/sync-launchers.sh
 if [[ ! -f support/installation-acknowledged ]]; then
     cat support/app/USAGE-NOTICE.txt
     printf '\nType I AGREE to acknowledge this notice and continue, or anything else to cancel: '

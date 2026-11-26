@@ -11,7 +11,7 @@ from app.source_scope import load_source
 from app.creator_tags import normalize_catalog, sync_database
 
 root = Path(__file__).resolve().parent.parent
-roadmap = (root / 'TODO.md').read_text().split('## Upcoming features\n', 1)[1].split('\n## ', 1)[0]
+roadmap = (root / 'ROADMAP.md').read_text()
 upcoming = ''.join('<li><strong>' + html.escape(title) + '</strong><span>' + html.escape(description) + '</span></li>'
     for title, description in re.findall(r'^- \[ \] \*\*(.+?)\*\* — (.+)$', roadmap, re.M))
 if not upcoming:upcoming = '<li>No upcoming features announced.</li>'

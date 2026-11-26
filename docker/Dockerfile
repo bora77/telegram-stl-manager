@@ -2,7 +2,7 @@
 FROM --platform=$BUILDPLATFORM golang:1.25.8-bookworm AS cli
 ARG TARGETARCH
 WORKDIR /build
-COPY app/.tools/tdl-stl/ .
+COPY build/tdl-stl/ .
 WORKDIR /build/src
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH GOMAXPROCS=2 GOMEMLIMIT=2GiB \
     go build -p 1 -trimpath -o /tdl .

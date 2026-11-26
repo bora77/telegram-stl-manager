@@ -19,7 +19,7 @@ SHA256='72748da13197c1fb161e3afeef20a6a385ff24f2165e6e2758e47008e7faba4c'
 def main():
     spec=importlib.util.spec_from_file_location('public_package',ROOT/'tools/package-release.py')
     public=importlib.util.module_from_spec(spec);spec.loader.exec_module(public)
-    files=public.public_files(ROOT);public.verify(ROOT,files,public.private_markers(ROOT))
+    files=public.deployment_files(ROOT,'windows');public.verify(ROOT,files,public.private_markers(ROOT))
     cache=ROOT/'.tools/runtime-cache';cache.mkdir(exist_ok=True)
     runtime=cache/'python-linux-x64.tar.gz'
     if not runtime.exists():urllib.request.urlretrieve(URL,runtime)

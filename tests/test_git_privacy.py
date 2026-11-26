@@ -20,17 +20,17 @@ class GitPrivacyTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name);configure_source(self.root)
         self.git('init', '-q', '-b', 'main')
-        self.manifest = {'files':['distribution.json', 'public.txt'], 'trees':[]}
+        self.manifest = {'files':['source-manifest.json', 'public.txt'], 'trees':[]}
         self.write_manifest()
         (self.root/'public.txt').write_text('Public application source.\n')
-        self.git('add', '--', 'distribution.json', 'public.txt')
+        self.git('add', '--', 'source-manifest.json', 'public.txt')
 
     def git(self, *args, check=True):
         return subprocess.run(['git', '-C', str(self.root), *args], check=check,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def write_manifest(self):
-        (self.root/'distribution.json').write_text(json.dumps(self.manifest))
+        (self.root/'source-manifest.json').write_text(json.dumps(self.manifest))
 
     def test_clean_index_ignores_unstaged_private_content(self):
         (self.root/'public.txt').write_text(str(TEST_SOURCE.chat_id))
@@ -59,7 +59,7 @@ class GitPrivacyTests(unittest.TestCase):
     def test_private_paths_stay_blocked_even_if_added_to_the_manifest(self):
         private = self.root/'data/notes.txt';private.write_text('Local notes')
         self.manifest['files'].append('data/notes.txt');self.write_manifest()
-        self.git('add', '--', 'distribution.json', 'data/notes.txt')
+        self.git('add', '--', 'source-manifest.json', 'data/notes.txt')
         with self.assertRaisesRegex(ValueError, 'Private/generated content'):
             checker.verify_index(self.root)
 
@@ -69,7 +69,7 @@ class GitPrivacyTests(unittest.TestCase):
         self.git('add', '--', 'extra.txt')
         with self.assertRaisesRegex(ValueError, 'outside the public distribution'):
             checker.verify_index(self.root)
-        self.git('add', '--', 'distribution.json')
+        self.git('add', '--', 'source-manifest.json')
         self.assertEqual(checker.verify_index(self.root), 3)
 
     def test_symlinks_and_missing_required_sources_are_rejected(self):
@@ -91,7 +91,7 @@ class GitPrivacyTests(unittest.TestCase):
         (self.root/'VERSION').write_text('0.1.0\n');self.manifest['files'].append('VERSION')
         self.manifest['trees'].append('tools');self.write_manifest()
         (self.root/'public.txt').write_text(str(TEST_SOURCE.chat_id))
-        self.git('add', '--', 'distribution.json', 'public.txt', 'tools', '.githooks','VERSION')
+        self.git('add', '--', 'source-manifest.json', 'public.txt', 'tools', '.githooks','VERSION')
         self.git('config', '--local', 'core.hooksPath', '.githooks')
         commit = ('-c', 'user.name=Test Author', '-c', 'user.email=test@example.invalid',
                   '-c', 'commit.gpgsign=false', 'commit', '-m', 'Fixture commit')

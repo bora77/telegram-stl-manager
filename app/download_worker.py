@@ -146,7 +146,7 @@ class Worker:
                 elapsed=time.monotonic()-move_clock
                 move_result={'seconds':elapsed,'average':copied_bytes/elapsed if elapsed>0 else None}
                 extra={'move_seconds':elapsed,'move_average_bps':move_result['average']}
-            message='Verifying '+filename+' on Kronos…' if phase=='verifying' else 'Moving '+filename+' to Kronos…' if phase=='transferring' else 'Preparing move to Kronos…'
+            message='Verifying '+filename+' at the destination…' if phase=='verifying' else 'Moving '+filename+' to the destination…' if phase=='transferring' else 'Preparing move to the destination…'
             self.update('copying',message,move_stage=phase,move_speed_bps=None,**extra)
         destination,size,checksum=deliver(source,self.run['download_directory'],sub['creator_folder'],month,filename,copy_progress,copy_phase,subdirectories=subdirectories,release_directory=existing_release_directory(Path(self.run['download_directory'])/sub['creator_folder'],month))
         move_result=move_result or {'seconds':None,'average':None}

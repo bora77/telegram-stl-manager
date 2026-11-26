@@ -1,8 +1,10 @@
 // Public documentation screenshots: real UI, synthetic data, no account writes.
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'@playwright/test');
 const fs=require('node:fs');const path=require('node:path');
+const {execFileSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..'),out=path.join(root,'assets/screenshots');fs.mkdirSync(out,{recursive:true});
 const now=Date.now()/1000;
+const collage=JSON.parse(execFileSync('python3',[path.join(root,'tools/demo-collage.py')],{maxBuffer:10*1024**2}));let collageRevision=0;
 const names=['Northstar Miniatures','Oak & Iron Studio','Example Atelier'];
 const creators=names.map((name,i)=>({id:i+1,name,url:'https://example.invalid/artist/'+i}));
 const subscriptions=creators.map(c=>({id:c.id,name:c.name,folder:c.name,start_month:'2026-09'}));
@@ -13,7 +15,16 @@ const queue={active:true,can_start:false,can_resume:false,subscriptions_saved:3,
 (async()=>{const browser=await chromium.launch({headless:true});try{const page=await browser.newPage({viewport:{width:1440,height:1040},deviceScaleFactor:1});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/api/**',async route=>{const url=new URL(route.request().url());let data={};const p=url.pathname;
  if(p==='/api/artist-profiles/image'){const letter=(url.searchParams.get('name')||'A')[0].replace(/[^A-Z]/g,'A');await route.fulfill({contentType:'image/svg+xml',body:`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="12" fill="#7651a6"/><text x="32" y="43" text-anchor="middle" font-family="sans-serif" font-size="34" fill="white">${letter}</text></svg>`});return;}
- if(p==='/api/setup')data={setup_required:false,consent_required:false,login:'connected',account:{name:'Demo account'},source:'https://t.me/c/123456789/100',creators:3};
+ if(p.startsWith('/api/collages/thumbnail/')||p.startsWith('/api/collages/image/')){await route.fulfill({contentType:'image/png',body:Buffer.from(collage.pictures[p.split('/').pop()],'base64')});return;}
+ if(p==='/api/demo-preview'){await route.fulfill({contentType:'image/jpeg',body:Buffer.from(collage.preview,'base64')});return;}
+ if(p==='/api/collages/months')data={months:['Northstar Miniatures 2026-11']};
+ else if(p==='/api/collages/open')data={release:{id:'demo-release',folder:names[0],month:'Northstar Miniatures 2026-11'},images:collage.images,revision:0,warnings:[],exports:[],selection:{images:Array(6).fill(null),layout:'rows',shape:'square',theme:'dark',title:''}};
+ else if(p==='/api/collages/auto-fill')data={id:'demo-auto',state:'complete',result:collage.result,warnings:[]};
+ else if(p==='/api/collages/layout')data=collage.geometry;
+ else if(p==='/api/collages/selection')data={revision:++collageRevision};
+ else if(p==='/api/collages/preview')data={id:'demo-preview',url:'/api/demo-preview',output_size:[3000,3000],warnings:[]};
+ else if(p==='/api/collages/exports')data={exports:[]};
+ else if(p==='/api/setup')data={setup_required:false,consent_required:false,login:'connected',account:{name:'Demo account'},source:'https://t.me/c/123456789/100',creators:3};
  else if(p==='/api/config')data={revision:1,download_directory:'/downloads',download_storage:'local',available:true,folders:names,telegram_servers:{},download_servers:{},mmf_beta_enabled:true,release_volume_mib:4000};
  else if(p==='/api/subscriptions')data={revision:1,subscriptions:[]};
  else if(p==='/api/queue')data=queue;
@@ -29,6 +40,12 @@ const queue={active:true,can_start:false,can_resume:false,subscriptions_saved:3,
  await capture('/','download-queue.png');
  await capture('/mmf','release-workflow.png');
  await capture('/mmf#artists','artist-subscriptions.png');
+ await capture('/collages?folder=Northstar%20Miniatures&month=Northstar%20Miniatures%202026-11&autofill=1','collage-editor.png');
+ await page.waitForFunction(()=>document.querySelector('#auto-status')?.textContent.includes('collage(s) proposed'));
+ await page.locator('#collage-grid .slot.filled').first().waitFor();
+ await page.setViewportSize({width:1440,height:2100});
+ await page.locator('#workspace').scrollIntoViewIfNeeded();
+ await page.screenshot({path:path.join(out,'collage-editor.png')});
  if(errors.length)throw Error(errors.join('\n'));
- console.log('Captured three screenshots using synthetic data only.');
+ console.log('Captured four screenshots using synthetic data; collage selection uses the real Auto-fill algorithm.');
 }finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});

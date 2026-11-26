@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'Continue'
 # Acknowledge before any installation changes, including elevated prerequisites.
 Add-Type -AssemblyName System.Windows.Forms
-$Notice = Get-Content (Join-Path $PSScriptRoot 'USAGE-NOTICE.txt') -Raw -Encoding UTF8
+$Notice = Get-Content (Join-Path $PSScriptRoot 'USAGE-NOTICE.md') -Raw -Encoding UTF8
 $Consent = [System.Windows.Forms.MessageBox]::Show($Notice + "`r`n`r`nI have read and understood this notice and agree to continue.", 'Telegram STL Manager - Required acknowledgment', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Warning, [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
 if ($Consent -ne [System.Windows.Forms.DialogResult]::Yes) { exit 1 }
 # Only machine prerequisites run elevated. WSL registration and shortcuts remain
@@ -60,7 +60,7 @@ try {
         [System.Windows.Forms.MessageBox]::Show('Restart Windows to finish enabling WSL. Telegram STL setup will continue at your next sign-in.','Telegram STL Manager') | Out-Null
         exit 0
     }
-    if ($Process.ExitCode -ne 0) { throw 'Windows prerequisite setup failed. Review the administrator console output and run Install.cmd again.' }
+    if ($Process.ExitCode -ne 0) { throw 'Windows prerequisite setup failed. Review the administrator console output and run Install-Windows.cmd again.' }
     $Installed = ((& wsl.exe --list --quiet) -replace "`0", '')
     if ($Installed -notcontains $Distro) {
         $Image = Join-Path $Installer $WslImage
@@ -68,7 +68,7 @@ try {
             Write-Host 'Downloading the private application environment from Ubuntu...'
             Write-Host ('> curl.exe: downloading ' + $WslImage + ' (progress, speed and errors below)')
             & curl.exe --fail --location --show-error --retry 3 --connect-timeout 30 --speed-limit 1024 --speed-time 60 --output ($Image + '.partial') ('https://releases.ubuntu.com/noble/' + $WslImage)
-            if ($LASTEXITCODE -ne 0) { throw 'Ubuntu download failed. Check your Internet connection and run Install.cmd again.' }
+            if ($LASTEXITCODE -ne 0) { throw 'Ubuntu download failed. Check your Internet connection and run Install-Windows.cmd again.' }
             if ((Get-FileHash ($Image + '.partial') -Algorithm SHA256).Hash -ne $ImageHash) { throw 'Ubuntu image checksum failed.' }
             Move-Item ($Image + '.partial') $Image -Force
         }
@@ -83,16 +83,6 @@ try {
     if ($LASTEXITCODE -ne 0 -or !$LinuxBootstrap) { throw 'Could not locate the bootstrap script inside WSL.' }
     Write-Host 'Installing application dependencies automatically...'
     RunWSL -Arguments @('-d',$Distro,'-u','root','--exec','bash',$LinuxBootstrap,$LinuxPayload)
-    $PrivateProfile = Join-Path $Support 'private-profile.json'
-    if (Test-Path $PrivateProfile) {
-        Write-Host 'Restoring private test settings, account sessions and history (secret contents are not printed)...'
-        $ProfileHash = ((Get-Content ($PrivateProfile + '.sha256') -Raw).Trim() -split '\s+')[0]
-        if ((Get-FileHash $PrivateProfile -Algorithm SHA256).Hash -ne $ProfileHash) { throw 'Private test profile checksum failed.' }
-        $LinuxProfile = ((& wsl.exe -d $Distro -u root --exec wslpath -u $PrivateProfile) -join "`n").Trim()
-        if ($LASTEXITCODE -ne 0) { throw 'Could not read the private test profile.' }
-        RunWSL -Arguments @('-d',$Distro,'-u','stl','--exec','/home/stl/telegram-stl/runtime/python/bin/python3','/home/stl/telegram-stl/windows/import-profile.py',$LinuxProfile)
-        RunWSL -Arguments @('-d',$Distro,'-u','root','--exec','/home/stl/telegram-stl/runtime/python/bin/python3','/home/stl/telegram-stl/windows/import-profile.py',$LinuxProfile,'--mount')
-    }
     Write-Host 'Creating desktop shortcuts and Windows uninstall entry...'
     $Shell = New-Object -ComObject WScript.Shell
     foreach ($Name in @('Telegram STL Manager','Stop Telegram STL Manager')) {

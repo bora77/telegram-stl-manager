@@ -70,7 +70,7 @@ try {
     if ($KeepInstaller) {
         if (Test-Path -LiteralPath $Environment) { Remove-Item -LiteralPath $Environment -Recurse -Force }
         Remove-Item -LiteralPath (Join-Path $Installer 'owns-environment') -ErrorAction SilentlyContinue
-        $Message = "Reset complete. Run Install.cmd again from your extracted package, or from:`n$Installer`n`nWSL itself is already installed, so normally no restart is needed."
+        $Message = "Reset complete. Run Install-Windows.cmd again from your extracted package, or from:`n$Installer`n`nWSL itself is already installed, so normally no restart is needed."
     } else {
         if (Test-Path -LiteralPath $HomeDir) { Remove-Item -LiteralPath $HomeDir -Recurse -Force }
         $Message = 'Telegram STL Manager was removed. External download destinations and other WSL environments were not changed. Your original downloaded ZIP/extracted package was kept.'

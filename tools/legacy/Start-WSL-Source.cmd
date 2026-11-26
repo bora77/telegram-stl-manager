@@ -6,7 +6,7 @@ if errorlevel 1 (
  pause
  exit /b 1
 )
-for /f "delims=" %%I in ('wsl.exe -d Ubuntu-24.04 wslpath -u "%~dp0."') do set "STL_WSL_PATH=%%I"
+for /f "delims=" %%I in ('wsl.exe -d Ubuntu-24.04 wslpath -u "%~dp0..\.."') do set "STL_WSL_PATH=%%I"
 if not defined STL_WSL_PATH (
  echo Install Ubuntu with: wsl --install -d Ubuntu-24.04
  pause

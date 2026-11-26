@@ -1,5 +1,13 @@
 # Version history
 
+## 0.2.10
+
+- Separate public source files from deployed application packages; exclude tests, Git helpers, package builders and obsolete Desktop automation from runtimes.
+- Use a dedicated public roadmap for Upcoming features and keep maintainer-only instructions and work history local.
+- Add consistent OS-specific Install, Start, Stop and Update launchers, retaining compatibility entry points for older updaters.
+- Refresh installation guides and use Markdown for copyright and usage notices without changing their wording.
+- Mark Organize folders as Beta and add an auto-filled collage-editor screenshot using demonstration images.
+
 ## 0.2.9
 
 - Add a host-side Docker update launcher for Linux and macOS with verified downloads, preserved state volumes, automatic rollback and interrupted-update recovery. Older Docker packages need one manual upgrade to obtain the launcher.

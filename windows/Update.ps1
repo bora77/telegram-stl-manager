@@ -39,7 +39,7 @@ function Run-Update($Action) {
     if ($p.ExitCode -ne 0) { throw ('Update operation failed: '+$Action) }
 }
 try {
-    if (!(Test-Path (Join-Path $Installer 'owns-environment'))) { throw 'An existing managed installation is required. Use Install.cmd for a new installation.' }
+    if (!(Test-Path (Join-Path $Installer 'owns-environment'))) { throw 'An existing managed installation is required. Use Install-Windows.cmd for a new installation.' }
     $Payload=Join-Path $PSScriptRoot 'telegram-stl-linux-x64.tar.gz'
     $Expected=((Get-Content ($Payload+'.sha256') -Raw).Trim() -split '\s+')[0]
     if ($Expected -notmatch '^[a-fA-F0-9]{64}$' -or (Get-FileHash $Payload -Algorithm SHA256).Hash -ne $Expected) { throw 'Package checksum failed. Nothing was installed.' }

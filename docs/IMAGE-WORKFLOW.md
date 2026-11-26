@@ -134,7 +134,7 @@ See [CATALOG.md](CATALOG.md) for operation and verification details.
    Previews and exports use the same geometry. All images retain their proportions
    and complete contents, with EXIF orientation corrected and transparency handled.
    Small source images produce a resolution notice.
-5. Click **Save to Kronos** to render and deliver a new JPEG to the configured
+5. Click **Save collage** to render and deliver a new JPEG to the configured
    download folder at `artist/YYYY-MM/`, beside the release archives, named
    `ARTIST-YYYY-MM.jpg` (for example `Example Artist-2026-08.jpg`). Saving a changed
    collage replaces the previous saved collage after keeping a verified local

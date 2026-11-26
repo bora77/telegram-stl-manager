@@ -3,3 +3,5 @@
 !entrypoint.sh
 !app/
 !app/**
+!build/
+!build/**

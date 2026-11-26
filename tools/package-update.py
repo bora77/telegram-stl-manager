@@ -6,9 +6,10 @@ import tarfile
 import zipfile
 ROOT=Path(__file__).resolve().parent.parent
 runtime=ROOT/'dist/telegram-stl-linux-x64.tar.gz'
-with tarfile.open(runtime) as archive:
-    for name in ('VERSION','app/updater.py','app/file_delivery.py','windows/Update.ps1','windows/Start.ps1','windows/update.sh'):
-        if archive.extractfile('telegram-stl/'+name).read()!=(ROOT/name).read_bytes():raise SystemExit('Runtime is stale; run tools/package-runtime.py first.')
+import importlib.util
+spec=importlib.util.spec_from_file_location('release_files',ROOT/'tools/package-release.py');public=importlib.util.module_from_spec(spec);spec.loader.exec_module(public)
+with tarfile.open(runtime,'r|gz') as archive:public.verify_runtime(ROOT,archive)
+
 output=ROOT/'dist/Telegram-STL-Manager-Update.zip'
 with zipfile.ZipFile(output.with_suffix('.tmp'),'w',compression=zipfile.ZIP_DEFLATED) as out:
     prefix='Telegram-STL-Manager-Update/'

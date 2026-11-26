@@ -116,7 +116,7 @@ class Updater:
         with self.gate:
             if self.working:raise FileExistsError('An update operation is already running.')
             if action=='install':
-                if not self.status()['supported']:raise ValueError('Use Update.command on the host for Docker installations. Development checkouts must be updated from source; in-app installation supports managed Windows/WSL only.')
+                if not self.status()['supported']:raise ValueError('Use Update-Linux.sh or Update-macOS.command on the host for Docker installations. Development checkouts must be updated from source; in-app installation supports managed Windows/WSL only.')
                 if not self.release:raise ValueError('Check for an update first.')
                 self.reserved=True
             self.working=True

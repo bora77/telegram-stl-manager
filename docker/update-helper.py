@@ -12,6 +12,7 @@ import zipfile
 
 ASSET='Telegram-STL-Manager-Docker.zip'
 BASE=Path('/state/docker-updates')
+LAUNCHERS=tuple(f'{action}-{system}.{suffix}' for system,suffix in (('Linux','sh'),('macOS','command')) for action in ('Install','Start','Stop','Update'))
 
 def version(value):
     if not re.fullmatch(r'\d+\.\d+\.\d+',value):raise ValueError('Invalid version.')
@@ -29,7 +30,7 @@ def unpack(archive,destination,expected):
             if name in seen or (item.external_attr>>16)&0o170000==0o120000:raise ValueError('Duplicate path or symlink in package.')
             seen.add(name);total+=item.file_size
             if total>2_000_000_000 or len(seen)>50000:raise ValueError('Package exceeds size limits.')
-        required=('Start.command','Stop.command','Update.command','compose.yaml','README.md','support/app/VERSION','support/Dockerfile','support/update-helper.py')
+        required=('Start.command','Stop.command','Update.command','compose.yaml','README.md','support/app/VERSION','support/Dockerfile','support/update-helper.py')+LAUNCHERS
         if any(prefix+n not in seen for n in required):raise ValueError('Incomplete Docker update package.')
         if z.read(prefix+'support/app/VERSION').decode().strip()!=expected:raise ValueError('Package version differs from release.')
         for item in z.infolist():
@@ -37,7 +38,7 @@ def unpack(archive,destination,expected):
             if item.is_dir():target.mkdir(parents=True,exist_ok=True);continue
             target.parent.mkdir(parents=True,exist_ok=True)
             with z.open(item) as incoming,target.open('xb') as output:shutil.copyfileobj(incoming,output)
-            target.chmod(0o700 if target.suffix=='.command' else 0o600)
+            target.chmod(0o700 if target.suffix in ('.command','.sh') else 0o600)
 
 def prepare(token,offline=None):
     if not re.fullmatch('[a-f0-9]{32}',token):raise ValueError('Invalid transaction ID.')

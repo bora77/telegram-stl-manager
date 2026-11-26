@@ -1,6 +1,6 @@
 # Public source allowlist. Keep local data, generated pages, builds and notes private.
 /*
-!/AGENTS.md
+/AGENTS.md
 !/CHANGELOG.md
 !/.gitignore
 !/.gitattributes
@@ -9,7 +9,7 @@
 !/.githooks/pre-commit
 !/distribution.json
 !/README.md
-!/TODO.md
+/TODO.md
 !/INSTALL.md
 !/AI-INSTALL-PROMPT.md
 !/CATALOG.md
@@ -46,8 +46,6 @@
 **/.pytest_cache/
 
 !/start.sh
-!/install.sh
-!/Start-Windows.cmd
 
 !/mmf-view.js
 
@@ -59,8 +57,8 @@
 !/windows/*
 
 !/VERSION
-!/COPYRIGHT.txt
-!/USAGE-NOTICE.txt
+!/COPYRIGHT.md
+!/USAGE-NOTICE.md
 
 !/docker/
 !/docker/**
@@ -80,3 +78,6 @@
 !/app/
 !/tests/
 **/__pycache__/
+
+!/source-manifest.json
+!/ROADMAP.md

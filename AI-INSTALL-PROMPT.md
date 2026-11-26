@@ -17,8 +17,8 @@ Copy the prompt below into an agent with terminal/filesystem access on the
 `INSTALL.md`; Docker users also need `docker/README.md` (the Docker package's
 `README.md`). Leave unknown preferences blank. Never include passwords, login
 codes, QR tokens, session files or private account data in the prompt.
-`AGENTS.md` contains contributor rules for source-code work; it is not a substitute
-for this installation prompt or the selected package's installation guide.
+Local maintainer instructions and internal TODO files are not shipped. Use this
+prompt and the selected package's INSTALL.md for installation.
 
 Project: https://github.com/bora77/telegram-stl-manager
 Latest release: https://github.com/bora77/telegram-stl-manager/releases/latest
@@ -49,11 +49,17 @@ state to fix an installation error.
 
 ## 1. Choose the correct route
 
+Use the OS-specific launcher names: Install/Start/Stop/Update-Windows.cmd on
+Windows, Install/Start/Stop/Update-Linux.sh on Linux, and
+Install/Start/Stop/Update-macOS.command on macOS. Generic Docker names and the
+separate Windows Update ZIP remain compatibility interfaces for older updaters.
+Never remove them from an existing installation merely to tidy its directory.
+
 **Windows Intel/AMD x64 — default for Windows testers**
 
 - New installation: obtain `Telegram-STL-Manager-Windows.zip` from the official
   release, verify its published checksum, and extract the entire ZIP into a new
-  folder. Double-click `Install.cmd` as the normal Windows user. It requests
+  folder. Double-click `Install-Windows.cmd` as the normal Windows user. It requests
   administrator approval automatically; no manual right-click elevation is
   needed. I must approve the Windows prompt.
 - The installer enables WSL when necessary, downloads/imports its own Ubuntu
@@ -72,7 +78,7 @@ state to fix an installation error.
   the browser; right-click for View logs or Stop and exit. The icon may be under
   the notification-area arrow. Start the shortcut again after restarting the PC.
 - Existing installation: use the app's optional updater, or the separate
-  `Telegram-STL-Manager-Update.zip` and `Update.cmd`, as described below. Do not
+  `Telegram-STL-Manager-Windows.zip` and `Update-Windows.cmd`, as described below. Do not
   run a reset or treat an update as a fresh installation.
 
 **Linux and macOS — Docker package**
@@ -80,17 +86,17 @@ state to fix an installation error.
 - Use `Telegram-STL-Manager-Docker.zip` for both platforms. There is no separate
   user-facing native Linux installer. The Linux runtime tarball is an internal
   Windows/WSL payload or maintainer tool, not the default Linux installation.
-- Use Update.command for guided updates after initial installation. Never expose the host Docker socket
+- Use Update-Linux.sh or Update-macOS.command for guided updates after installation. Never expose the host Docker socket
   or enable privileged mode to implement updates.
 
 - Use the Docker tester package and its guide. macOS uses Docker Desktop;
   Linux uses Docker Engine with Compose. Obtain missing releases from the
   maintainer rather than inventing an image name or downloading an unrelated app.
-- Run `Start.command` (or `bash Start.command`), choose a writable host folder,
+- Run `bash Install-Linux.sh` on Linux or `Install-macOS.command` on macOS; choose a writable host folder,
   and allow required Docker folder access. Keep `/downloads` as the app's base;
   it maps to that chosen host folder. The package builds the required runtime.
 - Keep build output visible. Closing the attached log window does not stop the
-  container; use `Stop.command`. Preserve the active named volume recorded in
+  container; use `Stop-Linux.sh` or `Stop-macOS.command`. Preserve the active named volume recorded in
   `support/data-volume.txt` (initially `telegram-stl-manager-data`) and retained
   rollback volumes. Never use `docker compose down --volumes` for an update.
 - Mount network shares on the host before passing them to Docker. Confirm the
@@ -146,6 +152,9 @@ update, troubleshooting or uninstall.
 
 ## 3. Verify normal operation without starting content jobs
 
+Organize folders is Beta. Verify the page loads using fixtures only; do not Apply
+changes to existing user archives as an installation test.
+
 **All Beta features are for testers only: they are incomplete and buggy, and should not be relied on for regular use.**
 
 
@@ -189,9 +198,9 @@ links to Configuration. Nothing installs automatically. Check for updates and
 Install update are available in Configuration on managed Windows installations.
 Public GitHub releases require no GitHub login or shared access token.
 
-For an older version without the updater, download the official Update ZIP,
+For an older version without the updater, download the official Windows ZIP,
 verify its checksum, extract the entire ZIP into a new folder, then double-click
-`Update.cmd` using the same normal Windows account and type UPDATE. Finish or
+`Update-Windows.cmd` using the same normal Windows account and type UPDATE. Finish or
 stop active jobs first. No administrator elevation, reset or reinstall is needed.
 Keep the update window open until **Update complete: v...** appears. WSL's
 **The operation completed successfully** is an intermediate message, not final
@@ -207,7 +216,7 @@ logs opens its startup log folder. After rollback, include both the failed
 startup and restored startup logs when diagnosing. Keep private logs local;
 share only relevant, reviewed excerpts, never backup archives or sessions.
 
-On Linux/macOS Docker, use the host-side Update.command launcher and preserve
+On Linux/macOS Docker, use the host-side OS-specific Update launcher and preserve
 state/volumes; older packages need the documented one-time manual upgrade. Do not
 claim the Windows in-app installer applies there. Restore
 user-supplied history backups only with the app stopped and existing state
@@ -369,7 +378,7 @@ with others requires redistribution permission or another lawful basis; “free�
 “freeware” alone does not establish that permission.
 The notice covers lawful use, unauthorized sharing of copyrighted material,
 possible file loss or damage, independent backups, acceptance of the free-of-charge
-software "AS IS" without warranties, and liability limits subject to applicable law. See `USAGE-NOTICE.txt` for the full text.
+software "AS IS" without warranties, and liability limits subject to applicable law. See `USAGE-NOTICE.md` for the full text.
 
 ### Optional STL cleaning during Make release
 
@@ -480,6 +489,6 @@ addenda use the Welcome Pack category instead of a month.
 
 ## Docker updates on Linux and macOS
 
-Use **Update.command** from the installed Docker package folder (Linux: `bash Update.command`). Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use `bash Update.command --recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
+Use **Update-macOS.command** on macOS or **`bash Update-Linux.sh`** on Linux from the installed Docker package folder. Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use the same OS-specific Update launcher with `--recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
 
 Older packages without the launcher/reservation endpoint need one manual package update first, after finishing tasks and stopping the app. Reuse the existing named volume and download folder. After guided updates, preserve `support/data-volume.txt` and `support/download-folder.txt` during manual replacement. See [the Docker guide](docker/README.md) for full recovery instructions. The app shows all release notes newer than the installed version, once per new version, with optional reminders.

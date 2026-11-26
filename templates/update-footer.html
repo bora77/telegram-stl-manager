@@ -18,7 +18,7 @@ function show(s,manual=false){
  const notes=document.getElementById('release-update-changes');notes.replaceChildren();
  for(const change of s.changes||[]){const section=document.createElement('section'),title=document.createElement('h3'),body=document.createElement('div');title.textContent='Version '+change.version;body.textContent=change.body;body.style.whiteSpace='pre-wrap';body.style.overflowWrap='anywhere';section.append(title,body);notes.append(section)}
  if(!notes.childNodes.length)notes.textContent='Release notes are not available. See the release history before updating.';
- document.getElementById('release-update-route').textContent=s.platform==='docker'?'Run Update.command in your Docker package folder. Docker remains controlled from your computer; accounts and files are preserved.':s.platform==='windows'?'Install the update from Configuration when you are ready.':'This is a development installation. Update the checkout deliberately; do not replace it with a packaged release.';
+ document.getElementById('release-update-route').textContent=s.platform==='docker'?'Run Update-Linux.sh or Update-macOS.command in your Docker package folder. Docker remains controlled from your computer; accounts and files are preserved.':s.platform==='windows'?'Install the update from Configuration when you are ready.':'This is a development installation. Update the checkout deliberately; do not replace it with a packaged release.';
  latestState=s;remember(s);dialog.showModal();
 }
 document.getElementById('release-update-close').onclick=()=>dialog.close();

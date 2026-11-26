@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Package only reviewed public files; keep all local source/catalog state private."""
 import argparse
+import fnmatch
 import json
 from pathlib import Path
 import re
@@ -12,7 +13,7 @@ OMIT = {'.git', '__pycache__', 'node_modules', '.pytest_cache'}
 
 def public_files(root):
     root = Path(root)
-    manifest = json.loads((root / 'distribution.json').read_text())
+    manifest = json.loads((root / 'source-manifest.json').read_text())
     paths = set()
     for name in manifest['files'] + manifest['trees']:
         relative = Path(name)
@@ -30,6 +31,33 @@ def public_files(root):
             if path.is_file():
                 paths.add(rel)
     return sorted(paths)
+
+def deployment_files(root,profile):
+    """Select runtime/build files from public source, never from private folders."""
+    root=Path(root);public=set(public_files(root))
+    profiles=json.loads((root/'distribution.json').read_text())['profiles']
+    selected=set()
+    for name in ([profile] if profile=='docker_build' else ['common',profile]):
+        group=profiles[name];files={Path(p) for p in group.get('files',[])}
+        if files-public:raise ValueError('Required deployment files are not public: '+str(files-public))
+        trees=[Path(p) for p in group.get('trees',[])]
+        candidates=files|{p for p in public if any(tree in p.parents for tree in trees)}
+        selected.update(p for p in candidates if not any(fnmatch.fnmatch(p.as_posix(),pattern) for pattern in group.get('exclude',[])))
+    if profile!='docker_build':
+        selected.update(p for p in public if p.parts[0]=='.tools' and p.name.upper().startswith(('LICENSE','COPYING','NOTICE','AUTHORS')))
+        forbidden={'AGENTS.md','TODO.md','.gitignore','.gitattributes','distribution.json','source-manifest.json'}
+        if any(p.name in forbidden or p.parts[0] in ('tests','.githooks') or p.name.endswith('_test.go') for p in selected):raise ValueError('Development/private file selected for runtime.')
+    return sorted(selected)
+
+def verify_runtime(root,archive):
+    """Check every selected application file in an already-built runtime."""
+    expected=set(deployment_files(root,'windows'))
+    for member in archive:
+        rel=Path(member.name.removeprefix('telegram-stl/'))
+        if rel in expected:
+            if not member.isfile() or archive.extractfile(member).read()!=(Path(root)/rel).read_bytes():raise ValueError('Runtime is stale: '+str(rel))
+            expected.remove(rel)
+    if expected:raise ValueError('Runtime is missing required files: '+str(expected))
 
 
 def private_markers(root):
@@ -58,7 +86,7 @@ def private_markers(root):
 def verify(root, paths, markers, read_content=None):
     normalized = {re.sub(r'[^a-z0-9]', '', value.casefold()) for value in markers}
     for rel in paths:
-        if rel.parts[0] in {'data', 'dist'} or (len(rel.parts) == 1 and rel.name in {'catalog.html', 'configuration.html', 'organizer.html', 'collages.html', 'mmf.html', 'gumroad.html'}):
+        if rel.parts[0] in {'data', 'dist'} or (len(rel.parts) == 1 and rel.name in {'AGENTS.md','TODO.md','catalog.html', 'configuration.html', 'organizer.html', 'collages.html', 'mmf.html', 'gumroad.html'}):
             raise ValueError('Private/generated content in distribution: ' + str(rel))
         content = (read_content(rel) if read_content else (Path(root) / rel).read_bytes()).decode('utf-8', errors='ignore')
         compact = re.sub(r'[^a-z0-9]', '', content.casefold())

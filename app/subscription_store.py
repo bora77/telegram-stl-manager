@@ -26,7 +26,7 @@ class SubscriptionStore:
 
     def config(self):
         data=json.loads(self.config_path.read_text()) if self.config_path.exists() else {'revision':0,'download_directory':str(self.root/'downloads')}
-        data.setdefault('download_storage','network' if str(data.get('download_directory','')).startswith(('/mnt/kronos-stl/','/mnt/telegram-stl-share/')) else 'local')
+        data.setdefault('download_storage','network' if str(data.get('download_directory','')).startswith(('/mnt/telegram-stl-share/',)) else 'local')
         data.setdefault('mmf_beta_enabled',False)
         data.setdefault('gumroad_beta_enabled',False)
         data.setdefault('gumroad_availability_interval_hours',4)

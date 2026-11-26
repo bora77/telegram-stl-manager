@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-stl_source="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-cat -- "$stl_source/USAGE-NOTICE.txt"
+stl_source="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cat -- "$stl_source/USAGE-NOTICE.md"
 printf '\nType I AGREE to acknowledge this notice and install, or anything else to cancel: '
 IFS= read -r stl_consent || exit 1
 [[ "$stl_consent" == 'I AGREE' ]] || { echo 'Installation cancelled.'; exit 1; }

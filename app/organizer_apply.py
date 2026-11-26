@@ -417,7 +417,7 @@ class ApplyWorker:
 
     def check(self):
         if self.stopped():raise InterruptedError('Organization stopped. Resume to finish the saved plan.')
-        if list(mount_identity(self.job['base'])) != self.job['mount']:raise ValueError('Kronos mount changed; originals retained.')
+        if list(mount_identity(self.job['base'])) != self.job['mount']:raise ValueError('Destination mount changed; originals retained.')
 
     def save(self, **values):
         self.job.update(heartbeat=time.time(), **values)
@@ -487,9 +487,9 @@ class ApplyWorker:
                 raise ValueError('Saved local image changed; organization needs review.')
             def progress(done,total):
                 sample=meter.sample(delivered+done)
-                self.progress('images','Moving release images to Kronos',delivered+done,image_total,speed_bps=sample['download_speed_bps'])
+                self.progress('images','Moving release images to the destination',delivered+done,image_total,speed_bps=sample['download_speed_bps'])
             def phase(value):
-                self.progress('images','Verifying release images on Kronos' if value=='verifying' else 'Moving release images to Kronos',delivered,image_total)
+                self.progress('images','Verifying release images at the destination' if value=='verifying' else 'Moving release images to the destination',delivered,image_total)
             target,size,checksum=deliver(source,self.job['base'],self.job['creator_folder'],group['month'],entry['path'],progress,phase,subdirectories=('release_images',),release_directory=group.get('release_directory'))
             if size!=entry['size'] or checksum!=entry['sha256']:raise ValueError('Delivered image differs from its saved manifest.')
             delivered+=entry['size']

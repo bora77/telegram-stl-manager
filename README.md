@@ -414,6 +414,20 @@ MMF and Gumroad share this workflow:
 A saved collage is required before packaging or uploading. Merely marking an
 externally made release as finished does not require one.
 
+### Auto-fill a collage
+
+The collage editor's **Auto-fill** suggests up to nine images, with up to two per
+detected model or product set. It runs locally without AI models or services.
+Exact and near-duplicates are removed; resolution, color and group-shot filename
+hints guide selection. Model archives, collection subfolders and model names
+provide grouping evidence. Unresolved choices use a repeatable random fallback.
+**Shuffle** tries alternatives; **Undo auto-fill** restores the previous grid.
+**Create collage** from a release queue starts Auto-fill for an empty grid;
+existing drafts are preserved. New collages default to square output.
+Analysis shows progress and a **Why these images?** explanation. Review the result:
+unnamed group shots, component sheets and individual models inside a set cannot
+always be distinguished by these rules. Only **Save collage** replaces the JPG.
+
 ### What gets saved
 
 A typical release folder contains:

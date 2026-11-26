@@ -259,6 +259,18 @@ category for named Welcome Packs, for creators in its initial menu. Use Custom
 conversation for other menus, older months or other named collections. See README.md,
 “Choosing a release destination”, before configuring bot automation.
 
+## Local collage Auto-fill
+
+In the collage editor, **Auto-fill** analyzes images from the selected archive
+filter (or the whole release) and proposes up to nine images, at most two per
+detected model/set. No AI service, model download or additional dependency is
+used. Analysis runs in a background worker with progress; repeated runs reuse
+cached image measurements. Source archive/folder evidence and filenames guide
+grouping. Quality and group-shot preferences are heuristics, so review uncertain
+choices under **Why these images?**. **Shuffle** changes alternatives and fallback
+choices; **Undo auto-fill** restores the previous grid. The saved JPG changes only
+when the user clicks **Save collage**. Source files are not modified.
+
 ## Optional automatic downloads
 
 Telegram and MMF each have an independent **Auto-download: Off / On** toggle on

@@ -170,7 +170,7 @@ function queue(){
    button.title='Choose channel delivery, a bot conversation, or mark this release as finished.';
    const collageButton=text('button',collage?.exists?'Edit collage':'Create collage');collageButton.className='secondary';collageButton.disabled=!collage?.ready;
    collageButton.title=collage?.ready?'Open this release in the collage editor.':'The release_images folder must contain images. Download and extract release images first.';
-   collageButton.onclick=()=>{location.href='/collages?'+new URLSearchParams({folder:collage.folder,month:collage.release})};
+   collageButton.onclick=()=>{location.href='/collages?'+new URLSearchParams({folder:collage.folder,month:collage.release,...(!collage.exists?{autofill:'1'}:{})})};
    const jobHere=data.active&&data.job?.release_key===group.key;
    const preparing=jobHere&&data.job?.action==='prepare_images',packaging=jobHere&&data.job?.action==='package';
    const made=prep?.number>=0&&!fresh.length&&!prep.pending&&group.recorded===group.items.length;

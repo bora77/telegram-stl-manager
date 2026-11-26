@@ -10,6 +10,30 @@ async function api(path,data){const r=await fetch(path,{cache:'no-store',...(dat
 function payload(c,draft=c.draft){return {...draft,release_id:c.release.id,revision:c.revision}}
 function listWarnings(id,messages){el(id).replaceChildren(...messages.map(s=>make('li',s)));el(id).hidden=!messages.length}
 function clearWorkspace(){context=null;el('workspace').hidden=true;el('empty-state').hidden=false;error()}
+async function autoFill(shuffle=false){
+ const c=context;if(!c||c.autoBusy)return;
+ const archive=el('archive-filter').value,ids=c.images.filter(i=>!i.reason&&(!archive||i.archive===archive)).map(i=>i.id);
+ if(!ids.length){error('No usable images match the selected archive.');return}
+ const before=structuredClone(c.draft),beforeSignature=signature(c.draft);c.autoBusy=true;c.autoSeed=shuffle?(c.autoSeed||0)+1:0;
+ el('auto-fill').disabled=el('auto-shuffle').disabled=true;el('auto-status').textContent='Starting local analysis…';el('auto-progress').hidden=false;el('auto-progress').removeAttribute('value');error();
+ try{
+  let job=await api('/api/collages/auto-fill',{release_id:c.release.id,image_ids:ids,seed:c.autoSeed});
+  while(job.state==='running'){
+   if(context!==c)return;
+   el('auto-status').textContent=`${job.message} · ${job.done}/${job.total}`;el('auto-progress').max=job.total||1;el('auto-progress').value=job.done||0;
+   await new Promise(resolve=>setTimeout(resolve,500));job=await api('/api/collages/auto-fill?id='+encodeURIComponent(job.id));
+  }
+  if(context!==c)return;
+  if(job.state!=='complete')throw Error(job.message||'Auto-fill failed.');
+  if(signature(c.draft)!==beforeSignature||el('archive-filter').value!==archive)throw Error('The grid or archive filter changed during analysis. Your edits were kept; click Auto-fill again to apply a fresh suggestion.');
+  c.autoUndo=before;c.draft.images=job.result.images;c.active=0;el('slot-count').value=c.draft.images.length;el('auto-undo').disabled=false;
+  el('auto-status').textContent=`${job.result.images.length} images selected · ${job.result.duplicates_removed} duplicates removed · ${job.result.uncertain} uncertain choices. Review, adjust and Save collage when ready.`;
+  el('auto-reasons').replaceChildren(...job.result.selected.map(i=>{const row=make('li',`${i.name} — ${i.group.replace(/^unknown:.*/, 'Unknown model')} · ${i.reason} · ${i.quality}${i.uncertain?' · Review':''}`);row.dataset.uncertain=String(i.uncertain);return row;}));
+  for(const warning of job.warnings||[])el('auto-reasons').append(make('li',warning));
+  el('auto-details').hidden=false;changed();
+ }catch(e){if(context===c){error(e.message);el('auto-status').textContent='Auto-fill did not change your grid.';}}
+ finally{c.autoBusy=false;if(context===c){el('auto-fill').disabled=el('auto-shuffle').disabled=false;el('auto-progress').hidden=true;}}
+}
 function filterFolders(){
  const old=el('folder').value,q=el('folder-search').value.trim().toLowerCase(),matches=folders.filter(f=>f.toLowerCase().includes(q));
  el('folder').replaceChildren(new Option(q&&!matches.length?'No matching folders':'Choose an artist folder',''),...matches.map(f=>new Option(f,f)));
@@ -148,10 +172,12 @@ el('open-release').onclick=async()=>{
  try{await Promise.allSettled([...pendingDrafts]);const result=await api('/api/collages/open',{folder,month});if(version!==pickerVersion||folder!==el('folder').value||month!==el('month').value)return;
   const c={...result,draft:structuredClone(result.selection),byId:new Map(result.images.map(i=>[i.id,i])),active:0,layoutSeq:0,preview:null,exports:result.exports||[]};
   c.savedSignature=signature(result.selection);c.draft.images=c.draft.images.map(id=>id&&c.byId.has(id)&&!c.byId.get(id).reason?id:null);context=c;
+  el('auto-status').textContent='';el('auto-details').hidden=true;el('auto-progress').hidden=true;el('auto-fill').disabled=el('auto-shuffle').disabled=false;el('auto-undo').disabled=true;
   for(const key of ['layout','shape','theme'])el(key).value=c.draft[key];el('slot-count').value=c.draft.images.length;el('collage-title').value=c.draft.title;
   el('image-search').value='';el('archive-filter').replaceChildren(new Option('All archives',''),...[...new Set(c.images.map(i=>i.archive))].sort().map(a=>new Option(a,a)));
   const source=new URLSearchParams(location.search),requestedArchive=source.get('folder')===folder&&source.get('month')===month?source.get('archive'):null;
   const selectedArchive=c.images.some(image=>image.archive===requestedArchive)?requestedArchive:null;
+  const autoRequested=source.get('autofill')==='1'&&source.get('folder')===folder&&source.get('month')===month;
   if(selectedArchive)el('archive-filter').value=selectedArchive;
   el('collage-grid').querySelectorAll('.slot').forEach(n=>n.remove());el('canvas-title').textContent='';
   const artist=folder.replace(/^[-! ]+/,'').trim()||folder,date=month.match(/(?:^|[^0-9])(20[0-9]{2}-(?:0[1-9]|1[0-2]))(?:$|[^0-9])/);
@@ -160,10 +186,13 @@ el('open-release').onclick=async()=>{
   history.replaceState(null,'','/collages?'+new URLSearchParams({folder,month,...(selectedArchive?{archive:selectedArchive}:{})}));
   el('workspace').hidden=false;el('empty-state').hidden=true;el('preview-details').hidden=true;el('destination').textContent=`${folder}/${month}/${filename} · Replaces the previous collage, keeping a local backup`;el('picker-status').textContent=`${folder} · ${month} · ${c.images.length} images`;
   listWarnings('scan-warnings',result.warnings);renderGallery();renderExports();changed();pollExports(c);
+  if(autoRequested){if(!c.draft.images.some(Boolean))await autoFill(false);else el('auto-status').textContent='Existing draft kept. Use Auto-fill to replace its selection.';}
  }catch(e){error(e.message);el('picker-status').textContent='Could not open this release.'}
  finally{opening=false;el('open-release').disabled=!el('month').value}
 };
 for(const id of ['layout','shape','theme'])el(id).onchange=()=>{if(context){context.draft[id]=el(id).value;changed()}};
+el('auto-fill').onclick=()=>autoFill(false);el('auto-shuffle').onclick=()=>autoFill(true);
+el('auto-undo').onclick=()=>{if(!context?.autoUndo)return;context.draft=context.autoUndo;context.autoUndo=null;context.active=0;el('slot-count').value=context.draft.images.length;for(const key of ['layout','shape','theme'])el(key).value=context.draft[key];el('collage-title').value=context.draft.title;el('auto-undo').disabled=true;el('auto-status').textContent='Previous grid restored.';el('auto-details').hidden=true;changed();};
 el('slot-count').onchange=()=>{if(context){const n=Number(el('slot-count').value);context.draft.images=Array.from({length:n},(_,i)=>context.draft.images[i]||null);context.active=Math.min(context.active,n-1);changed()}};
 el('collage-title').oninput=()=>{if(context){context.draft.title=el('collage-title').value;changed()}};
 el('image-search').oninput=renderGallery;el('archive-filter').onchange=()=>{const url=new URL(location.href);const archive=el('archive-filter').value;if(archive)url.searchParams.set('archive',archive);else url.searchParams.delete('archive');history.replaceState(null,'',url);renderGallery()};

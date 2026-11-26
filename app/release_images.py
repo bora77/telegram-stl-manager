@@ -420,7 +420,7 @@ def extract_mapped_member(source, entry, target, work, stopped, tick):
         raise
 
 
-def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: False, *, warnings=None, name_changes=None):
+def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: False, *, warnings=None, name_changes=None, provenance=None):
     """Return extracted image paths. Originals are never modified or deleted."""
     archive = Path(archive).resolve(strict=True);work = Path(work)
     output = work / 'output';output.mkdir(parents=True, exist_ok=True)
@@ -514,6 +514,7 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
                 target.parent.mkdir(parents=True, exist_ok=True)
                 if target.exists():raise ExtractionError('Image names collide; review required.')
                 os.rename(member_path(members,entry), target);results.append(target)
+                if provenance is not None:provenance[str(target)]=(prefix/entry['name']).as_posix()
             nested = {}
             for entry in selected:
                 if is_archive(entry['name']):
@@ -527,5 +528,6 @@ def extract_images(archive, work, progress=lambda *args: None, stopped=lambda: F
     elif archive.suffix.lower() in IMAGES:
         target = output / safe_component(archive.name)
         shutil.copyfile(archive, target);results.append(target)
+        if provenance is not None:provenance[str(target)]=archive.name
     progress('complete', len(results), len(results), sum(p.stat().st_size for p in results), sum(p.stat().st_size for p in results))
     return sorted(results)

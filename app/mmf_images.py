@@ -63,7 +63,7 @@ class ImageRedirects(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req,fp,code,msg,headers,normalized)
 
 
-def fetch_images(client,items,work,stopped=lambda:False,progress=lambda *args:None):
+def fetch_images(client,items,work,stopped=lambda:False,progress=lambda *args:None,*,provenance=None):
     work=Path(work);work.mkdir(parents=True,exist_ok=True);outputs=[];seen=set()
     for oid in sorted({i['object_id'] for i in items}):
         if stopped():raise MMFError('Image collection stopped; retry to continue.')
@@ -89,4 +89,5 @@ def fetch_images(client,items,work,stopped=lambda:False,progress=lambda *args:No
             except Exception as error:raise MMFError('MMF returned an invalid product image.') from error
             target=work/(str(oid)+'-'+hashlib.sha256(url.encode()).hexdigest()[:16]+extension)
             tmp=target.with_suffix('.tmp');tmp.write_bytes(data);tmp.replace(target);outputs.append(target)
+            if provenance is not None:provenance[str(target)]={'object_id':oid,'original_name':urllib.parse.unquote(urllib.parse.urlsplit(url).path.rsplit('/',1)[-1])}
     return outputs

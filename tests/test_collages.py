@@ -124,6 +124,10 @@ class CollageTests(unittest.TestCase):
             with self.assertRaises(CollageError):self.collages.index('Example',bad)
 
     def test_index_draft_and_layout_do_not_export_or_modify_originals(self):
+        from app.collages import collage_title
+        self.assertEqual(collage_title('- 3DArtGuy','3DArtGuy 2026-11'),'3DArtGuy · 2026-11')
+        self.assertEqual(collage_title('Artist','Artist Welcome Pack'),'Artist · Welcome Pack')
+        self.assertEqual(self.opened['selection']['shape'],'square')
         before={p.name:(p.stat().st_mtime_ns,hashlib.sha256(p.read_bytes()).hexdigest()) for p in self.images.iterdir()}
         self.assertEqual(self.collages.months('Example'),['2026-08'])
         self.assertEqual(self.opened['selection']['images'],[None]*6)
@@ -150,7 +154,7 @@ class CollageTests(unittest.TestCase):
         data,name=self.collages.result(job['id'])
         self.assertEqual(name,'Example-2026-08.jpg')
         self.assertEqual(collage_filename({'folder':'- Artist Name','month':'2026-08'}),'Artist Name-2026-08.jpg')
-        with Image.open(io.BytesIO(data)) as image:self.assertEqual(image.size,(3840,2160))
+        with Image.open(io.BytesIO(data)) as image:self.assertEqual(image.size,(3000,3000))
         self.assertEqual(hashlib.sha256(data).hexdigest(),result['sha256'])
         self.assertEqual(result['bytes'],len(data));self.assertFalse((self.collages.cache/(job['id']+'-output.jpg')).exists())
         second=self.start(self.collages.preview({**self.payload,'theme':'light'}));self.collages.run_export(second['id'])

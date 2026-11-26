@@ -57,6 +57,12 @@ def collage_filename(release):
     return name
 
 
+def collage_title(folder,release):
+    artist=folder.lstrip('-! ').strip() or folder
+    label=release[len(artist):].lstrip(' -_') if release.casefold().startswith(artist.casefold()+' ') else release
+    return artist+' · '+label
+
+
 class CollageStore:
     def __init__(self, store):
         self.store = store
@@ -189,7 +195,8 @@ class CollageStore:
             for record in records:
                 db.execute('INSERT OR REPLACE INTO images VALUES(:id,:release_id,:relative,:name,:identity,:width,:height,:format,:reason,:archive)', record)
             selection = db.execute('SELECT * FROM selections WHERE release_id=?', (release['id'],)).fetchone()
-        draft = json.loads(selection['data']) if selection else {'images': [None]*6, 'layout': 'rows', 'shape': 'landscape', 'theme': 'dark', 'title': folder.lstrip('-! ')+' · '+month}
+        draft = json.loads(selection['data']) if selection else {'images': [None]*6, 'layout': 'rows', 'shape': 'square', 'theme': 'dark', 'title': collage_title(folder,month)}
+        if draft.get('title')==folder.lstrip('-! ')+' · '+month:draft['title']=collage_title(folder,month)
         return {'release': {k:release[k] for k in ('id','folder','month')}, 'images': [self.public_image(r) for r in records],
                 'selection': draft, 'revision': selection['revision'] if selection else 0, 'warnings': warnings, 'exports': self.exports(release['id'])}
 

@@ -1,5 +1,13 @@
 # Version history
 
+## 0.2.2
+
+- Add local, AI-free collage Auto-fill with duplicate removal, source-based grouping, quality preferences and editable fallback selections.
+- Show analysis progress and selection explanations, with Shuffle and Undo controls.
+- Automatically fill an empty collage when opening Create collage from a release queue; preserve existing drafts and saved images.
+- Default new collages to square output and avoid repeating the artist name in generated titles.
+- Preserve image provenance during extraction and gallery downloads to improve grouping.
+
 ## 0.2.1
 
 - Give Telegram and MMF Auto-download controls the same switch design, aligned with the queue action row.

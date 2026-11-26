@@ -68,6 +68,8 @@
     "tests/test_adaptive_downloads.py",
     "app/availability.py",
     "app/auto_downloads.py",
+    "app/collage_auto.py",
+    "tests/test_collage_auto.py",
     "tests/test_auto_downloads.py",
     "tests/test_availability.py",
     "start.sh",

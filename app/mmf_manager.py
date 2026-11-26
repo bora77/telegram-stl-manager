@@ -393,11 +393,12 @@ class MMFManager:
                     self.progress(phase='extracting',progress_stage=phase,image_count=count,image_total=total,
                                   message='Extracting images · '+head['filename'],bytes=received or 0,expected=expected or 0,
                                   progress_unit='percent' if phase=='checking_parts' else 'bytes',speed_mbps=0)
-                images=extract_images(paths[head['key']],self.directory/'staging'/identity/'images'/unit_id,extraction,self.stopped,warnings=warnings)
+                provenance={}
+                images=extract_images(paths[head['key']],self.directory/'staging'/identity/'images'/unit_id,extraction,self.stopped,warnings=warnings,provenance=provenance)
                 staged_images.extend(images);image_records=[]
                 for index,image in enumerate(images):
                     dest,size,checksum=deliver(image,base,first['folder'],release_folder,f'{unit_id[:8]}-{index+1}--{image.name}',moving,subdirectories=('release_images',),release_directory=release_folder)
-                    image_records.append({'path':str(dest),'size':size,'sha256':checksum})
+                    image_records.append({'path':str(dest),'size':size,'sha256':checksum,'member_path':provenance.get(str(image),'')})
                 manifest={'id':unit_id,'kind':'original_archives','outputs':outputs,'images':image_records,
                           'source_keys':[i['key'] for i in unit],'release_key':release_key(first),
                           'release_name':head['object_name'],'release_folder':release_folder}

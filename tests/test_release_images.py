@@ -33,6 +33,16 @@ def damaged_image_zip(path):
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_image_provenance_retains_nested_model_folders(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);archive=root/'release.zip';nested=io.BytesIO()
+            with zipfile.ZipFile(nested,'w') as z:z.writestr('ModelB/front.jpg',b'B')
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('ModelA/front.jpg',b'A');z.writestr('nested.zip',nested.getvalue())
+            provenance={};images=extract_images(archive,root/'work',provenance=provenance)
+            self.assertEqual(set(provenance),set(map(str,images)))
+            self.assertEqual(set(provenance.values()),{'ModelA/front.jpg','nested.zip/ModelB/front.jpg'})
+
     def test_macos_metadata_is_ignored_without_skipping_real_nested_images(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);nested=io.BytesIO();archive=root/'release.zip'

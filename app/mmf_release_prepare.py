@@ -289,10 +289,11 @@ def prepare_images(manager, key,from_mmf=False):
                          image_count=count,image_total=total,done=count,total=total or 0,bytes=received or 0,expected=expected or 0,speed_mbps=0)
     with release_lock(manager.root,base,first['folder'],first['release_folder'],manager.stopped):
         if from_mmf:
-            images=(getattr(manager,'fetch_images',None) or fetch_images)(manager.client(),group,work/'gallery',manager.stopped,progress)
+            provenance={};fetch=getattr(manager,'fetch_images',None) or fetch_images
+            images=fetch(manager.client(),group,work/'gallery',manager.stopped,progress,**({'provenance':provenance} if fetch is fetch_images else {}))
             for index,image in enumerate(images):
                 dest,size,checksum=deliver(image,base,first['folder'],first['release_folder'],'gallery--'+image.name,lambda n,total:progress('moving_images',index,len(images),n,total),subdirectories=('release_images',),release_directory=first['release_folder'])
-                records.append({'path':str(dest),'size':size,'sha256':checksum})
+                records.append({'path':str(dest),'size':size,'sha256':checksum,**provenance.get(str(image),{})})
         for item in group:
             manifest=item.get('repack') or {};mid=manifest.get('id')
             if not mid or mid in seen:continue
@@ -304,14 +305,14 @@ def prepare_images(manager, key,from_mmf=False):
             if existing:records.extend(existing);continue
             if from_mmf:continue
             outputs=manifest.get('outputs',[])
-            images=[]
+            images=[];provenance={}
             if outputs and not from_mmf:
                 sources=[verified(r['path'],r,base) for r in outputs]
-                images=extract_images(sorted(sources)[0],work/mid,progress,manager.stopped,warnings=warnings)
+                images=extract_images(sorted(sources)[0],work/mid,progress,manager.stopped,warnings=warnings,provenance=provenance)
             for index,image in enumerate(images):
                 progress('moving_images',index,len(images))
                 dest,size,checksum=deliver(image,base,first['folder'],first['release_folder'],mid[:8]+'-'+str(index)+'--'+image.name,lambda n,total:progress('moving_images',index,len(images),n,total),subdirectories=('release_images',),release_directory=first['release_folder'])
-                records.append({'path':str(dest),'size':size,'sha256':checksum})
+                records.append({'path':str(dest),'size':size,'sha256':checksum,'member_path':provenance.get(str(image),'')})
         manager.put('prepared_images:'+key,{'images':records,'keys':[i['key'] for i in group]})
         manager.progress(phase='complete',message=('Images ready. Create and save a collage next.' if records else 'No images found in '+getattr(manager,'label','MMF')+' galleries.' if from_mmf else 'No images found in the archives. You can download images from '+getattr(manager,'label','MMF')+'.'),warnings=warnings,speed_mbps=0)
 

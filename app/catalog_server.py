@@ -37,7 +37,7 @@ def update_busy():
     if AVAILABILITY.running or (SETUP.child and SETUP.child.poll() is None):return True
     queue=STORE.queue()
     if queue.get('active') or queue.get('organizer_active') or MMF.busy() or GUMROAD.busy():return True
-    for name in ('worker.lock','organizer-worker.lock','mmf/worker.lock','mmf/upload.lock','mmf/cleanup.lock','gumroad/worker.lock','gumroad/upload.lock','gumroad/cleanup.lock','release-upload-worker.lock','collages/worker.lock'):
+    for name in ('worker.lock','organizer-worker.lock','mmf/worker.lock','mmf/upload.lock','mmf/cleanup.lock','gumroad/worker.lock','gumroad/upload.lock','gumroad/cleanup.lock','release-upload-worker.lock','collages/worker.lock','collages/auto-worker.lock'):
         path=ROOT/'data'/name
         if path.exists():
             with path.open('a') as lock:
@@ -147,6 +147,9 @@ class Handler(SimpleHTTPRequestHandler):
         if path.startswith('/api/collages/'):
             try:
                 query=parse_qs(urlsplit(self.path).query)
+                if path=='/api/collages/auto-fill':
+                    from app.collage_auto import status
+                    self.reply_json(status(self.collages,query.get('id',[''])[0]));return
                 if path=='/api/collages/months':self.reply_json({'months':self.collages.months(query.get('folder',[''])[0])});return
                 if path=='/api/collages/export':self.reply_json(self.collages.export_status(query.get('id',[''])[0]));return
                 parts=path.split('/')
@@ -186,7 +189,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply_json({'error':'Read and acknowledge the usage notice before continuing.'},403);return
         if SETUP.setup_required and not self.path.startswith('/api/updates/') and self.path not in ('/api/setup/acknowledge','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/gumroad/login','/api/release-pad/destinations','/api/servers/refresh','/api/servers/retest'):
             self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
-        if self.path not in ('/api/auto-download','/api/auto-download/tick','/api/gumroad/save','/api/gumroad/creators','/api/gumroad/check','/api/gumroad/download','/api/gumroad/redownload','/api/gumroad/resume','/api/gumroad/stop','/api/gumroad/prepare','/api/gumroad/images','/api/gumroad/package','/api/gumroad/upload','/api/gumroad/released','/api/gumroad/finish','/api/gumroad/release','/api/updates/check','/api/updates/install','/api/updates/settings','/api/release-pad/destinations','/api/artist-profiles','/api/setup/acknowledge','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/gumroad/login','/api/mmf/save','/api/mmf/creators','/api/mmf/check','/api/mmf/download','/api/mmf/redownload','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/images','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/mmf/finish','/api/mmf/release','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/auto-download','/api/auto-download/tick','/api/gumroad/save','/api/gumroad/creators','/api/gumroad/check','/api/gumroad/download','/api/gumroad/redownload','/api/gumroad/resume','/api/gumroad/stop','/api/gumroad/prepare','/api/gumroad/images','/api/gumroad/package','/api/gumroad/upload','/api/gumroad/released','/api/gumroad/finish','/api/gumroad/release','/api/updates/check','/api/updates/install','/api/updates/settings','/api/release-pad/destinations','/api/artist-profiles','/api/setup/acknowledge','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/gumroad/login','/api/mmf/save','/api/mmf/creators','/api/mmf/check','/api/mmf/download','/api/mmf/redownload','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/images','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/mmf/finish','/api/mmf/release','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/auto-fill','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -248,7 +251,10 @@ class Handler(SimpleHTTPRequestHandler):
                 self.reply_json(result);return
             if self.path.startswith('/api/collages/'):
                 action=self.path.rsplit('/',1)[1]
-                if action=='open':result=self.collages.index(payload.get('folder'),payload.get('month'))
+                if action=='auto-fill':
+                    from app.collage_auto import start
+                    result=start(self.collages,payload)
+                elif action=='open':result=self.collages.index(payload.get('folder'),payload.get('month'))
                 elif action=='selection':result=self.collages.save_selection(payload)
                 elif action=='layout':result=self.collages.layout(payload)
                 elif action=='preview':result=self.collages.preview(payload)

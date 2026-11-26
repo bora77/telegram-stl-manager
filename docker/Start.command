@@ -3,7 +3,7 @@ set -euo pipefail
 cd -- "$(dirname -- "$0")"
 bash support/sync-launchers.sh
 if [[ ! -f support/installation-acknowledged ]]; then
-    cat support/app/USAGE-NOTICE.txt
+    cat support/app/USAGE-NOTICE.md
     printf '\nType I AGREE to acknowledge this notice and continue, or anything else to cancel: '
     IFS= read -r stl_consent || exit 1
     [[ "$stl_consent" == 'I AGREE' ]] || { echo 'Startup cancelled.'; exit 1; }

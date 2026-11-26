@@ -1,5 +1,9 @@
 # Version history
 
+## 0.2.12
+
+- Fix first-time Docker installation to display the renamed Markdown usage notice. OS-specific Install launchers can now complete acknowledgment and continue startup.
+
 ## 0.2.11
 
 - Move source/package manifests and the internal runtime launcher into tools/ to keep the project root focused on documentation.

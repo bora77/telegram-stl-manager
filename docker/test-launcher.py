@@ -61,4 +61,18 @@ class LauncherTests(unittest.TestCase):
         for script in ('Stop-Linux.sh','Stop-macOS.command'):
             self.assertEqual(self.run_script(script).returncode,0,script)
 
+    def test_fresh_install_reads_markdown_notice_and_requires_acknowledgment(self):
+        (self.root/'support/installation-acknowledged').unlink()
+        (self.root/'support/app').mkdir()
+        (self.root/'support/app/USAGE-NOTICE.md').write_text('Fixture usage notice')
+        folder=self.root/'downloads';folder.mkdir()
+        command=['bash',str(self.root/'Install-Linux.sh'),str(folder)]
+        declined=subprocess.run(command,input=b'NO\n',env=self.env,capture_output=True)
+        self.assertNotEqual(declined.returncode,0)
+        self.assertFalse((self.root/'support/installation-acknowledged').exists())
+        accepted=subprocess.run(command,input=b'I AGREE\n',env=self.env,capture_output=True)
+        self.assertEqual(accepted.returncode,0,accepted.stderr)
+        self.assertIn(b'Fixture usage notice',accepted.stdout)
+        self.assertTrue((self.root/'support/installation-acknowledged').exists())
+
 if __name__=='__main__': unittest.main()

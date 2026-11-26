@@ -380,7 +380,13 @@ class TelegramCLI:
             # Diagnostics must never remove a verified or partial real transfer.
             with tempfile.TemporaryDirectory(prefix='server-probe-', dir=self.state) as temporary:
                 return self._download(item, progress, stopped, status, probe_only, retest, quick_test, Path(temporary))
-        return self._download(item, progress, stopped, status, probe_only, retest, quick_test)
+        from app.network_recovery import retry_network,retryable,RecoveryStopped
+        def transient(error):
+            return retryable(error) or (isinstance(error,CLIError) and bool(re.search(r'service (?:disconnected|is unavailable)|connection (?:reset|refused|aborted)|network (?:is )?(?:unreachable|down)|no route to host|temporary failure in name resolution|i/o timeout|dial tcp|unexpected EOF|\bEOF\b|made no progress',str(error),re.I)))
+        try:
+            return retry_network(lambda:self._download(item,progress,stopped,status,probe_only,retest,quick_test),stopped,
+                                 lambda attempt,total,seconds:status({'event':'network_reconnecting','attempt':attempt,'attempts':total,'retry_in':seconds}),transient)
+        except RecoveryStopped as error:raise CLIError(str(error)) from None
 
     def _download(self, item, progress, stopped, status, probe_only, retest, quick_test, directory=None):
         topic = self._topic(item['topic_url'])

@@ -68,6 +68,8 @@
     "tests/test_adaptive_downloads.py",
     "app/availability.py",
     "app/check_schedule.py",
+    "app/network_recovery.py",
+    "tests/test_network_recovery.py",
     "tests/test_check_schedule.py",
     "app/auto_downloads.py",
     "app/collage_auto.py",

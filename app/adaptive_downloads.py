@@ -266,6 +266,7 @@ class AdaptiveDownloads:
                             meter = TransferMeter(clock=self.clock)
                         elif kind == 'download_resumed': job.phase = 'downloading'
                         elif kind == 'download_finished': job.phase = 'verifying'
+                        elif kind == 'network_reconnecting':job.phase='reconnecting'
                         elif kind == 'server_selected':
                             job.endpoint = event.get('endpoint')
                         elif kind in ('server_testing', 'server_slow_retest', 'server_retry'):
@@ -276,6 +277,7 @@ class AdaptiveDownloads:
                             'server_retry': 'Retrying the connection',
                             'download_finished': 'Verifying the completed file',
                             'download_start': '', 'download_resumed': '',
+                            'network_reconnecting':f"Reconnecting · retry {event.get('attempt')}/{event.get('attempts')} in {event.get('retry_in')}s",
                         }.get(kind, job.detail)
 
                 source = cli.download(job.item, progress, self.stopped, status)

@@ -54,7 +54,8 @@ def digest(path):
     return h.hexdigest()
 
 def mount_identity(base):
-    base=Path(base).resolve(strict=True)
+    try:base=Path(base).resolve(strict=True)
+    except OSError as error:raise DeliveryError('Download destination is unavailable or disconnected; local files retained.') from error
     # stat triggers automounts; match the actual device, not the autofs wrapper.
     device=base.stat().st_dev
     number=f'{os.major(device)}:{os.minor(device)}'
@@ -76,7 +77,9 @@ def deliver(source,base,folder,month,filename,progress=lambda done,total:None,ph
     if release_directory is not None:
         if not isinstance(release_directory,str) or not release_directory or release_directory in ('.','..') or re.search(r'[\\/<>:"|?*\x00-\x1f]',release_directory) or release_directory.strip()!=release_directory:raise DeliveryError('Unsafe release folder.')
         month=release_directory
-    base=Path(base).resolve(strict=True);identity=mount_identity(base)
+    try:base=Path(base).resolve(strict=True)
+    except OSError as error:raise DeliveryError('Download destination is unavailable or disconnected; local files retained.') from error
+    identity=mount_identity(base)
     source=Path(source);size=source.stat().st_size
     if shutil.disk_usage(base).free<size+64*1024*1024:raise DeliveryError('Not enough destination space.')
     destination=base.joinpath(folder,month,*subdirectories,filename)
@@ -125,5 +128,5 @@ def deliver(source,base,folder,month,filename,progress=lambda done,total:None,ph
         return destination,size,checksum
     finally:
         try:os.unlink(temporary.name,dir_fd=dirfd)
-        except FileNotFoundError:pass
-        os.close(dirfd)
+        except OSError:pass # A disconnected NAS may prevent partial cleanup; retain the original error.
+        finally:os.close(dirfd)

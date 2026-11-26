@@ -114,6 +114,11 @@ class MMFManager:
     def put(self,key,value):
         with self.db() as db:db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',(key,json.dumps(value)))
     def client(self):return MMFClient(self.session)
+    def network(self,operation,label):
+        from app.network_recovery import retry_network
+        def reconnect(attempt,total,seconds):
+            self.progress(phase='reconnecting',message=f'Connection interrupted · {label} · retry {attempt}/{total} in {seconds}s',speed_mbps=0)
+        return retry_network(operation,self.stopped,reconnect)
     def completed(self):
         with self.db() as db:return {r[0] for r in db.execute('SELECT key FROM completed')}
     def scoped_items(self,items):
@@ -174,7 +179,7 @@ class MMFManager:
     def state(self,filesystem=True,release_keys=None,validate_collages=True):
         settings=self.get('settings',{'revision':0,'subscriptions':[]})
         job=self.get('job',{});active=self.busy()
-        if not active and job.get('phase') in ('checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs','cleaning_stls'):
+        if not active and job.get('phase') in ('reconnecting','checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs','cleaning_stls'):
             job={**job,'phase':'interrupted','message':'Task interrupted. Resume the saved queue.'}
         checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()[self.provider+'_availability_interval_hours']*3600
         known=self.completed()-self.pending_redownload_keys();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])
@@ -339,10 +344,12 @@ class MMFManager:
     def check(self):
         started=time.monotonic()
         self.progress(phase='checking',message='Loading MMF library…',done=0,total=0)
-        client=self.client();groups=client.groups();self.put('creators',[{'id':int(g['id']),'name':g['name']} for g in groups])
+        client=self.client()
+        client.reconnecting=lambda attempt,total,seconds:self.progress(phase='reconnecting',message=f'Connection interrupted while checking files · retry {attempt}/{total} in {seconds}s',speed_mbps=0)
+        groups=self.network(client.groups,'checking artists');self.put('creators',[{'id':int(g['id']),'name':g['name']} for g in groups])
         tribe_creators={str(g['id']) for g in groups if 'TRIBE' in g.get('sources',[])}
         objects=getattr(client,'library_objects',None)
-        if objects is None:objects=client.metadata('/api/data-library/objectPreviews')
+        if objects is None:objects=self.network(lambda:client.metadata('/api/data-library/objectPreviews'),'checking library')
         if not isinstance(objects,list):raise MMFError('Unexpected MMF library response.')
         subs={str(s['id']):s for s in self.get('settings',{}).get('subscriptions',[])};overrides=self.get('months',{});items=[]
         labels={};metadata_keys=set()
@@ -355,7 +362,7 @@ class MMFManager:
             metadata_keys.add(key)
             if not owner.isdecimal():raise MMFError('MMF returned an invalid release owner.')
             endpoint={'USER_GROUP':'userGroup','TRIBE':'tribe','FRONTIER':'frontier'}[source]
-            remote_releases=client.metadata('/api/data-library/'+endpoint+'_releases_metadata/'+owner)
+            remote_releases=self.network(lambda:client.metadata('/api/data-library/'+endpoint+'_releases_metadata/'+owner),'checking releases')
             if source=='FRONTIER':
                 if not isinstance(remote_releases,dict):raise MMFError('Unexpected MMF Frontier releases response.')
                 remote_releases=[*remote_releases.get('pledges',[]),*remote_releases.get('addons',[]),*([remote_releases['signup']] if remote_releases.get('signup') else [])]
@@ -495,14 +502,14 @@ class MMFManager:
                     unit_dir=work/safe_component('source-'+str(unit[0]['object_id'])+'-'+str(unit[0]['archive_id']));unit_dir.mkdir(exist_ok=True)
                     for item in unit:paths[item['key']]=unit_dir/safe_component(item['filename'])
                 for item in transfer_group:
-                    if item['object_id'] not in current:current[item['object_id']]={self.id_type(a['id']):a for a in client.downloadables(item['object_id'])['archives']}
+                    if item['object_id'] not in current:current[item['object_id']]={self.id_type(a['id']):a for a in self.network(lambda:client.downloadables(item['object_id']),'checking '+item['filename'])['archives']}
                     remote=current[item['object_id']].get(item['archive_id'])
                     if not remote or int(remote['size'])!=item['size'] or remote.get('updatedAt','')!=item['updated_at']:raise MMFError(self.label+' file changed after checking. Run Check availability again.')
                     self.progress(phase='downloading',message=item['filename'],done=done,total=len(queue),bytes=0,expected=item['size'],speed_mbps=0)
                     last=[0.0]
                     def transfer(n,total,speed):
-                        if time.monotonic()-last[0]>.35 or n==total:self.progress(bytes=n,expected=total,speed_mbps=round(speed,2));last[0]=time.monotonic()
-                    client.download(item,paths[item['key']],transfer,self.stopped)
+                        if time.monotonic()-last[0]>.35 or n==total:self.progress(phase='downloading',message=item['filename'],bytes=n,expected=total,speed_mbps=round(speed,2));last[0]=time.monotonic()
+                    self.network(lambda:client.download(item,paths[item['key']],transfer,self.stopped),item['filename'])
                 self.deliver_originals(transfer_group,paths,units,base,identity,nonce)
                 known.update(i['key'] for i in group);done+=len(remaining)
                 self.progress(done=done,total=len(queue))
@@ -524,5 +531,5 @@ if __name__=='__main__':
         manager.check() if sys.argv[2]=='check' else manager.download()
     except Exception as error:
         if isinstance(error,LoginRequired):manager.put('auth_required',True)
-        manager.progress(phase='error',message=str(error) if isinstance(error,(ValueError,OSError)) else 'MMF task failed; saved progress retained.',speed_mbps=0)
+        manager.progress(phase='stopped' if manager.stopped() else 'error',message=str(error) if isinstance(error,(ValueError,OSError)) else 'MMF task failed; saved progress retained.',speed_mbps=0)
     finally:os.close(int(sys.argv[3]))

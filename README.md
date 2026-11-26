@@ -288,6 +288,23 @@ Split archives with mixed names such as `release.7z.001`, `release.002`, and `re
 
 The browser checks subscribed creators for available downloads at the interval saved in Configuration (four hours by default) while the tool is open; downloads stay manual unless Auto-download is enabled on that provider’s queue. The Linux x64 runtime package includes Python, the web server, SQLite, Pillow, Telegram CLI and 7-Zip. Run `start.sh`; Windows uses WSL2. See INSTALL.md for first-time account/source setup and supported platforms.
 
+## Network interruptions and recovery
+
+Transient read/download failures retry up to four times with visible reconnect
+status and short, cancellable waits. Partial MMF/Gumroad downloads resume using
+validated byte ranges and server validators when available; refreshed requests
+resolve the current network route and obtain fresh download links. A server
+that does not support ranges restarts that partial transfer from zero.
+Changed-file, authentication and storage-capacity errors require review rather
+than repeated retries. If recovery fails, the queue reports an error and retains
+staged files for **Resume**. A failed Telegram availability check retains the
+previous detections for affected artists and reports the check as incomplete.
+
+Storage outages do not discard local staged originals or mark an unfinished
+transfer complete. Restore the configured share, then Resume. The app does not
+force-remount system shares. Uploads, forwarding and bot commands are not blindly
+replayed after an uncertain response; check the destination before retrying.
+
 ## Optional automatic downloads
 
 Availability checks use fixed clock slots in the application's time zone, shared

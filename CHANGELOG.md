@@ -1,5 +1,12 @@
 # Version history
 
+## 0.2.5
+
+- Retry transient download failures with visible reconnect status and bounded, cancellable waits.
+- Resume HTTP transfers with validated ranges and server validators; refresh temporary download links without mixing changed file versions.
+- Retain detected Telegram files after incomplete checks and preserve local sources when network-storage writes fail.
+- Do not replay uncertain uploads or bot actions automatically.
+
 ## 0.2.4
 
 - Load MMF/Gumroad queues from saved status without scanning storage; refresh only visible unfinished releases in the background.

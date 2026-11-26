@@ -88,6 +88,15 @@ class AvailabilityTests(unittest.TestCase):
             store.atomic_write(store.path,{'revision':2,'subscriptions':[changed],'saved_at':SUB['subscribed_at']})
             self.assertEqual(checker.status()['next_check_at'],0)
 
+    def test_network_failure_keeps_previous_detected_files_with_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store,checker=self.setup(Path(temp));old=item(4,'Example 2026-08.zip');old['month']='2026-08'
+            store.atomic_write(checker.path,{'subscriptions':[SUB],'items':[old],'checked_at':1000})
+            client=Mock();client.list_files.side_effect=ConnectionError('Network lost')
+            with patch('app.availability.TelegramCLI',return_value=client):checker.check()
+            state=checker.status();self.assertEqual(state['files'],1);self.assertTrue(state['errors'])
+            self.assertEqual(checker.read()['items'],[old])
+
     def test_detected_run_uses_exact_snapshot_without_scanning_other_subscriptions(self):
         from app.download_plan import DownloadPlan
         with tempfile.TemporaryDirectory() as temp:

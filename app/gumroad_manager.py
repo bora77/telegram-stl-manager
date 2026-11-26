@@ -47,12 +47,12 @@ class GumroadManager(MMFManager):
 
     def check(self):
         self.progress(phase='checking',message='Loading Gumroad library…',done=0,total=0)
-        client=self.client();creators=client.groups()
+        client=self.client();creators=self.network(client.groups,'checking Gumroad artists')
         subscriptions=self.get('settings',{}).get('subscriptions',[])
         cards=[];urls=self.get('purchase_urls',{})
         for number,sub in enumerate(subscriptions,1):
             self.progress(message='Reading '+sub['name'],done=number-1,total=len(subscriptions))
-            for card in client.cards(sub['id'],self.stopped):
+            for card in self.network(lambda:list(client.cards(sub['id'],self.stopped)),'checking '+sub['name']):
                 pid=str(card['purchase']['id']);urls[pid]=checked_url(card['purchase']['download_url'])
                 cards.append((sub,card))
         client.purchases=urls;items=[]
@@ -60,7 +60,7 @@ class GumroadManager(MMFManager):
             if self.stopped():raise MMFError('Gumroad check stopped. Previous results retained.')
             pid=str(card['purchase']['id']);product=card['product'];name=product['name']
             self.progress(message='Checking '+sub['name']+' · '+name,done=number-1,total=len(cards))
-            for remote in client.downloadables(pid)['archives']:
+            for remote in self.network(lambda:client.downloadables(pid),'checking '+name)['archives']:
                 # Keep named products/folders. Purchase time is not release time.
                 folder=remote.get('folder') or ''
                 label=folder if month_for('',folder) or re.search(r'\b(welcome|loyalty|rewards?)\b',folder,re.I) else name
@@ -73,7 +73,7 @@ class GumroadManager(MMFManager):
                     item['release_created_at']=card.get('published_at');item['release_date_basis']='published_at'
                 item['key']=version_key(item);items.append(item)
             if not card.get('is_post'):
-                for post in client.post_cards(pid,self.stopped):
+                for post in self.network(lambda:list(client.post_cards(pid,self.stopped)),'checking membership updates'):
                     post_id=str(post['purchase']['id']);urls[post_id]=checked_url(post['purchase']['download_url'])
                     cards.append((sub,post))
             self.progress(done=number,total=len(cards))
@@ -125,5 +125,5 @@ if __name__=='__main__':
     try:manager.check() if sys.argv[2]=='check' else manager.download()
     except Exception as error:
         if isinstance(error,LoginRequired):manager.put('auth_required',True)
-        manager.progress(phase='error',message=str(error) if isinstance(error,(ValueError,OSError)) else 'Gumroad task failed; saved progress retained.',speed_mbps=0)
+        manager.progress(phase='stopped' if manager.stopped() else 'error',message=str(error) if isinstance(error,(ValueError,OSError)) else 'Gumroad task failed; saved progress retained.',speed_mbps=0)
     finally:os.close(int(sys.argv[3]))

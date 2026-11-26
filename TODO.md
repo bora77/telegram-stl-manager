@@ -9,6 +9,7 @@ to remove it from the upcoming list on the next page build.
 - [ ] **PDF washer in the organizer** — Optional cleaning of supported PDF stamps, using the RC-based cleaner and preserving original archives.
 - [ ] **PDF and image timestamp privacy** — During reprocessing of downloads from MMF and other platforms, remove embedded creation and modification timestamps from PDFs and images (including EXIF/XMP and format-specific metadata). Normalize filesystem and archive-entry timestamps where removal is not supported. Preserve file contents and rendering, and verify the resulting metadata to reduce timestamp-based user tracking.
 - [ ] **Linux and Docker updates** — Install updates from the app while keeping accounts, settings and download history.
+- [ ] **Packaging on another device** — Optionally run archive preparation, compression and verification on a more powerful computer, with shared-storage access, progress reporting and recovery after connection interruptions. Keep release management and uploads in the main app.
 
 ## Completed
 
@@ -26,6 +27,7 @@ to remove it from the upcoming list on the next page build.
 - [x] Provide Quartz with a configuration-preserving update containing the latest fixes. He confirmed the v0.1.14 update and resumed downloads succeeded.
 - [ ] Reload the local web application safely and verify the error display without interrupting active transfers. Running workers need a subsequent run to use updated worker code.
 - [ ] Test loss of internet and recovery end to end: error visibility, preserved progress and successful resume without falsely reporting completion.
+- [x] Add controlled recovery tests for dropped HTTP connections, byte-range resume, expired download links, changed validators, bounded reconnects, cancellation, uncertain Telegram writes and disconnected-storage cleanup. These tests do not disconnect the user's network.
 - [ ] Resolve the pre-existing full-suite test failures, including outdated release-folder expectations and the commit-hook test fixture. The focused tests pass; the full suite is not green.
 
 ## Organizer enhancements

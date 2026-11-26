@@ -80,6 +80,8 @@ class Worker:
                     kind=event.get('event')
                     if kind=='waiting_for_telegram':
                         self.update('downloading','Waiting for the current Telegram scan to finish · '+filename)
+                    elif kind=='network_reconnecting':
+                        self.update('downloading',f"Connection interrupted · retry {event['attempt']}/{event['attempts']} in {event['retry_in']}s · "+filename)
                     elif kind=='download_start':meter=None
                     if kind in ('speed_retest_pending','speed_retest_queued'):
                         self.update('downloading',f"Speed below {event['threshold_bps']/1e6:g} MB/s for at least two minutes; server check queued for the next file. Downloading "+filename)

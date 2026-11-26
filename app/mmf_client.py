@@ -1,5 +1,6 @@
 """Direct, session-authenticated MyMiniFactory HTTP access. No browser runtime."""
 import http.cookiejar
+import http.client
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,9 @@ import re
 import tempfile
 import time
 import threading
+import ssl
+import email.utils
+import math
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 import urllib.error
 import urllib.parse
@@ -17,6 +21,18 @@ BASE = 'https://www.myminifactory.com'
 
 class MMFError(ValueError): pass
 class LoginRequired(MMFError): pass
+
+class NetworkFailure(MMFError):
+    retryable_network=True
+    def __init__(self,message,retry_after=0):
+        super().__init__(message);self.retry_after=retry_after
+
+def retry_delay(headers):
+    value=(headers or {}).get('Retry-After','0')
+    try:return max(0,int(value))
+    except (ValueError,TypeError):
+        try:return max(0,math.ceil(email.utils.parsedate_to_datetime(value).timestamp()-time.time()))
+        except (ValueError,TypeError,AttributeError):return 0
 
 class LoginForm(HTMLParser):
     def __init__(self):
@@ -56,9 +72,14 @@ class MMFClient:
             data=urllib.parse.urlencode(fields).encode()
         try: response=getattr(self._http_local,'opener',self.http).open(urllib.request.Request(BASE+path,data=data,headers=hdr),timeout=30)
         except urllib.error.HTTPError as error:
+            if error.code in (408,429,500,502,503,504):raise NetworkFailure(f'MMF temporarily unavailable (HTTP {error.code}). Saved progress is retained.',retry_delay(error.headers)) from None
+            if error.code in (401,403) and re.fullmatch(r'dl\d+\.myminifactory\.com',urllib.parse.urlsplit(error.url).hostname or ''):raise NetworkFailure('MMF download link expired; refreshing the link.') from None
             if error.code in (401,403): raise LoginRequired('MMF rejected access. Reconnect your account; site verification may be required.') from None
             raise MMFError(f'MMF request failed (HTTP {error.code}). Try again later.') from None
-        except (urllib.error.URLError,TimeoutError): raise MMFError('MMF connection failed or timed out. Try again later.') from None
+        except urllib.error.URLError as error:
+            if isinstance(error.reason,ssl.SSLCertVerificationError):raise MMFError('MMF TLS certificate verification failed. Check the network connection.') from None
+            raise NetworkFailure('MMF connection interrupted. Saved progress is retained; Resume if reconnecting fails.') from None
+        except (TimeoutError,ConnectionError): raise NetworkFailure('MMF connection interrupted. Saved progress is retained; Resume if reconnecting fails.') from None
         if response.headers.get('cf-mitigated')=='challenge':
             response.close(); raise LoginRequired('MMF requires additional verification. Reconnect your account.')
         return response
@@ -67,6 +88,8 @@ class MMFClient:
             if 'json' not in response.headers.get('Content-Type','') or '/login' in response.url: raise LoginRequired('Your MMF session expired. Reconnect your account.')
             body=response.read(32*1024*1024+1)
             if len(body)>32*1024*1024: raise MMFError('MMF metadata exceeds the supported response size.')
+            length=response.headers.get('Content-Length')
+            if length and len(body)!=int(length):raise NetworkFailure('MMF metadata transfer was interrupted. Previous results retained.')
         try: return json.loads(body)
         except ValueError: raise MMFError('MMF returned invalid metadata.') from None
     def save(self):
@@ -120,7 +143,8 @@ class MMFClient:
             if stopped():raise MMFError('Check stopped. Previous availability results retained.')
             if not hasattr(self._http_local,'opener'):
                 self._http_local.opener=urllib.request.build_opener(Redirects(),urllib.request.HTTPCookieProcessor(self.cookies))
-            return self.downloadables(oid)
+            from app.network_recovery import retry_network
+            return retry_network(lambda:self.downloadables(oid),stopped,getattr(self,'reconnecting',lambda *args:None))
         pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='mmf-check')
         try:
             for _ in range(4):
@@ -144,8 +168,10 @@ class MMFClient:
     def download(self,item,target,progress,stopped):
         target=Path(target); expected=item['size']; offset=target.stat().st_size if target.exists() else 0
         if offset>expected:raise MMFError('Local partial file exceeds the expected size.')
-        if offset==expected and expected>0:return
+        if offset==expected and expected>0:progress(expected,expected,0);return
+        from app.network_recovery import resume_headers,record_response
         headers={'Accept':'application/octet-stream','Accept-Encoding':'identity'}
+        headers.update(resume_headers(target,item,offset))
         if offset:headers['Range']=f'bytes={offset}-'
         started=time.monotonic();received=0
         with self.open(f"/download/{item['object_id']}?archive_id={item['archive_id']}",headers=headers) as response:
@@ -153,18 +179,24 @@ class MMFClient:
             if '/login' in response.url or 'html' in kind or 'json' in kind:raise LoginRequired('MMF returned a login/error page instead of the archive.')
             if response.status==206:
                 match=re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)',response.headers.get('Content-Range',''))
-                if not match or int(match[1])!=offset or int(match[3])!=expected:raise MMFError('MMF returned an inconsistent resume range.')
+                if not match or int(match[1])!=offset or int(match[2])!=expected-1 or int(match[3])!=expected:raise MMFError('MMF returned an inconsistent resume range.')
             elif response.status==200:offset=0
             else:raise MMFError('Unexpected download response.')
             length=response.headers.get('Content-Length')
             if length and int(length)!=expected-offset:raise MMFError('File size changed at MMF; check for updates again.')
+            record_response(target,item,offset,response)
             with target.open('ab' if offset else 'wb') as out:
                 while True:
                     if stopped():raise MMFError('Stopped; partial download retained for resume.')
-                    block=response.read(1024*1024)
+                    try:block=response.read(1024*1024)
+                    except http.client.IncompleteRead as error:
+                        block=error.partial
+                        if offset+received+len(block)>expected:raise MMFError('Download exceeds its expected size.')
+                        out.write(block);out.flush();os.fsync(out.fileno())
+                        raise NetworkFailure('MMF transfer interrupted; partial download retained.') from None
                     if not block:break
                     if offset+received+len(block)>expected:raise MMFError('Download exceeds its expected size.')
                     out.write(block);received+=len(block)
                     progress(offset+received,expected,received/max(time.monotonic()-started,.001)/1e6)
                 out.flush();os.fsync(out.fileno())
-        if target.stat().st_size!=expected:raise MMFError('Incomplete download; partial file retained for resume.')
+        if target.stat().st_size!=expected:raise NetworkFailure('Incomplete download; partial file retained for resume.')

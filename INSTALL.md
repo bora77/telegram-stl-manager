@@ -917,6 +917,23 @@ use **Save selected collages**. Only cards checked **Include in upload** enter
 the saved upload set. Release delivery sends all selected collages before the
 archives and forwards that same set to the bot; unrelated JPGs are excluded.
 
+## Network interruptions and recovery
+
+Transient read/download failures retry up to four times with visible reconnect
+status and short, cancellable waits. Partial MMF/Gumroad downloads resume using
+validated byte ranges and server validators when available; refreshed requests
+resolve the current network route and obtain fresh download links. A server
+that does not support ranges restarts that partial transfer from zero.
+Changed-file, authentication and storage-capacity errors require review rather
+than repeated retries. If recovery fails, the queue reports an error and retains
+staged files for **Resume**. A failed Telegram availability check retains the
+previous detections for affected artists and reports the check as incomplete.
+
+Storage outages do not discard local staged originals or mark an unfinished
+transfer complete. Restore the configured share, then Resume. The app does not
+force-remount system shares. Uploads, forwarding and bot commands are not blindly
+replayed after an uncertain response; check the destination before retrying.
+
 ## Optional automatic downloads
 
 Availability checks use fixed clock slots in the application's time zone, shared

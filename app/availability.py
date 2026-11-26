@@ -107,7 +107,7 @@ class Availability:
 
     def check(self):
         from app.folder_organizer import Organizer
-        items=[];errors=[];client=None;subs=[]
+        items=[];errors=[];client=None;subs=[];previous=self.read()
         try:
             Organizer(self.store).dismiss_finished()
             subs=self.store.read()['subscriptions']
@@ -119,10 +119,12 @@ class Availability:
                     items.extend({**i,'topic_url':sub['topic_url']} for i in eligible(sub,files))
                 except Exception:
                     errors.append(sub['creator']+': availability could not be checked.')
+                    if previous.get('subscriptions')==subs:items.extend(i for i in previous.get('items',[]) if i.get('topic_url')==sub['topic_url'])
                 finally:
                     with self.lock:self.progress['done']=index+1
         except Exception:
             errors.append('Telegram availability check failed. Check the connection and CLI login.')
+            if previous.get('subscriptions')==subs:items=previous.get('items',[])
         finally:
             try:
                 if client:client.close()

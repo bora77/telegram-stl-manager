@@ -11,10 +11,11 @@ import os
 from pathlib import Path
 import re
 import time
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
-from app.mmf_client import MMFError, LoginRequired
+from app.mmf_client import MMFError, LoginRequired, NetworkFailure,retry_delay
 
 BASE = 'https://gumroad.com'
 
@@ -80,12 +81,18 @@ class GumroadClient:
             with self.opener.open(urllib.request.Request(checked_url(path),headers=headers,data=body),timeout=40) as response:
                 body=response.read(16_000_001)
                 if len(body)>16_000_000:raise MMFError('Gumroad metadata exceeds the response limit.')
+                length=response.headers.get('Content-Length')
+                if length and len(body)!=int(length):raise NetworkFailure('Gumroad metadata transfer was interrupted. Previous results retained.')
                 if not raw and '/login' in urllib.parse.urlsplit(response.url).path:raise LoginRequired('Gumroad session expired. Reconnect in Configuration.')
             data=json.loads(body)
         except urllib.error.HTTPError as error:
+            if error.code in (408,429,500,502,503,504):raise NetworkFailure(f'Gumroad temporarily unavailable (HTTP {error.code}).',retry_delay(error.headers)) from None
             if error.code in (401,403):raise LoginRequired('Gumroad requires sign-in or verification. Reconnect in Configuration.') from None
             raise MMFError(f'Gumroad request failed (HTTP {error.code}). Retry later.') from None
-        except (urllib.error.URLError,TimeoutError):raise MMFError('Could not reach Gumroad. Check your internet connection and retry.') from None
+        except urllib.error.URLError as error:
+            if isinstance(error.reason,ssl.SSLCertVerificationError):raise MMFError('Gumroad TLS certificate verification failed. Check the network connection.') from None
+            raise NetworkFailure('Gumroad connection interrupted. Saved progress is retained.') from None
+        except (TimeoutError,ConnectionError,http.client.IncompleteRead):raise NetworkFailure('Gumroad connection interrupted. Saved progress is retained.') from None
         except (ValueError,UnicodeError) as error:
             if isinstance(error,MMFError):raise
             raise LoginRequired('Gumroad did not return account JSON. Try signing in again in Configuration.') from None
@@ -168,12 +175,14 @@ class GumroadClient:
         if len(files)!=1 or not files[0].get('url'):raise MMFError('Gumroad did not provide a downloadable file.')
         url=checked_url(files[0]['url'],files=True)
         path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
-        if path.is_file() and path.stat().st_size==item['size']:return
+        if path.is_file() and path.stat().st_size==item['size']:progress(item['size'],item['size'],0);return
         partial=path.with_name(path.name+'.partial');offset=partial.stat().st_size if partial.exists() else 0
         if partial.exists() and offset==item['size']:
-            partial.replace(path);return
-        if offset>item['size']:offset=0
+            partial.replace(path);progress(item['size'],item['size'],0);return
+        if offset>item['size']:raise MMFError('Local partial file exceeds the expected size; retained for review.')
         headers={'User-Agent':'Telegram-STL-Manager','Accept-Encoding':'identity'}
+        from app.network_recovery import resume_headers,record_response
+        headers.update(resume_headers(partial,item,offset))
         if offset:headers['Range']=f'bytes={offset}-'
         started=time.monotonic();received=offset
         try:
@@ -181,18 +190,34 @@ class GumroadClient:
             with urllib.request.build_opener(Redirects(files=True)).open(urllib.request.Request(url,headers=headers),timeout=40) as remote:
                 if remote.status==206:
                     value=remote.headers.get('Content-Range','')
-                    if not value.startswith(f'bytes {offset}-') or not value.endswith('/'+str(item['size'])):raise MMFError('Gumroad returned an invalid resume range.')
-                else:offset=received=0
-                if 'text/html' in remote.headers.get('Content-Type',''):raise MMFError('Gumroad returned a web page instead of a file.')
+                    match=re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)',value)
+                    if not match or int(match[1])!=offset or int(match[2])!=item['size']-1 or int(match[3])!=item['size']:raise MMFError('Gumroad returned an invalid resume range.')
+                elif remote.status==200:offset=received=0
+                else:raise MMFError('Unexpected Gumroad transfer response.')
+                length=remote.headers.get('Content-Length')
+                if length and int(length)!=item['size']-offset:raise MMFError('Gumroad file changed size. Check again.')
+                if any(kind in remote.headers.get('Content-Type','').lower() for kind in ('html','json')):raise MMFError('Gumroad returned an error page instead of a file; partial data retained.')
+                record_response(partial,item,offset,remote)
                 with partial.open('ab' if offset else 'wb') as output:
                     while True:
                         if stopped():raise MMFError('Download stopped. Resume to continue.')
-                        chunk=remote.read(256*1024)
+                        try:chunk=remote.read(256*1024)
+                        except http.client.IncompleteRead as error:
+                            chunk=error.partial
+                            if received+len(chunk)>item['size']:raise MMFError('Gumroad file changed size. Check again.')
+                            output.write(chunk);output.flush();os.fsync(output.fileno())
+                            raise NetworkFailure('Gumroad transfer interrupted; partial download retained.') from None
                         if not chunk:break
+                        if received+len(chunk)>item['size']:raise MMFError('Gumroad file changed size. Check again.')
                         output.write(chunk);received+=len(chunk)
-                        if received>item['size']:raise MMFError('Gumroad file changed size. Check again.')
                         progress(received,item['size'],(received-offset)/max(.001,time.monotonic()-started)/1e6)
                     output.flush();os.fsync(output.fileno())
-        except (urllib.error.URLError,TimeoutError,http.client.IncompleteRead,ConnectionError):raise MMFError('Gumroad transfer interrupted. Resume to retry.') from None
-        if received!=item['size']:raise MMFError('Gumroad transfer incomplete. Resume to retry.')
+        except urllib.error.HTTPError as error:
+            if error.code in (401,403,408,429,500,502,503,504):raise NetworkFailure('Gumroad transfer link unavailable; refreshing it.',retry_delay(error.headers)) from None
+            raise MMFError(f'Gumroad file request failed (HTTP {error.code}). Check availability again.') from None
+        except urllib.error.URLError as error:
+            if isinstance(error.reason,ssl.SSLCertVerificationError):raise MMFError('Storage TLS certificate verification failed. Partial data retained.') from None
+            raise NetworkFailure('Gumroad transfer interrupted. Resume if reconnecting fails.') from None
+        except (TimeoutError,http.client.IncompleteRead,ConnectionError):raise NetworkFailure('Gumroad transfer interrupted. Resume if reconnecting fails.') from None
+        if received!=item['size']:raise NetworkFailure('Gumroad transfer incomplete. Resume if reconnecting fails.')
         partial.replace(path)

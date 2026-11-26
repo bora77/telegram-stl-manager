@@ -4,7 +4,7 @@ let artistPage=0,creatorsRefreshing=false;
 async function refreshCreators(){
  if(location.hash!=='#artists'||!data?.connected||creatorsRefreshing)return;
  creatorsRefreshing=true;const status=$('creator-refresh-status');status.textContent='Refreshing artists from MMF…';status.className='';
- try{const result=await request('creators',{});data.creators=result.creators;artists();status.textContent='Artists up to date.'}
+ try{const [result,folders]=await Promise.all([request('creators',{}),request('folders')]);data.creators=result.creators;data.folders=folders.folders;artists();status.textContent='Artists up to date.'}
  catch(e){status.textContent='Could not refresh artists: '+e.message+' Saved artists are still shown.';status.className='error'}
  finally{creatorsRefreshing=false}
 }
@@ -149,6 +149,7 @@ function cleanupPanel(pack){
 function queue(){
  const groups=releaseGroups(),rows=groups.filter(g=>$('filter').value==='all'||($('filter').value==='done'?data.release_lifecycle?.[g.key]?.finished:!data.release_lifecycle?.[g.key]?.finished));
  page=Math.min(page,Math.max(0,Math.ceil(rows.length/20)-1));
+ refreshVisibleFiles(rows.slice(page*20,page*20+20).filter(g=>!data.release_lifecycle?.[g.key]?.finished).map(g=>g.key));
  const signature=JSON.stringify([data.existing_releases,data.managed_releases,data.items,data.preparations,data.collages,data.release_lifecycle,data.active,data.job?.action,data.job?.release_key,data.job?.phase,data.job?.bytes,data.job?.expected,data.job?.image_count,data.job?.image_total,data.job?.cleaner_file,data.job?.cleaner_done,$('filter').value,page]);if(signature===queueSignature)return;queueSignature=signature;$('queue').replaceChildren();
  for(const prep of Object.values(data.preparations||{}))for(const pack of prep.packages||[])if(['queued','running','pending'].includes(pack.source_cleanup?.state))$('queue').append(cleanupPanel(pack));
  for(const group of rows.slice(page*20,page*20+20)){
@@ -168,7 +169,7 @@ function queue(){
    button.onclick=()=>releaseModal(group);
    const collage=data.collages?.[group.key];
    button.title='Choose channel delivery, a bot conversation, or mark this release as finished.';
-   const collageButton=text('button',collage?.exists?'Edit collage':'Create collage');collageButton.className='secondary';collageButton.disabled=!collage?.ready;
+   const collageButton=text('button',collage?.pending?'Checking saved images…':collage?.exists?'Edit collage':'Create collage');collageButton.className='secondary';collageButton.disabled=!collage?.ready||collage?.pending;
    collageButton.title=collage?.ready?'Open this release in the collage editor.':'The release_images folder must contain images. Download and extract release images first.';
    collageButton.onclick=()=>{location.href='/collages?'+new URLSearchParams({folder:collage.folder,month:collage.release,...(!collage.exists?{autofill:'1'}:{})})};
    const jobHere=data.active&&data.job?.release_key===group.key;
@@ -226,21 +227,21 @@ function render(reset=false){$('connection').hidden=data.connected;$('sub-count'
  for(const id of ['check','download','resume'])$(id).disabled=data.active||!data.connected||dirty;
  $('resume').disabled ||= !data.resumable;
  $('download').disabled ||= !data.counts.available||!data.checked_at;$('stop').disabled=!data.active;$('save').disabled=!dirty||data.active;changed();
- const next=data.next_check_at?new Date(data.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'due now';
  const checking=data.active&&data.job.action==='check';
  const pending=data.availability_claimed?[]:data.items.filter(i=>!i.completed);
- const count=pending.length,months=new Set(pending.map(i=>i.release_key)).size,artistsCount=new Set(pending.map(i=>i.creator_id)).size;
- const label=$('availability');
- const schedule=`Next check: ${next} · Every ${data.interval_hours} hours while this tool is open.`;
- const statusText=!data.connected?'Connect your MMF account to check for downloads.':!data.settings.subscriptions.length?'Subscribe to MMF artists to check for downloads.':checking?'Checking for available downloads…':data.availability_claimed?schedule:count?`${count} files detected · ${months} releases · ${artistsCount} artists · ${schedule}`:data.job.action==='check'&&['error','interrupted'].includes(data.job.phase)?'Availability check incomplete · '+schedule:(data.checked_at?'Check complete — no new files found · ':'No downloads detected yet · ')+schedule;
- if(label.textContent!==statusText){
-  const index=count&&!checking&&data.connected&&data.settings.subscriptions.length?statusText.indexOf('detected'):-1;
-  if(index>=0){const word=text('span','detected');word.className='detected-flash';label.replaceChildren(document.createTextNode(statusText.slice(0,index)),word,document.createTextNode(statusText.slice(index+8)))}else label.textContent=statusText;
- }
+ window.renderDownloadAvailability($('availability'),{
+  files:pending.length,releases:new Set(pending.map(i=>i.release_key)).size,creators:new Set(pending.map(i=>i.creator_id)).size,
+  checked_at:data.checked_at,next_check_at:data.next_check_at,interval_seconds:data.interval_hours*3600,
+  checking,deferred:data.active&&!checking&&Date.now()/1000>=data.next_check_at,claimed:data.availability_claimed,
+  subscribed:data.settings.subscriptions.length,errors:data.job.action==='check'&&['error','interrupted'].includes(data.job.phase)?(data.job.errors?.length?data.job.errors:['Incomplete check']):[],
+  connection_message:!data.connected?'Connect your MMF account to check for downloads.':''
+ });
 
  const job=data.job;$('job').hidden=!job.phase;$('job-message').textContent=job.message||'';$('job-message').classList.toggle('error',['error','interrupted'].includes(job.phase));$('progress').hidden=!data.active;if(job.expected>0)$('progress').value=Math.min(100,100*(job.bytes||0)/job.expected);else if(job.total>0)$('progress').value=Math.min(100,100*(job.done||0)/job.total);else $('progress').removeAttribute('value');$('metrics').textContent=[job.phase==='cleaning_stls'?`Cleaning STL ${job.cleaner_index||0} of ${job.cleaner_total||0}`:job.phase==='processing_pdfs'?'Processing PDF footer stamps':job.phase,job.phase==='cleaning_stls'?`${job.cleaner_done||0} completed · ${job.cleaner_seconds||0}s on current file`:'',job.image_total!=null?`${job.image_count||0} / ${job.image_total} images`:'',data.active&&job.expected?((job.progress_unit==='percent'||['unpacking','repacking','verifying_archive'].includes(job.phase))?`${job.bytes||0}%`:`${((job.bytes||0)/1e6).toFixed(1)} / ${(job.expected/1e6).toFixed(1)} MB`):'',data.active&&job.speed_mbps?`${job.speed_mbps} MB/s`:''].filter(Boolean).join(' · ');$('errors').replaceChildren(...(job.errors||[]).map(e=>{const p=text('p',`${e.creator} · ${e.release}: ${e.error}`);p.className='error';return p}));for(const warning of job.warnings||[])$('errors').append(text('p','Warning: '+warning));queue();
 }
 async function refresh(reset=false){if(inFlight)return;inFlight=true;try{const oldActive=data?.active;const oldCreators=JSON.stringify(data?.creators);data=await request('');render(reset||oldActive!==data.active&&!dirty);if(oldCreators!==JSON.stringify(data.creators))artists()}catch(e){notice(e.message,true)}finally{inFlight=false}}
+let fileStatusPending=false,lastFileStatus=0,lastVisibleFiles='';
+async function refreshVisibleFiles(keys){const signature=JSON.stringify(keys);if(!keys.length||fileStatusPending||(signature===lastVisibleFiles&&Date.now()-lastFileStatus<10000))return;fileStatusPending=true;lastFileStatus=Date.now();lastVisibleFiles=signature;try{await request('file-status',{release_keys:keys})}catch{}finally{fileStatusPending=false}}
 let progressInFlight=false;
 async function refreshProgress(){if(!data||progressInFlight)return;progressInFlight=true;try{const update=await request('progress',undefined,{signal:AbortSignal.timeout(5000)});Object.assign(data,update);render(false);}catch(e){/* Full refresh reports connection errors; keep the last known progress. */}finally{progressInFlight=false}}
 async function act(action,payload={}){try{notice('Working…');await request(action,payload);notice(action==='save'?'Subscriptions saved.':'');if(action==='save'){dirty=false}await refresh(action==='save'||action==='login')}catch(e){notice(e.message,true)}}

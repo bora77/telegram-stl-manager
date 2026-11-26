@@ -138,6 +138,20 @@
 })();
 
 
+/* One status-line formatter for every queue. */
+window.renderDownloadAvailability=(label,state)=>{
+ const errors=state.errors||[],next=state.next_check_at?new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'due now';
+ const result=state.files?`${state.files} files detected · ${state.releases} releases · ${state.creators} artists`:(errors.length?'Availability check incomplete':state.checked_at?'Check complete — no new files found':'No downloads detected yet');
+ const schedule=`Next check: ${next} · Every ${state.interval_seconds/3600} hours while this tool is open.`;
+ let message=state.checking?'Checking for available downloads…':state.deferred?'Next check: due now · Waiting for the current task to finish.':`${state.files||errors.length?result+' · ':''}${schedule}`;
+ label.title=(state.checked_at?'Last checked: '+new Date(state.checked_at*1000).toLocaleString()+'. ':'No check completed yet. ')+`Checks every ${state.interval_seconds/3600} hours while this tool is open.`;
+ if(state.claimed&&!state.checking)message=state.deferred?'Next check: due now · Waiting for the current task to finish.':schedule;
+ if(errors.length&&state.files)message+=' · Some artists could not be checked.';
+ if(!state.subscribed)message='Subscribe to artists to check for downloads.';
+ if(state.connection_message)message=state.connection_message;
+ if(label.textContent!==message){const index=state.files&&!state.checking&&!state.deferred&&!state.connection_message?message.indexOf('detected'):-1;if(index>=0){const word=document.createElement('span');word.className='detected-flash';word.textContent='detected';label.replaceChildren(document.createTextNode(message.slice(0,index)),word,document.createTextNode(message.slice(index+8)))}else label.textContent=message;}
+};
+
 /* Open browsers schedule checks; the web server has no recurring timer. */
 (()=>{
  let busy=false;
@@ -154,17 +168,7 @@
    }
    if(label){
     label.hidden=false;
-    const result=state.files?`${state.files} files detected · ${state.releases} releases · ${state.creators} artists`:(state.errors.length?'Availability check incomplete':state.checked_at?'Check complete — no new files found':'No downloads detected yet');
-    let statusText=state.checking?'Checking for available downloads…':state.deferred?'Next check: due now · Waiting for the current task to finish.':
-     `${result}${state.checked_at?' · Checked '+new Date(state.checked_at*1000).toLocaleString():''} · Next check: ${new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} · Every ${state.interval_seconds/3600} hours while this tool is open.`;
-    if(state.claimed&&!state.checking){statusText=state.deferred?'Next check: due now · Waiting for the current task to finish.':'Next check: '+new Date(state.next_check_at*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
-    if(state.errors.length&&state.files)statusText+=' · Some artists could not be checked.';
-    if(!state.subscribed)statusText='Subscribe to artists to check for downloads.';
-    if(label.textContent!==statusText){
-     const index=state.files&&!state.checking&&!state.deferred?statusText.indexOf('detected'):-1;
-     if(index>=0){const word=document.createElement('span');word.className='detected-flash';word.textContent='detected';label.replaceChildren(document.createTextNode(statusText.slice(0,index)),word,document.createTextNode(statusText.slice(index+8)))}
-     else label.textContent=statusText;
-    }
+    window.renderDownloadAvailability(label,state);
    }
   }catch{if(label){label.hidden=false;label.textContent='Availability check unavailable; the browser will retry.'}}
   finally{busy=false}

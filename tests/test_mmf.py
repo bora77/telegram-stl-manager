@@ -8,6 +8,7 @@ from unittest.mock import patch
 from app.mmf_client import MMFClient, MMFError, LoginRequired, LoginForm
 from app.mmf_manager import MMFManager, month_for, version_key
 from app.subscription_store import SubscriptionStore
+from app.check_schedule import next_check_at
 
 class Response(io.BytesIO):
     def __init__(self,body,status=200,headers=None,url='https://dl4.myminifactory.com/file.zip'):
@@ -158,6 +159,39 @@ class MMFTests(unittest.TestCase):
         self.assertEqual(result['job']['bytes'],123)
         self.assertEqual(result['job']['expected'],456)
 
+    def test_fast_queue_and_finished_releases_never_touch_nas(self):
+        from app.mmf_manager import releases
+        from app.mmf_release_prepare import rows,save
+        base=self.root/'nas'
+        self.store.atomic_write(self.store.config_path,{'revision':0,'download_directory':str(base)})
+        self.manager.put('settings',{'subscriptions':[{'id':1,'folder':'Example Creator','start_month':''}]})
+        releases([self.item]);self.manager.put('items',[self.item])
+        original=Path.stat
+        def guarded(path,*args,**kwargs):
+            if path.is_relative_to(base):raise AssertionError('NAS accessed while rendering list')
+            return original(path,*args,**kwargs)
+        with patch('pathlib.Path.stat',guarded):
+            state=self.manager.state(filesystem=False)
+        self.assertEqual(len(state['items']),1);self.assertTrue(state['collages'][self.item['release_key']]['pending'])
+        rows(self.manager);save(self.manager,{'id':'published','number':0,'state':'complete','manual_finish':True,'release_key':self.item['release_key'],'keys':[self.item['key']],'publication':{'keys':[self.item['key']]}})
+        with patch('pathlib.Path.stat',guarded):state=self.manager.state()
+        self.assertTrue(state['release_lifecycle'][self.item['release_key']]['finished'])
+        self.assertFalse(state['items'][0]['missing_files'])
+
+    def test_visible_file_refresh_skips_finished_and_reuses_cache(self):
+        import threading,time
+        finished='a'*64;visible='b'*64;offscreen='c'*64;done=threading.Event();probes=[]
+        lightweight={'release_lifecycle':{finished:{'finished':True},visible:{'finished':False},offscreen:{'finished':False}},'file_status_tokens':{visible:'v1',offscreen:'v1'}}
+        def state(**kwargs):
+            if kwargs.get('filesystem'):
+                probes.append(kwargs['release_keys']);self.assertFalse(kwargs['validate_collages'])
+                self.manager.put('queue_file_status',{'base':self.store.config()['download_directory'],'entries':{visible:{'token':'v1','checked_at':time.time()}}});done.set()
+            return lightweight
+        with patch.object(self.manager,'state',side_effect=state):
+            self.manager.refresh_visible_files([finished,visible]);self.assertTrue(done.wait(3))
+            self.manager.refresh_visible_files([finished,visible])
+        self.assertEqual(probes,[{visible}])
+
     def test_removed_archive_history_is_not_added_to_current_redownload(self):
         from app.mmf_manager import releases
         old=dict(self.item);releases([old])
@@ -178,7 +212,7 @@ class MMFTests(unittest.TestCase):
         self.manager.put('checked_at',1000)
         self.manager.put('settings',{'revision':1,'subscriptions':[{'id':1,'name':'Example Creator','folder':'Example Creator','start_month':''}]})
         self.manager.session.touch()
-        state=self.manager.state();self.assertEqual(state['next_check_at'],4600);self.assertEqual(state['interval_hours'],1)
+        state=self.manager.state();self.assertEqual(state['next_check_at'],next_check_at(1000,3600));self.assertEqual(state['interval_hours'],1)
         with patch('app.mmf_manager.time.time',return_value=5000),patch('app.mmf_manager.subprocess.Popen') as launch:
             self.assertTrue(self.manager.start('check',due=True)['started'])
             self.assertFalse(self.manager.start('check',due=True)['started'])

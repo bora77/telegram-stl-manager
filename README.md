@@ -290,6 +290,13 @@ The browser checks subscribed creators for available downloads at the interval s
 
 ## Optional automatic downloads
 
+Availability checks use fixed clock slots in the application's time zone, shared
+by every queue. A four-hour interval means 00:00, 04:00, 08:00, 12:00, 16:00 and
+20:00; manual scans do not shift those slots. Fractional intervals use their
+corresponding minute boundaries. The first check can run immediately; missed
+slots are checked once when a browser page is open again. Docker uses
+`STL_TIMEZONE` from its launcher environment for the application clock.
+
 Telegram and MMF each have an independent **Auto-download: Off / On** toggle on
 their queue page. Both default to Off and remember their saved state across
 browser and server restarts. A manager page must remain open: existing browser
@@ -326,6 +333,13 @@ add-ons and sign-up bonuses retain their collection names. Individual store
 purchases and standalone model/PDF downloads are not yet exposed.
 
 ### Check and download
+
+The queue displays saved database status immediately. Finished releases do not
+trigger storage or collage checks. File status for visible, unfinished releases
+refreshes separately and is cached for a minute; image contents are not opened
+just to display the list. Packaging, saving and uploading validate their selected
+inputs when the action runs. MMF availability checks for new file versions are
+separate from these local file-status checks.
 
 **MMF → Queue** checks for availability at its configured interval while a manager
 page is open. Downloads start manually by default; the queue’s Auto-download toggle can enable automatic starts. Use **Download detected** for files already
@@ -457,6 +471,9 @@ For a collage set, filenames add the editable card name, for example
 `Artist-YYYY-MM-Grinda Bikes.jpg` and `Artist-YYYY-MM-Release Overview.jpg`.
 All selected collages are uploaded before the archive volumes. Bot delivery
 forwards that same saved set; old or unrelated JPGs are excluded.
+Photo captions include the release name followed by the model/set name for a
+dedicated image, or **Collage** for a mixed-model overview. The editor's
+**Photo caption** selector lets you choose the appropriate type for each card.
 
 Release images are also included **inside the prepared archive**. Original model
 filenames are preserved, with model/archive subfolders where needed to avoid
@@ -672,6 +689,10 @@ Neither action rescans artists or repeats completed downloads. Old local staging
 is retained under `redownload-backups` rather than reused.
 
 ## Development and packaging
+
+All availability schedulers, including new provider queues, must use the shared
+`app.check_schedule.next_check_at` helper rather than adding an interval to the
+last manual check timestamp.
 
 Application modules are in `app/`, tests in `tests/`, and build tools in
 `tools/`. Windows integration is in `windows/`; Docker launchers are in

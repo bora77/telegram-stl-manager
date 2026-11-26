@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch,Mock
 from app.availability import Availability, INTERVAL, eligible
 from app.subscription_store import SubscriptionStore
+from app.check_schedule import next_check_at
 from tests.test_support import configure_source
 
 TOPIC='https://t.me/c/123456789/200'
@@ -18,13 +19,13 @@ class AvailabilityTests(unittest.TestCase):
         store.queue=Mock(return_value={'active':False,'organizer_active':False})
         return store,Availability(store)
 
-    def test_configured_interval_recalculates_due_time_from_last_check(self):
+    def test_configured_interval_recalculates_fixed_clock_slot(self):
         with tempfile.TemporaryDirectory() as temp:
             store,checker=self.setup(Path(temp))
             store.atomic_write(checker.path,{'subscriptions':[SUB],'items':[],'checked_at':1000,'next_check_at':15400})
             for revision,hours in enumerate((1,8,.25)):
                 store.save_config({'revision':revision,'download_directory':str(store.root),'availability_interval_hours':hours})
-                self.assertEqual(checker.status()['next_check_at'],1000+hours*3600)
+                self.assertEqual(checker.status()['next_check_at'],next_check_at(1000,hours*3600))
                 self.assertEqual(checker.status()['interval_seconds'],hours*3600)
             store.save_config({'revision':3,'download_directory':str(store.root)})
             self.assertEqual(store.config()['availability_interval_hours'],.25)
@@ -43,7 +44,7 @@ class AvailabilityTests(unittest.TestCase):
             with patch('app.availability.TelegramCLI',return_value=client),patch('app.availability.time.time',return_value=1000):checker.check()
             client.list_files.assert_called_once_with(TOPIC,incremental=True)
             self.assertEqual([c[0] for c in client.method_calls],['list_files','close'])
-            state=checker.status();self.assertEqual(state['files'],2);self.assertEqual(state['next_check_at'],1000+INTERVAL)
+            state=checker.status();self.assertEqual(state['files'],2);self.assertEqual(state['next_check_at'],next_check_at(1000,INTERVAL))
             with store.history.connect() as db:self.assertEqual(db.execute('SELECT count(*) FROM downloads').fetchone()[0],0)
             for mid,name in [(4,'Example 2026-08.zip'),(6,'Example 2026-09.zip')]:
                 store.history.register(source_message_id=mid,creator='Example',topic_url=TOPIC,filename=name,bytes_total=100)
@@ -106,7 +107,7 @@ class AvailabilityTests(unittest.TestCase):
             self.assertEqual([e['item']['source_message_id'] for e in checkpoint['items']],[9])
             self.assertEqual(run['availability_checked_at'],1000)
             self.assertTrue(checker.status()['claimed']);self.assertEqual(checker.status()['files'],0)
-            self.assertEqual(checker.status()['next_check_at'],1000+INTERVAL)
+            self.assertEqual(checker.status()['next_check_at'],next_check_at(1000,INTERVAL))
             # A newer check may notify about newly detected files again.
             store.atomic_write(checker.path,{'subscriptions':subs,'items':files,'checked_at':2000})
             self.assertFalse(checker.status()['claimed']);self.assertEqual(checker.status()['files'],1)

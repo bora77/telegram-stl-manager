@@ -7,7 +7,8 @@ const make=(tag,text='',className='')=>{const n=document.createElement(tag);n.te
 const signature=draft=>JSON.stringify(draft);
 function error(message=''){el('page-error').textContent=message;el('page-error').hidden=!message}
 async function api(path,data){const r=await fetch(path,{cache:'no-store',...(data===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})});const b=await r.json();if(!r.ok)throw Error(b.error||'Request failed.');return b}
-function payload(c,draft=c.draft){const card=draft.cards?.find(i=>i.id===draft.active_card);return {...draft,...(card?{card_name:card.name}:{}),release_id:c.release.id,revision:c.revision}}
+function cardKind(card){return card.kind||card.draft?.card_kind||(Object.keys(card.draft?.labels||{}).length>1||card.name.toLowerCase().includes('overview')?'overview':'model')}
+function payload(c,draft=c.draft){const card=draft.cards?.find(i=>i.id===draft.active_card);return {...draft,...(card?{card_name:card.name,card_kind:cardKind(card)}:{}),release_id:c.release.id,revision:c.revision}}
 function cardDraft(draft){return {images:[...draft.images],labels:{...(draft.labels||{})},layout:draft.layout,shape:draft.shape,theme:draft.theme,title:draft.title}}
 function baseTitle(c){const artist=c.release.folder.replace(/^[-! ]+/,'').trim(),month=c.release.month;return artist+' · '+(month.toLowerCase().startsWith(artist.toLowerCase()+' ')?month.slice(artist.length).trim():month)}
 function cardTitle(c,name){const suffix=' · '+name,base=baseTitle(c);return (base.length+suffix.length<=120?base:base.slice(0,Math.max(1,119-suffix.length))+'…')+suffix}
@@ -18,6 +19,7 @@ function renderCards(c){
  const cards=c.draft.cards||[];el('collage-cards').replaceChildren();el('collage-card-tools').hidden=!cards.length;
  for(const card of cards){const box=make('div','','collage-card'+(card.id===c.draft.active_card?' active':'')),button=make('button','','collage-card-select');button.type='button';button.setAttribute('aria-pressed',String(card.id===c.draft.active_card));const first=card.draft.images.find(Boolean);if(first){const img=make('img');img.src='/api/collages/thumbnail/'+first;img.alt='';button.append(img)}button.append(make('strong',card.name),make('small',`${card.draft.images.filter(Boolean).length} images${card.uncertain?' · Review grouping':''}`));button.onclick=()=>selectCard(card.id);const label=make('label','Include in upload '),check=make('input');check.type='checkbox';check.checked=card.enabled;check.onchange=()=>{card.enabled=check.checked;changed()};label.append(check);box.append(button,label);el('collage-cards').append(box)}
  const card=cards.find(i=>i.id===c.draft.active_card);el('collage-card-name').value=card?.name||'';
+ el('collage-card-kind').value=card?cardKind(card):'model';
  el('save-collage').textContent=cards.length?'Save selected collages':'Save collage';
 }
 function listWarnings(id,messages){el(id).replaceChildren(...messages.map(s=>make('li',s)));el(id).hidden=!messages.length}
@@ -191,7 +193,7 @@ async function saveCollageSet(){
   for(const [index,card] of cards.entries()){
    if(context!==c)throw Error('Release changed; remaining collage saves stopped.');
    el('auto-status').textContent=`Preparing collage ${index+1}/${cards.length}: ${card.name}`;
-   const result=await api('/api/collages/preview',{...card.draft,release_id:c.release.id,card_name:card.name});
+   const result=await api('/api/collages/preview',{...card.draft,release_id:c.release.id,card_name:card.name,card_kind:cardKind(card)});
    if(names.has(result.filename.toLowerCase()))throw Error('Collage output names collide. Give each card a distinct name.');names.add(result.filename.toLowerCase());previews.push(result);
   }
   const ids=[];
@@ -239,6 +241,7 @@ el('collage-card-name').oninput=()=>{const c=context,card=c?.draft.cards?.find(i
 el('new-collage-card').onclick=()=>{const c=context;if(!c)return;syncCard(c);const id=()=>crypto.randomUUID().replaceAll('-','');if(!c.draft.cards)c.draft.cards=[{id:id(),name:'Release Overview',enabled:true,draft:cardDraft(c.draft)}];const name='New collage '+(c.draft.cards.length+1),card={id:id(),name,enabled:true,draft:{images:[null],labels:{},layout:'featured',shape:c.draft.shape,theme:c.draft.theme,title:cardTitle(c,name)}};c.draft.cards.push(card);selectCard(card.id)};
 el('remove-collage-card').onclick=()=>{const c=context;if(!c?.draft.cards||c.draft.cards.length<2)return;c.draft.cards=c.draft.cards.filter(i=>i.id!==c.draft.active_card);selectCard(c.draft.cards[0].id)};
 el('image-label').oninput=()=>{const c=context,id=c?.draft.images[c.active];if(!id)return;c.draft.labels||={};c.draft.labels[id]=el('image-label').value;changed()};
+el('collage-card-kind').onchange=()=>{const c=context,card=c?.draft.cards?.find(i=>i.id===c.draft.active_card);if(card){card.kind=el('collage-card-kind').value;changed()}};
 el('slot-count').onchange=()=>{if(context){const n=Number(el('slot-count').value);context.draft.images=Array.from({length:n},(_,i)=>context.draft.images[i]||null);context.active=Math.min(context.active,n-1);changed()}};
 el('collage-title').oninput=()=>{if(context){context.draft.title=el('collage-title').value;changed()}};
 el('image-search').oninput=renderGallery;el('archive-filter').onchange=()=>{const url=new URL(location.href);const archive=el('archive-filter').value;if(archive)url.searchParams.set('archive',archive);else url.searchParams.delete('archive');history.replaceState(null,'',url);renderGallery()};

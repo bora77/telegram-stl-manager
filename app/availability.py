@@ -6,6 +6,7 @@ from app.release_rules import release_month, in_scope
 from app.release_images import is_image_attachment, is_archive, volume_key
 from app.telegram_cli import TelegramCLI, safe_filename
 from app.organizer_versions import uploads, complete
+from app.check_schedule import next_check_at
 
 INTERVAL = 4 * 60 * 60
 
@@ -51,7 +52,7 @@ class Availability:
             claimed=checked is not None and run.get('availability_checked_at')==checked
             if claimed:available=[]
             return {'progress':dict(self.progress) if self.running else {},'claimed':claimed,'checking':self.running,'interval_seconds':interval,'checked_at':checked,
-                    'next_check_at':checked+interval if checked is not None else 0,'files':len(available),
+                    'next_check_at':next_check_at(checked,interval),'files':len(available),
                     'releases':len({(i['topic_url'],i['month']) for i in available}),
                     'creators':len({i['topic_url'] for i in available}), 'subscribed':len(subs),
                     'errors':saved.get('errors',[]) if same else []}
@@ -126,6 +127,6 @@ class Availability:
             try:
                 if client:client.close()
                 now=time.time()
-                self.store.atomic_write(self.path,{'subscriptions':subs,'items':items,'errors':errors,'checked_at':now,'next_check_at':now+self.store.config()['availability_interval_hours']*3600})
+                self.store.atomic_write(self.path,{'subscriptions':subs,'items':items,'errors':errors,'checked_at':now,'next_check_at':next_check_at(now,self.store.config()['availability_interval_hours']*3600)})
             finally:
                 with self.lock:self.running=False

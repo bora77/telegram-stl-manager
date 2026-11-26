@@ -132,10 +132,14 @@ class Handler(SimpleHTTPRequestHandler):
         if path in ('/api/mmf/progress','/api/gumroad/progress'):
             self.reply_json((GUMROAD if path.startswith('/api/gumroad') else MMF).progress_state());return
         if path in ('/api/mmf','/api/mmf/status','/api/gumroad','/api/gumroad/status'):
-            result=(GUMROAD if path.startswith('/api/gumroad') else MMF).state()
+            result=(GUMROAD if path.startswith('/api/gumroad') else MMF).state(filesystem=False)
             if path.endswith('/status'):
                 result={k:v for k,v in result.items() if k not in ('items','folders','creators')}
             self.reply_json(result);return
+        if path in ('/api/mmf/folders','/api/gumroad/folders'):
+            manager=GUMROAD if path.startswith('/api/gumroad') else MMF
+            config=self.store.config_view();manager.put('view_folders',{'base':config['download_directory'],'folders':config['folders']})
+            self.reply_json({'folders':config['folders']});return
         if path=='/api/auto-download':
             self.reply_json(AUTO_DOWNLOADS.read());return
         if path=='/api/availability':
@@ -189,7 +193,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.reply_json({'error':'Read and acknowledge the usage notice before continuing.'},403);return
         if SETUP.setup_required and not self.path.startswith('/api/updates/') and self.path not in ('/api/setup/acknowledge','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/gumroad/login','/api/release-pad/destinations','/api/servers/refresh','/api/servers/retest'):
             self.reply_json({'error':'Complete initial setup in Configuration first.','setup_required':True},403);return
-        if self.path not in ('/api/auto-download','/api/auto-download/tick','/api/gumroad/save','/api/gumroad/creators','/api/gumroad/check','/api/gumroad/download','/api/gumroad/redownload','/api/gumroad/resume','/api/gumroad/stop','/api/gumroad/prepare','/api/gumroad/images','/api/gumroad/package','/api/gumroad/upload','/api/gumroad/released','/api/gumroad/finish','/api/gumroad/release','/api/updates/check','/api/updates/install','/api/updates/settings','/api/release-pad/destinations','/api/artist-profiles','/api/setup/acknowledge','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/gumroad/login','/api/mmf/save','/api/mmf/creators','/api/mmf/check','/api/mmf/download','/api/mmf/redownload','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/images','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/mmf/finish','/api/mmf/release','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/set','/api/collages/auto-fill','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
+        if self.path not in ('/api/mmf/file-status','/api/gumroad/file-status','/api/auto-download','/api/auto-download/tick','/api/gumroad/save','/api/gumroad/creators','/api/gumroad/check','/api/gumroad/download','/api/gumroad/redownload','/api/gumroad/resume','/api/gumroad/stop','/api/gumroad/prepare','/api/gumroad/images','/api/gumroad/package','/api/gumroad/upload','/api/gumroad/released','/api/gumroad/finish','/api/gumroad/release','/api/updates/check','/api/updates/install','/api/updates/settings','/api/release-pad/destinations','/api/artist-profiles','/api/setup/acknowledge','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/mmf/login','/api/gumroad/login','/api/mmf/save','/api/mmf/creators','/api/mmf/check','/api/mmf/download','/api/mmf/redownload','/api/mmf/resume','/api/mmf/stop','/api/mmf/prepare','/api/mmf/images','/api/mmf/package','/api/mmf/upload','/api/mmf/released','/api/mmf/finish','/api/mmf/release','/api/availability/check','/api/subscriptions','/api/config','/api/run','/api/run/resume','/api/run/ignore','/api/stop','/api/organizer/preview','/api/organizer/stop','/api/organizer/apply','/api/organizer/resume','/api/organizer/repair','/api/servers/refresh','/api/servers/retest','/api/collages/set','/api/collages/auto-fill','/api/collages/open','/api/collages/selection','/api/collages/layout','/api/collages/preview','/api/collages/export'):
             self.reply_json({'error':'Unknown action.'},404);return
         if self.headers.get('Content-Type','').split(';')[0] != 'application/json':
             self.reply_json({'error':'Expected JSON.'},415);return
@@ -198,6 +202,9 @@ class Handler(SimpleHTTPRequestHandler):
             if not 0 < length <= (7_000_000 if self.path=='/api/artist-profiles' else 1_000_000):raise ValueError('Invalid request size.')
             payload=json.loads(self.rfile.read(length))
             if not isinstance(payload,dict):raise ValueError('Expected an object.')
+            if self.path in ('/api/mmf/file-status','/api/gumroad/file-status'):
+                manager=GUMROAD if self.path.startswith('/api/gumroad') else MMF
+                self.reply_json(manager.refresh_visible_files(payload.get('release_keys')));return
             if self.path in ('/api/auto-download','/api/auto-download/tick'):
                 self.reply_json(AUTO_DOWNLOADS.tick() if self.path.endswith('/tick') else AUTO_DOWNLOADS.save(payload));return
             if self.path.startswith('/api/updates/'):

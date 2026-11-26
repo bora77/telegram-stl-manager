@@ -279,6 +279,13 @@ archives and forwards that same set to the bot; unrelated JPGs are excluded.
 
 ## Optional automatic downloads
 
+Availability checks use fixed clock slots in the application's time zone, shared
+by every queue. A four-hour interval means 00:00, 04:00, 08:00, 12:00, 16:00 and
+20:00; manual scans do not shift those slots. Fractional intervals use their
+corresponding minute boundaries. The first check can run immediately; missed
+slots are checked once when a browser page is open again. Docker uses
+`STL_TIMEZONE` from its launcher environment for the application clock.
+
 Telegram and MMF each have an independent **Auto-download: Off / On** toggle on
 their queue page. Both default to Off and remember their saved state across
 browser and server restarts. A manager page must remain open: existing browser

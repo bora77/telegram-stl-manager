@@ -10,6 +10,8 @@ import sqlite3
 import subprocess
 import sys
 import time
+import threading
+from app.check_schedule import next_check_at
 from datetime import datetime, timezone
 from app.mmf_client import MMFClient, MMFError, LoginRequired
 from app.release_rules import release_month, baseline_month, default_creator_folder
@@ -101,6 +103,7 @@ class MMFManager:
         self.directory.mkdir(parents=True,exist_ok=True,mode=0o700)
         self.directory.chmod(0o700)
         self.session=self.directory/'session.cookies';self.database=self.directory/'manager.sqlite3'
+        self._view_lock=threading.Lock();self._view_pending=set();self._view_inflight=set();self._view_running=False
         with self.db() as db:
             db.executescript('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS completed (key TEXT PRIMARY KEY, data TEXT NOT NULL);')
     def db(self):
@@ -140,7 +143,35 @@ class MMFManager:
         from app.mmf_release_prepare import preparation_status
         return {'job':self.get('job',{}),'active':self.busy(),'preparations':preparation_status(self)}
 
-    def state(self):
+    def refresh_visible_files(self,keys):
+        if not isinstance(keys,list) or len(keys)>20 or any(not isinstance(k,str) or not re.fullmatch('[a-f0-9]{64}',k) for k in keys):raise ValueError('Choose at most 20 visible releases.')
+        state=self.state(filesystem=False);cache=self.get('queue_file_status',{})
+        if cache.get('base')!=self.store.config()['download_directory']:cache={}
+        entries=cache.get('entries',{});needed=[]
+        for key in keys:
+            if key not in state['release_lifecycle'] or state['release_lifecycle'][key]['finished']:continue
+            entry=entries.get(key,{})
+            if entry.get('token')!=state['file_status_tokens'].get(key) or time.time()-entry.get('checked_at',0)>60:needed.append(key)
+        with self._view_lock:
+            self._view_pending.update(set(needed)-self._view_inflight)
+            if self._view_running or not self._view_pending:return {'refreshing':self._view_running}
+            self._view_running=True
+        def refresh():
+            try:
+                while True:
+                    with self._view_lock:
+                        if not self._view_pending:self._view_running=False;return
+                        selected=set(self._view_pending);self._view_pending.clear();self._view_inflight=set(selected)
+                    self.state(filesystem=True,release_keys=selected,validate_collages=False)
+                    with self._view_lock:self._view_inflight.clear()
+            except Exception:
+                # A failed NAS read must not replace previously known status or
+                # block the list. The next browser request can retry it.
+                with self._view_lock:self._view_running=False;self._view_inflight.clear()
+        threading.Thread(target=refresh,daemon=True).start()
+        return {'refreshing':True}
+
+    def state(self,filesystem=True,release_keys=None,validate_collages=True):
         settings=self.get('settings',{'revision':0,'subscriptions':[]})
         job=self.get('job',{});active=self.busy()
         if not active and job.get('phase') in ('checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs','cleaning_stls'):
@@ -148,11 +179,28 @@ class MMFManager:
         checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()[self.provider+'_availability_interval_hours']*3600
         known=self.completed()-self.pending_redownload_keys();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])
         from app.mmf_release_prepare import downloaded
+        history=downloaded(self)
         subscribed={str(s['id']) for s in settings.get('subscriptions',[])}
         current_objects={(i['creator_id'],i['object_id']) for i in items}
-        items.extend(i for i in downloaded(self) if str(i['creator_id']) in subscribed and (i['creator_id'],i['object_id']) not in current_objects)
+        items.extend(i for i in history if str(i['creator_id']) in subscribed and (i['creator_id'],i['object_id']) not in current_objects)
         items=self.scoped_items(items)
-        records={i['key']:i for i in downloaded(self)};path_exists={}
+        records={i['key']:i for i in history};path_exists={}
+        from app.mmf_release_prepare import preparation_status, release_lifecycle, release_collages
+        prepared=preparation_status(self);lifecycle=release_lifecycle(items,prepared)
+        base=self.store.config()['download_directory'];cache=self.get('queue_file_status',{})
+        if cache.get('base')!=base:cache={'base':base,'entries':{}}
+        entries=cache.get('entries',{});tokens={}
+        collage_tokens={};collage_db=self.root/'data/collages.sqlite3'
+        if collage_db.exists():
+            with sqlite3.connect(collage_db.as_uri()+'?mode=ro',uri=True) as db:
+                for folder,month,created,finished in db.execute('SELECT r.folder,r.month,max(e.created),max(e.finished) FROM releases r JOIN exports e ON e.release_id=r.id GROUP BY r.folder,r.month'):
+                    collage_tokens[(folder,month)]=(created,finished)
+        with self.db() as db:gallery_tokens={k.removeprefix('prepared_images:'):hashlib.sha256(v.encode()).hexdigest() for k,v in db.execute("SELECT key,value FROM state WHERE key LIKE 'prepared_images:%'")}
+        for key in lifecycle:
+            token_items=[(i['key'],records.get(i['key'],{}).get('completed_at'),records.get(i['key'],{}).get('source_cleanup',{}).get('state')) for i in items if i['release_key']==key]
+            first=next(i for i in items if i['release_key']==key)
+            tokens[key]=hashlib.sha256(json.dumps([token_items,collage_tokens.get((first.get('folder'),first.get('release_folder'))),gallery_tokens.get(key)],sort_keys=True).encode()).hexdigest()
+        wanted={key for key in lifecycle if not lifecycle[key]['finished'] and (release_keys is None or key in release_keys)} if filesystem else set()
         existing_releases={}
         visible={i['release_key'] for i in items}
         current_versions={(i['creator_id'],i['object_id'],i['archive_id']):i['key'] for i in items}
@@ -166,28 +214,43 @@ class MMFManager:
             if record.get('destination'):
                 directory=str(Path(record['destination']).parent)
                 if directory not in summary['directories']:summary['directories'].append(directory)
-        storage_available=Path(self.store.config()['download_directory']).is_dir()
+        storage_available=Path(base).is_dir() if wanted else None
         for item in items:
             record=records.get(item['key'],{});outputs=(record.get('repack') or {}).get('outputs',[])
             cleanup=record.get('source_cleanup',{})
             if cleanup.get('state')=='complete' and cleanup.get('release_outputs'):outputs=cleanup['release_outputs']
             paths=[r['path'] for r in outputs] or ([record['destination']] if record.get('destination') else [])
-            missing=[]
-            if storage_available:
+            key=item['release_key'];cached=entries.get(key,{}).get('items',{}).get(item['key'],{})
+            missing=[] if lifecycle[key]['finished'] or key in wanted else cached.get('missing_files',[])
+            if key in wanted and storage_available:
                 for path in paths:
                     if path not in path_exists:
                         try:path_exists[path]=Path(path).is_file()
                         except OSError:path_exists[path]=True
                     if not path_exists[path]:missing.append(Path(path).name)
             item['images_checked']=record.get('images_extracted',False)
-            item['missing_files']=missing;item['storage_unavailable']=not storage_available
+            item['missing_files']=missing;item['storage_unavailable']=False if lifecycle[key]['finished'] else (not storage_available) if key in wanted else cached.get('storage_unavailable',False)
         counts={'available':0,'review':0,'completed':0}
         for item in items:counts['completed' if item['key'] in known else 'available']+=1
         resumable=any(i['key'] not in known for i in self.scoped_items(self.get('queue',[])))
-        from app.mmf_release_prepare import preparation_status, release_lifecycle, release_collages
-        prepared=preparation_status(self)
-        managed=self.store.history.managed_releases({i['release_key']:Path(self.store.config()['download_directory'])/i['folder']/i['release_folder'] for i in items if i.get('folder') and i.get('release_folder')})
-        return {'existing_releases':existing_releases,'managed_releases':managed,'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':release_collages(items,self.store.config()['download_directory']),'release_lifecycle':release_lifecycle(items,prepared),'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':max(checked,attempt)+interval if checked or attempt else 0,'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':self.store.config_view()['folders']}
+        if wanted:
+            subset=[i for i in items if i['release_key'] in wanted]
+            collages=release_collages(subset,base,validate=validate_collages)
+            managed=self.store.history.managed_releases({i['release_key']:Path(base)/i['folder']/i['release_folder'] for i in subset if i.get('folder') and i.get('release_folder')})
+            for key in wanted:entries[key]={'token':tokens[key],'checked_at':time.time(),'collage':collages.get(key),'managed':managed.get(key),'items':{i['key']:{'missing_files':i['missing_files'],'storage_unavailable':i['storage_unavailable']} for i in subset if i['release_key']==key}}
+            self.put('queue_file_status',{'base':base,'entries':entries})
+        collages={};managed={}
+        for item in items:
+            key=item['release_key'];entry=entries.get(key,{})
+            exported=collage_tokens.get((item.get('folder'),item.get('release_folder')),(None,None))[1]
+            saved_collage=bool(exported) or any(p.get('id') for p in prepared.get(key,{}).get('packages',[]))
+            checked_entry=bool(entry.get('checked_at')) and entry.get('token')==tokens[key]
+            collages[key]=entry.get('collage') or {'valid':saved_collage if not checked_entry else False,'exists':saved_collage if not checked_entry else False,'ready':bool(item.get('images_checked')) if not checked_entry else False,'folder':item.get('folder'),'release':item.get('release_folder'),'pending':not lifecycle[key]['finished'] and not checked_entry}
+            if entry.get('collage') and entry.get('token')!=tokens[key] and not lifecycle[key]['finished']:collages[key]={**collages[key],'pending':True}
+            if entry.get('managed'):managed[key]=entry['managed']
+        folders_cache=self.get('view_folders',{})
+        folders=folders_cache.get('folders',[]) if folders_cache.get('base')==base else sorted({i['folder'] for i in history if i.get('folder')}|{s['folder'] for s in settings.get('subscriptions',[]) if s.get('folder')})
+        return {'file_status_tokens':tokens,'existing_releases':existing_releases,'managed_releases':managed,'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':collages,'release_lifecycle':lifecycle,'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':next_check_at(max(checked,attempt),interval),'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':folders}
     def login(self,payload):
         with self.idle():
             groups=self.client().login(payload.get('username'),payload.get('password'))
@@ -226,7 +289,7 @@ class MMFManager:
             try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError:raise FileExistsError('A '+self.label+' task is already running.')
             if not self.session.exists():raise LoginRequired('Connect your '+self.label+' account first.')
-            if due and (self.get('auth_required',False) or time.time()<max(self.get('checked_at',0),self.get('attempted_at',0))+self.store.config()[self.provider+'_availability_interval_hours']*3600):return {'started':False}
+            if due and (self.get('auth_required',False) or time.time()<next_check_at(max(self.get('checked_at',0),self.get('attempted_at',0)),self.store.config()[self.provider+'_availability_interval_hours']*3600)):return {'started':False}
             settings=self.get('settings',{})
             if not settings.get('subscriptions') and action!='check':return {'started':False}
             if action=='download':

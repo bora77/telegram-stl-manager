@@ -36,8 +36,8 @@ class GumroadManager(MMFManager):
                 self.put('creators',result['creators']);self.put('auth_required',False)
         return self.state()
 
-    def state(self):
-        state=super().state();state['verification']=self.get('verification',{})
+    def state(self,**kwargs):
+        state=super().state(**kwargs);state['verification']=self.get('verification',{})
         return state
 
     def refresh_creators(self):

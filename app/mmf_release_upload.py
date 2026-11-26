@@ -217,7 +217,7 @@ def drain(manager,lock_fd):
         try:
             if row.get('workflow') and not row.get('preparation_id'):
                 from app import mmf_release_prepare as prepare
-                current=[i for i in owner.state()['items'] if i['release_key']==row['workflow']['release_key']]
+                current=[i for i in owner.state(release_keys={row['workflow']['release_key']})['items'] if i['release_key']==row['workflow']['release_key']]
                 if sorted({i['key'] for i in current})!=row['workflow']['keys'] or any(not i['completed'] for i in current):raise ValueError('Release files changed. Review the release before queuing again.')
                 try:result=prepare.start(owner,{'release_key':row['workflow']['release_key']},synchronous=True)
                 except FileExistsError:
@@ -300,6 +300,8 @@ def execute(manager,row,client=None):
         with release_lock(manager.root,plan['base'],plan['folder'],plan['release_folder']):
             collage,archives=inputs(manager,plan)
             collages=require_release_collages(archives[0]);sources=[*collages,*archives]
+            from app.collage_sets import photo_labels
+            labels=photo_labels(manager.root,plan['directory'])
             if shutil.disk_usage(work).free<sum(p.stat().st_size for p in sources)+64*1024*1024:raise ValueError('Not enough local space to stage the release upload.')
             staged=[]
             # Snapshot the current release files, including deliberate local replacements.
@@ -309,7 +311,8 @@ def execute(manager,row,client=None):
                 if source.stat().st_size!=target.stat().st_size or digest(source)!=checksum:raise ValueError('Release changed while staging. Retry when editing is finished.')
                 expected=next((o for o in plan.get('outputs',[]) if Path(o['path'])==source),{})
                 if expected.get('sha256') and checksum!=expected['sha256']:raise ValueError('The release archive checksum differs from its prepared version. Restore or rebuild it before uploading.')
-                staged.append({'path':str(source),'name':source.name,'kind':'collage' if source in collages else 'archive','size':target.stat().st_size,'sha256':checksum,'uploaded':0,'state':'queued'})
+                photo=source in collages
+                staged.append({'path':str(source),'name':source.name,'kind':'collage' if photo else 'archive','caption':plan['title']+' · '+labels.get(source.name,'Collage') if photo else plan['title'],'size':target.stat().st_size,'sha256':checksum,'uploaded':0,'state':'queued'})
             row['files']=staged;row['total']=sum(f['size'] for f in staged);row['bytes']=0;save(manager,row)
         if conversation:conversation.begin()
         for info in staged:
@@ -329,7 +332,7 @@ def execute(manager,row,client=None):
             if not photo and not gate_collage.exists():os.link(work/collages[0].name,gate_collage)
             if not photo:require_release_collage(sent_path)
             progress_file=work/(f'progress-{index}.json')
-            args=['stl','release-upload','--chat',row['destination'],'--path',sent_path,'--caption',plan['title'],'--progress',progress_file]
+            args=['stl','release-upload','--chat',row['destination'],'--path',sent_path,'--caption',info['caption'],'--progress',progress_file]
             if photo:args.append('--photo')
             info['state']='uploading';row['current']=index;row['speed_mbps']=0
             def tick():
@@ -345,12 +348,12 @@ def execute(manager,row,client=None):
             matches=[]
             for m in export(f'after-{index}'):
                 raw=m['raw'];media=raw.get('Media') or {}
-                if m['id'] in before or not raw.get('Out') or raw.get('Message')!=plan['title']:continue
+                if m['id'] in before or not raw.get('Out') or raw.get('Message')!=info['caption']:continue
                 if photo and media.get('Photo'):matches.append(m)
                 if not photo and m.get('file')==sent_path.name and (media.get('Document') or {}).get('Size')==info['size']:matches.append(m)
             if len(matches)!=1:raise CLIError('Could not verify delivery. Check the selected destination before re-uploading; the message may already exist.')
             info.update(uploaded=info['size'],state='complete');row['bytes']=sum(f['uploaded'] for f in staged)
-            row['messages'].append({'message_id':matches[0]['id'],'filename':sent_path.name,'kind':info['kind'],'caption':plan['title']});save(manager,row)
+            row['messages'].append({'message_id':matches[0]['id'],'filename':sent_path.name,'kind':info['kind'],'caption':info['caption']});save(manager,row)
         if conversation:
             first=min(m['message_id'] for m in row['messages'])
             conversation.baseline={k:v for k,v in conversation.baseline.items() if k<first}

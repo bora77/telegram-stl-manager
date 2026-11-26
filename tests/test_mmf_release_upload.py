@@ -181,11 +181,12 @@ class BotUploadTests(UploadTests):
         images=[]
         for name,color in (('Example-2026-09-Bikes.jpg','red'),('Example-2026-09-Overview.jpg','blue')):
             path=self.folder/name;Image.new('RGB',(64,64),color).save(path)
-            images.append({'filename':name,'size':path.stat().st_size,'sha256':digest(path)})
+            images.append({'filename':name,'size':path.stat().st_size,'sha256':digest(path),'kind':'model' if color=='red' else 'overview','label':'Bikes' if color=='red' else 'Collage'})
         (self.folder/MANIFEST).write_text(json.dumps({'format':FORMAT,'files':images}))
         pad=self.begin();pad_client=FakeCLI();execute(self.manager,pad,pad_client)
         self.assertEqual(pad_client.uploads,[i['filename'] for i in images]+[self.archive.name])
         self.assertEqual([m['kind'] for m in pad['messages']],['collage','collage','archive'])
+        self.assertEqual([m['caption'] for m in pad['messages']],[self.plan['title']+' · Bikes',self.plan['title']+' · Collage',self.plan['title']])
         bot=self.begin_bot();client=BotCLI();client.pad_messages=pad_client.messages
         execute(self.manager,bot,client)
         self.assertEqual(client.uploads,[]);self.assertEqual(client.events.count('release-forward'),3)
@@ -325,7 +326,7 @@ class BotUploadTests(UploadTests):
             index=next(n for n,m in enumerate(pad['messages']) if m['message_id']==message_id)
             forwarded.append(index)
             client.messages.append({'id':len(client.messages)+1,'file':pad['messages'][index]['filename'],
-                'raw':{'PeerID':{'UserID':456},'Out':True,'Message':sent_caption,
+                'raw':{'PeerID':{'UserID':456},'Out':True,'Message':pad['messages'][index].get('caption',sent_caption),
                        'FwdFrom':{'Flags':0,'Imported':False,'SavedOut':False,'FromID':None,'FromName':'','Date':0,
                                   'ChannelPost':0,'PostAuthor':'','SavedFromPeer':None,'SavedFromMsgID':0,
                                   'SavedFromID':None,'SavedFromName':'','SavedDate':0,'PsaType':''},

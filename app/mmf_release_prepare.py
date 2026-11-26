@@ -144,7 +144,7 @@ def finish_manually(manager, payload):
     with manager.idle():
         if status(manager)['active']:raise FileExistsError('Wait for the current release upload to finish.')
         key=payload.get('release_key')
-        group=[i for i in manager.state()['items'] if i['release_key']==key]
+        group=[i for i in manager.state(filesystem=False)['items'] if i['release_key']==key]
         if not group:raise ValueError('Choose an existing release.')
         keys=sorted({i['key'] for i in group})
         if payload.get('keys')!=keys:raise FileExistsError('Release files changed. Review the release and try again.')
@@ -220,7 +220,7 @@ def has_release_images(directory, depth=0):
     return False
 
 
-def release_collages(items, base):
+def release_collages(items, base,validate=True):
     from app.collages import collage_filename, valid_release_folder
     result={}
     for item in items:
@@ -233,8 +233,13 @@ def release_collages(items, base):
             if (Path(base)/folder).is_symlink() or directory.is_symlink():continue
             collage=directory/collage_filename({'folder':folder,'month':release})
             images=directory/'release_images'
-            try:require_release_collage(directory/'release.7z',action='making the release');valid=True
-            except CLIError:valid=False
+            try:
+                if validate:require_release_collage(directory/'release.7z',action='making the release');valid=True
+                else:
+                    from app.collage_sets import paths
+                    images_selected=paths(directory,verify_hash=False) or [collage]
+                    valid=all(p.is_file() and not p.is_symlink() and 0<p.stat().st_size<=32*1024**2 for p in images_selected)
+            except (CLIError,ValueError):valid=False
             result[key]={'valid':valid,'exists':valid or (collage.is_file() and not collage.is_symlink()),
                          'ready':has_release_images(images),
                          'folder':folder,'release':release}
@@ -331,7 +336,7 @@ def start(manager,payload,synchronous=False):
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:raise FileExistsError('Wait for the current MMF task to finish.')
         history=rows(manager);group=[i for i in downloaded(manager) if i['release_key']==key]
-        current=[i for i in manager.state()['items'] if i['release_key']==key]
+        current=[i for i in manager.state(release_keys={key})['items'] if i['release_key']==key]
         if any(not i['completed'] for i in current):raise ValueError('Download the available files for this release first.')
         if current:
             current_keys={i['key'] for i in current}

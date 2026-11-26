@@ -1,5 +1,13 @@
 # Version history
 
+## 0.2.4
+
+- Load MMF/Gumroad queues from saved status without scanning storage; refresh only visible unfinished releases in the background.
+- Skip filesystem checks for finished releases until an explicit action needs their files.
+- Align availability checks to shared clock slots across all queues, independent of manual-check times.
+- Use consistent next-check and interval status lines across providers.
+- Caption dedicated collage images with their model/set name and mixed overviews as Collage; allow the type to be edited.
+
 ## 0.2.3
 
 - Create dedicated featured collages for multi-image model sets and shared overviews for single-image models.

@@ -279,6 +279,9 @@ class CollageStore:
             name=payload['card_name']
             if not isinstance(name,str) or not name.strip() or len(name)>80 or re.search(r'[\x00-\x1f\x7f]',name):raise CollageError('Use a collage name of 1–80 characters.')
             settings['card_name']=name.strip()
+            kind=payload.get('card_kind') or ('overview' if len(settings['labels'])>1 or 'overview' in name.casefold() else 'model')
+            if kind not in ('model','overview'):raise CollageError('Choose model/set or mixed-model collage.')
+            settings['card_kind']=kind
         return release, records, settings
 
     def layout(self, payload):
@@ -299,8 +302,8 @@ class CollageStore:
                 card_id=token(card.get('id'));name=card.get('name')
                 if card_id in seen or type(card.get('enabled')) is not bool:raise CollageError('Invalid collage card.')
                 seen.add(card_id)
-                _,_,options=self.validate_selection({**card.get('draft',{}),'release_id':release['id'],'card_name':name})
-                checked.append({'id':card_id,'name':options['card_name'],'enabled':card['enabled'],'uncertain':bool(card.get('uncertain')),'draft':{**options,'images':card['draft']['images']}})
+                _,_,options=self.validate_selection({**card.get('draft',{}),'release_id':release['id'],'card_name':name,'card_kind':card.get('kind') or card.get('draft',{}).get('card_kind')})
+                checked.append({'id':card_id,'name':options['card_name'],'kind':options['card_kind'],'enabled':card['enabled'],'uncertain':bool(card.get('uncertain')),'draft':{**options,'images':card['draft']['images']}})
             if payload.get('active_card') not in seen:raise CollageError('Select a collage card.')
             data.update(cards=checked,active_card=payload['active_card'])
         with self.db() as db:

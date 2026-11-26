@@ -38,7 +38,7 @@ def start(manager,payload):
     from app import mmf_release_prepare as prepare, mmf_release_upload as upload
     if payload.get('mode')=='finished':return prepare.finish_manually(manager,payload)
     choice=delivery(manager,payload)
-    state=manager.state()
+    state=manager.state(release_keys={payload.get('release_key')})
     group=[i for i in state['items'] if i['release_key']==payload.get('release_key')]
     if not group:raise ValueError('Choose an existing release.')
     if sorted({i['key'] for i in group})!=payload.get('keys'):raise ValueError('Release files changed. Reopen Make release and review them.')

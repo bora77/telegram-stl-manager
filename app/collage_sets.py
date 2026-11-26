@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import time
 import uuid
 from app.file_delivery import digest,mount_identity,release_lock
@@ -36,6 +37,25 @@ def paths(directory,verify_hash=True):
         result.append(path)
     return result
 
+
+def photo_labels(root,directory):
+    """Recover labels from older export recipes without rewriting saved sets."""
+    data=read(directory)
+    if not data:return {}
+    labels={};database=Path(root)/'data/collages.sqlite3'
+    for entry in data['files']:
+        name=entry.get('label');kind=entry.get('kind')
+        if not name and entry.get('export_id') and database.exists():
+            with sqlite3.connect(database.as_uri()+'?mode=ro',uri=True) as db:
+                row=db.execute('SELECT p.recipe FROM exports e JOIN previews p ON p.id=e.preview_id WHERE e.id=? AND e.filename=? AND e.sha256=?',(entry['export_id'],entry['filename'],entry['sha256'])).fetchone()
+            if row:
+                settings=json.loads(row[0])['settings'];name=settings.get('card_name')
+                kind=settings.get('card_kind') or ('overview' if len(settings.get('labels',{}))>1 or 'overview' in (name or '').casefold() else 'model')
+        label=name if kind=='model' and isinstance(name,str) and name.strip() else 'Collage'
+        if len(label)>80 or re.search(r'[\x00-\x1f\x7f]',label):raise ValueError('Invalid saved collage caption.')
+        labels[entry['filename']]=label
+    return labels
+
 def finalize(collages,payload):
     release=collages.release(payload.get('release_id'));ids=payload.get('export_ids')
     if not isinstance(ids,list) or not 1<=len(ids)<=1000 or any(not isinstance(i,str) for i in ids) or len(set(ids))!=len(ids):raise ValueError('Choose distinct completed collage exports.')
@@ -49,7 +69,12 @@ def finalize(collages,payload):
         old=read(folder)
         with collages.pinned(release) as pinned:
             for j in jobs:collages.verified_data(pinned,release['month']+'/'+j['filename'],j['sha256'],j['bytes'])
-            data={'format':FORMAT,'created_at':time.time(),'files':[{'filename':j['filename'],'size':j['bytes'],'sha256':j['sha256'],'export_id':j['id']} for j in jobs]}
+            files=[]
+            for j in jobs:
+                settings=json.loads(collages.preview_data(j['preview_id'])['recipe'])['settings']
+                name=settings.get('card_name','Collage');kind=settings.get('card_kind') or ('overview' if len(settings.get('labels',{}))>1 or 'overview' in name.casefold() else 'model')
+                files.append({'filename':j['filename'],'size':j['bytes'],'sha256':j['sha256'],'export_id':j['id'],'kind':kind,'label':name if kind=='model' else 'Collage'})
+            data={'format':FORMAT,'created_at':time.time(),'files':files}
             if old:collages.store.atomic_write(collages.cache/('set-backup-'+uuid.uuid4().hex+'.json'),old)
             fd,name=pinned.parent(release['month']+'/'+MANIFEST);temporary='.collage-set-'+uuid.uuid4().hex+'.tmp'
             try:

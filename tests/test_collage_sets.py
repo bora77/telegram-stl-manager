@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from app.collages import CollageStore
-from app.collage_sets import finalize,paths,MANIFEST
+from app.collage_sets import finalize,paths,photo_labels,MANIFEST
 from app.telegram_cli import require_release_collage,require_release_collages
 from tests.test_collages import fixture
 
@@ -23,6 +23,14 @@ class CollageSetTests(unittest.TestCase):
             result=finalize(collages,{'release_id':opened['release']['id'],'export_ids':exports})
             self.assertEqual(len(result['files']),2)
             directory=image_dir.parent
+            labels=photo_labels(root,directory)
+            self.assertEqual(labels['Example-2026-08-Model Set.jpg'],'Model Set')
+            self.assertEqual(labels['Example-2026-08-Release Overview.jpg'],'Collage')
+            # Legacy manifests did not store labels; recover them from exports.
+            legacy=json.loads((directory/MANIFEST).read_text())
+            for file in legacy['files']:file.pop('label');file.pop('kind')
+            (directory/MANIFEST).write_text(json.dumps(legacy))
+            self.assertEqual(photo_labels(root,directory),labels)
             self.assertTrue((directory/'Example-2026-08-Model Set.jpg').exists())
             (directory/'unrelated.jpg').write_bytes(b'not part of the set')
             self.assertEqual(len(require_release_collages(directory/'release.7z')),2)

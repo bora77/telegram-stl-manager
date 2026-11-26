@@ -1,5 +1,9 @@
 # Version history
 
+## 0.2.8
+
+- Clarify the project's purpose: subscription downloads, release organization and optional personal archiving in a private Telegram channel. Documentation-only change; downloadable application packages remain at 0.2.7.
+
 ## 0.2.7
 
 - Improve packaging-time PDF washing with page progress, signed-document protection and verification of saved content.

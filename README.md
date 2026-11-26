@@ -1,6 +1,6 @@
 # Telegram STL manager
 
-**A local web app for downloading, organizing and previewing your STL release collection.**
+**A multipurpose manager for your 3D-print subscriptions, release collection and personal cloud archive.**
 
 **[Download the latest Windows installer](https://github.com/bora77/telegram-stl-manager/releases/latest/download/Telegram-STL-Manager-Windows.zip)**
  · [Release notes and other downloads](https://github.com/bora77/telegram-stl-manager/releases/latest)
@@ -9,12 +9,19 @@ New users: extract the entire ZIP, double-click **Install.cmd**, and accept the
 administrator prompt. The installer sets up WSL automatically; configure the app
 in your browser afterward.
 
-Choose creators from your configured Telegram catalog, assign their destination
-folders, and download their releases with one button. Telegram STL manager keeps the
-archives, extracted images and download history together, whether you store your
-collection on a local disk or a mounted NAS share.
+Its main purpose is to download releases you own from distribution platforms such
+as **MyMiniFactory** and **Gumroad (Beta)**, keep track of new and updated files,
+and organize everything by artist and release. It also supports downloading from
+your configured Telegram artist catalog. Archives, extracted images, collages and
+download history stay together on your local disk or network storage.
 
-The app runs locally using a Telegram CLI connection. Everyday operation needs
+The same tool can prepare releases and upload them to **your own private Telegram
+channel** for personal archiving, using Telegram's free, unlimited cloud storage.
+Per-file upload limits still apply; the manager splits large releases into parts.
+This makes it useful both for managing subscriptions and keeping a private cloud
+copy of your collection. See [Telegram's storage and file-size limits](https://telegram.org/blog/700-million-and-premium).
+
+The app runs locally and uses your own platform accounts. Everyday operation needs
 no AI service, OCR, Telegram Desktop or VNC session. Downloads and folder changes
 start when you request them; saving a subscription does not start a background
 schedule.

@@ -405,6 +405,16 @@ error rather than silently leaving enclosed STLs unprocessed. Unpack those neste
 archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
 omit member timestamps; original downloads are not rewritten.
 
+**Configuration → Release packaging → PDF and image timestamp privacy** defaults
+to On. Make release removes known embedded dates from staged PDF, JPEG, PNG and
+WebP files, including release images, without recompressing image pixels. It also
+removes opaque camera MakerNotes and normalizes staged file times. Attribution,
+orientation and colour profiles are retained. Existing prepared archives, other
+formats and original downloads are unchanged. This reduces timestamp exposure;
+it does not remove every identifying mark. Signed/encrypted PDFs and malformed
+metadata stop packaging with an error while retaining sources. File progress is
+shown, and the option can be disabled. No new dependency or AI is required.
+
 ### Telegram reports LOCATION_INVALID
 
 This means Telegram rejected a file-location request. The downloader tries

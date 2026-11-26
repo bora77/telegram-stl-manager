@@ -246,6 +246,16 @@ a file. Archives nested inside downloaded archives block cleaning with an explan
 error rather than silently leaving enclosed STLs unprocessed. Unpack those nested
 archives first or keep cleaning off. Cleaning receipts record before/after checksums. Generated release archives
 omit member timestamps; original downloads are not rewritten.
+
+**Configuration → Release packaging → PDF and image timestamp privacy** defaults
+to On. Make release removes known embedded dates from staged PDF, JPEG, PNG and
+WebP files, including release images, without recompressing image pixels. It also
+removes opaque camera MakerNotes and normalizes staged file times. Attribution,
+orientation and colour profiles are retained. Existing prepared archives, other
+formats and original downloads are unchanged. This reduces timestamp exposure;
+it does not remove every identifying mark. Signed/encrypted PDFs and malformed
+metadata stop packaging with an error while retaining sources. File progress is
+shown, and the option can be disabled. No new dependency or AI is required.
 When releasing a prepared release through a bot, an existing verified upload to
 your Telegram release channel is reused. The collage and archives are forwarded
 without sender attribution; they are not uploaded again from your computer.

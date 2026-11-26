@@ -1,5 +1,11 @@
 # Version history
 
+## 0.2.6
+
+- Add a default-on timestamp privacy option for PDF, JPEG, PNG and WebP files in newly generated release archives.
+- Preserve original downloads, image quality and attribution while removing known date metadata from staged copies.
+- Show the current file and progress during timestamp cleanup; retain sources if cleanup cannot safely complete.
+
 ## 0.2.5
 
 - Retry transient download failures with visible reconnect status and bounded, cancellable waits.

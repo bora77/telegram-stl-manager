@@ -179,7 +179,7 @@ class MMFManager:
     def state(self,filesystem=True,release_keys=None,validate_collages=True):
         settings=self.get('settings',{'revision':0,'subscriptions':[]})
         job=self.get('job',{});active=self.busy()
-        if not active and job.get('phase') in ('reconnecting','checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs','cleaning_stls'):
+        if not active and job.get('phase') in ('reconnecting','checking','downloading','extracting','moving','starting','unpacking','repacking','verifying_archive','processing_pdfs','processing_metadata','cleaning_stls'):
             job={**job,'phase':'interrupted','message':'Task interrupted. Resume the saved queue.'}
         checked=self.get('checked_at',0);attempt=self.get('attempted_at',0);interval=self.store.config()[self.provider+'_availability_interval_hours']*3600
         known=self.completed()-self.pending_redownload_keys();items=self.get('items',[]);releases(items,self.store.config()['download_directory'])

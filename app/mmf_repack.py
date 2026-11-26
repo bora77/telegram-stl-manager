@@ -9,7 +9,7 @@ from app.release_images import command, listing, safe_component, member_path, sp
 
 VOLUME_BYTES=4000*1024*1024  # 7-Zip's 4000M (MiB) volume size.
 COMPRESSION_LEVEL=7
-POLICY_VERSION=7
+POLICY_VERSION=8
 
 
 def is_metadata_file(name):
@@ -26,10 +26,11 @@ def archive_name(filename):
     return safe_component(stem)+'.7z'
 
 
-def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None,release_images=None,compression_threads=0):
+def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,*,volume_bytes=VOLUME_BYTES,compression_level=COMPRESSION_LEVEL,sources=None,release_name=None,stl_cleaner="off",cotton_level=0,cotton_directory="",cleaner_progress=None,release_images=None,compression_threads=0,metadata_privacy=True,metadata_progress=None):
     if type(compression_level) is not int or compression_level not in (0,1,3,5,7,9):raise ValueError('Invalid compression level.')
     if type(compression_threads) is not int or not 0<=compression_threads<=256:raise ValueError('Invalid compression thread count.')
     threading_option='-mmt='+('on' if compression_threads==0 else str(compression_threads))
+    if type(metadata_privacy) is not bool:raise ValueError('Choose whether timestamp privacy is enabled.')
     if type(volume_bytes) is not int or volume_bytes<=0:raise ValueError('Invalid volume size.')
     if stl_cleaner not in ('off','delicates','cotton'):raise ValueError('Unknown STL cleaner.')
     cleaner_policy={'mode':stl_cleaner,'cotton_level':cotton_level if stl_cleaner=='cotton' else None}
@@ -49,7 +50,7 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
     image_receipts.sort(key=lambda r:r['name'])
     if receipt.exists():
         saved=json.loads(receipt.read_text())
-        if saved.get('identity')==identity and saved.get('release_images',[])==image_receipts and saved.get('volume_bytes')==volume_bytes and saved.get('compression_level')==compression_level and saved.get('policy_version')==POLICY_VERSION and saved.get('name')==name and saved.get('stl_cleaner')==cleaner_policy:
+        if saved.get('identity')==identity and saved.get('metadata_privacy')==metadata_privacy and saved.get('release_images',[])==image_receipts and saved.get('volume_bytes')==volume_bytes and saved.get('compression_level')==compression_level and saved.get('policy_version')==POLICY_VERSION and saved.get('name')==name and saved.get('stl_cleaner')==cleaner_policy:
             outputs=[]
             for item in saved['outputs']:
                 filename=item['name']
@@ -131,6 +132,20 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
             except Exception as error:raise ExtractionError('PDF processing failed for '+member_name+': '+str(error)) from error
             all_entries[member_name]=path.stat().st_size
             pdfs.append({'name':member_name,'before':before,'after':{'size':path.stat().st_size,'sha256':digest(path)},**result})
+        privacy=[]
+        if metadata_privacy:
+            from app.metadata_privacy import clean_timestamps,SUPPORTED
+            eligible=[name for name in all_entries if Path(name).suffix.lower() in SUPPORTED]
+            for index,member_name in enumerate(eligible):
+                if stopped():raise ExtractionError('Timestamp cleanup stopped; source retained.')
+                progress('processing_metadata',int(100*index/max(1,len(eligible))))
+                if metadata_progress:metadata_progress(member_name,index,len(eligible))
+                path=members/member_name;before={'size':path.stat().st_size,'sha256':digest(path)}
+                try:result=clean_timestamps(path,stopped)
+                except Exception as error:raise ExtractionError('Timestamp cleanup failed for '+member_name+': '+str(error)+'. Original downloads retained.') from error
+                all_entries[member_name]=path.stat().st_size
+                privacy.append({'name':member_name,'before':before,'after':{'size':path.stat().st_size,'sha256':digest(path)},**result})
+            progress('processing_metadata',100)
         cleaned=[]
         if stl_cleaner!='off':
             from app.stl_cleaner import clean_stl, clean_cotton
@@ -161,6 +176,6 @@ def repack(source,work,identity,progress=lambda *args:None,stopped=lambda:False,
         outputs=[];records=[]
         for path in parts:
             checksum=digest(path);target=work/path.name;path.replace(target);outputs.append(target);records.append({'name':target.name,'size':target.stat().st_size,'sha256':checksum})
-        state={'release_images':image_receipts,'stl_cleaner':cleaner_policy,'cleaned_stls':cleaned,'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':compression_level,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
+        state={'metadata_privacy':metadata_privacy,'privacy':privacy,'release_images':image_receipts,'stl_cleaner':cleaner_policy,'cleaned_stls':cleaned,'pdfs':pdfs,'removed_metadata':removed,'name':name,'compression_level':compression_level,'policy_version':POLICY_VERSION,'volume_bytes':volume_bytes,'identity':identity,'outputs':records}
         staged=work/'repack.json.tmp';staged.write_text(json.dumps(state));staged.replace(receipt)
         return outputs

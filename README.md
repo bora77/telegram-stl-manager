@@ -505,12 +505,23 @@ Set these under **Configuration → Release packaging**:
 | Compression level | 7 | Balance compression time and archive size. |
 | Maximum part size | 4000 MiB | Split large releases into uploadable volumes. |
 | Compression threads | Auto | Let 7-Zip choose, or select a fixed CPU-thread limit. |
+| PDF and image timestamp privacy | On | Remove known embedded dates from staged PDF, JPEG, PNG and WebP files. |
 | STL cleaner | Off | Optionally process models before packaging. |
 
 Running jobs retain their settings. Preparation shows its current stage, with
 file and byte progress during input verification, compression and archive checks.
 Generated release archives omit member timestamps; original downloads are not
 rewritten.
+
+Timestamp privacy applies only when making a new release archive, including its
+release images. It removes known PDF dates and EXIF/XMP/IPTC/PNG date fields;
+opaque camera MakerNotes are also removed. Image compression data, orientation,
+colour profiles and attribution are retained. Staged file times are normalized;
+archive member times remain omitted. Other file formats, existing prepared
+archives and original downloads are unchanged. This reduces timestamp exposure,
+not all possible identifying information. Signed/encrypted PDFs or malformed
+metadata stop packaging with an error and leave sources intact. Progress shows
+the current file; no additional dependencies or AI are required.
 
 ### New files and addenda
 

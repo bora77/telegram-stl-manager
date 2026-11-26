@@ -20,9 +20,11 @@ class StoreTests(unittest.TestCase):
         config=self.store.config()
         self.assertEqual((config['release_compression_level'],config['release_volume_mib']),(7,4000))
         self.assertEqual(config['release_compression_threads'],0)
+        self.assertTrue(config['release_metadata_privacy'])
         payload={'revision':config['revision'],'download_directory':str(self.root),'release_compression_level':3,'release_volume_mib':1500,'release_compression_threads':8}
         result=self.store.save_config(payload)
         self.assertEqual((result['release_compression_level'],result['release_volume_mib']),(3,1500))
+
         self.assertEqual(result['release_compression_threads'],8)
         for key,values in {'release_compression_level':[True,2,10,'7'],'release_volume_mib':[True,0,1.5,65537],'release_compression_threads':[True,-1,257,1.5,'auto']}.items():
             for value in values:
@@ -39,6 +41,14 @@ class StoreTests(unittest.TestCase):
         self.url = 'https://t.me/c/123456789/123'
         (self.root/'data/creators.json').write_text(json.dumps({'creators':[{'name':'Example','topic_url':self.url,'within_approved_group':True}]}))
         self.entry = dict(topic_url=self.url,creator_folder='- Example',layout='monthly',month_basis='release',download_scope='from_month',start_month='2026-08')
+    def test_metadata_privacy_setting(self):
+        config=self.store.config()
+        payload={'revision':config['revision'],'download_directory':str(self.root),'release_metadata_privacy':False}
+        result=self.store.save_config(payload)
+        self.assertFalse(result['release_metadata_privacy'])
+        self.assertFalse(self.store.config()['release_metadata_privacy'])
+        for value in ('true',0,1,None):
+            with self.assertRaises(ValueError):self.store.save_config({**payload,'revision':result['revision'],'release_metadata_privacy':value})
     def save(self, **changes):
         return self.store.save(dict(revision=0,config_revision=0,subscriptions=[dict(self.entry,**changes)]))
     def test_task_status_contains_only_completion_metadata_and_does_not_write(self):
@@ -76,7 +86,7 @@ class StoreTests(unittest.TestCase):
         self.store.atomic_write(self.store.runs.path,run)
         queue=self.store.queue()
         self.assertEqual(queue['run']['warnings'],['Example · Example 2026-09 3.zip: Connection closed'])
-        self.assertEqual(queue['worker_state'],'needs_review');self.assertTrue(queue['can_resume'])
+        self.assertEqual(queue['worker_state'],'failed');self.assertTrue(queue['can_resume'])
         self.assertIn('1 / 2 complete',queue['run']['message'])
         self.assertEqual(json.loads(self.store.runs.path.read_text()),run)
 

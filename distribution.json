@@ -69,6 +69,8 @@
     "app/availability.py",
     "app/check_schedule.py",
     "app/network_recovery.py",
+    "app/metadata_privacy.py",
+    "tests/test_metadata_privacy.py",
     "tests/test_network_recovery.py",
     "tests/test_check_schedule.py",
     "app/auto_downloads.py",

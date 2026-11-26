@@ -262,7 +262,7 @@ class PrepareTests(unittest.TestCase):
                 import copy
                 reuse=copy.deepcopy(plan);reuse.update(id='reuse-test',title='Reuse test')
                 for i in reuse['items']:
-                    i['repack'].update(outputs=plan['outputs'],source_keys=['A','B'],compression_level=7,policy_version=POLICY_VERSION)
+                    i['repack'].update(outputs=plan['outputs'],source_keys=['A','B'],compression_level=7,policy_version=POLICY_VERSION,metadata_privacy=True)
                 with patch('app.mmf_release_prepare.repack',side_effect=AssertionError('Unnecessary compression')),patch('app.mmf_release_prepare.save'):
                     execute(manager,reuse)
 

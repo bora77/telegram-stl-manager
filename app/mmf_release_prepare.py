@@ -366,6 +366,7 @@ def start(manager,payload,synchronous=False):
         plan['delivery']=payload.get('delivery')
         plan.setdefault('compression_level',config.get('release_compression_level',7))
         plan['compression_threads']=config.get('release_compression_threads',0)
+        plan['metadata_privacy']=config.get('release_metadata_privacy',True)
         plan.setdefault('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
         plan['stl_cleaner']=config.get('release_stl_cleaner','off')
         plan['cotton_level']=config.get('release_cotton_level',0)
@@ -406,6 +407,7 @@ def execute(manager,plan):
     config=manager.store.config()
     compression=plan.get('compression_level',config.get('release_compression_level',7))
     threads=plan.get('compression_threads',config.get('release_compression_threads',0))
+    metadata_privacy=plan.get('metadata_privacy',config.get('release_metadata_privacy',True))
     volume_bytes=plan.get('volume_bytes',config.get('release_volume_mib',4000)*1024*1024)
     cleaner=plan.get('stl_cleaner',config.get('release_stl_cleaner','off'))
     cotton_level=plan.get('cotton_level',config.get('release_cotton_level',0))
@@ -414,6 +416,8 @@ def execute(manager,plan):
     def progress(phase,percent):
         if manager.stopped():raise ValueError('Preparation stopped. Use the same preparation button to resume.')
         manager.progress(phase=phase,message=plan['title'],bytes=percent,expected=100,progress_unit='percent',cleaner_file=None,cleaner_total=None,current_file=None,file_index=None,file_total=None,speed_mbps=0)
+    def metadata_progress(filename,index,total):
+        manager.progress(phase='processing_metadata',message='Removing timestamps · '+filename,bytes=round(100*index/max(1,total),1),expected=100,progress_unit='percent',current_file=filename,file_index=index+1,file_total=total,speed_mbps=0)
     last_clean=[0,None]
     cleaner_started=[time.monotonic()]
     def cleaning_progress(filename,index,total,percent):
@@ -456,7 +460,7 @@ def execute(manager,plan):
                 head=selected[mid][0]
                 sources.append({'path':outputs[0],'folder':safe_component(head['object_name'])+'/'+archive_name(head['filename'])[:-3]+'-'+mid[:8]})
                 continue
-            if cleaner=='off' and len(manifests)==1 and manifest.get('stl_cleaner',{}).get('mode','off')=='off' and manifest.get('compression_level')==compression and manifest.get('policy_version')==POLICY_VERSION and set(manifest.get('source_keys',[]))==set(plan['keys']) and all(re.search(r'\.7z(?:\.\d{3,})?$',p.name,re.I) and p.stat().st_size<=volume_bytes for p in outputs):
+            if cleaner=='off' and manifest.get('metadata_privacy',False)==metadata_privacy and len(manifests)==1 and manifest.get('stl_cleaner',{}).get('mode','off')=='off' and manifest.get('compression_level')==compression and manifest.get('policy_version')==POLICY_VERSION and set(manifest.get('source_keys',[]))==set(plan['keys']) and all(re.search(r'\.7z(?:\.\d{3,})?$',p.name,re.I) and p.stat().st_size<=volume_bytes for p in outputs):
                 reusable=outputs
             include=[]
             for item in selected[mid]:
@@ -480,7 +484,7 @@ def execute(manager,plan):
             manager.progress(phase='moving',message='Reusing verified archive · '+plan['title'],bytes=0,expected=0)
         else:
             identity=hashlib.sha256((plan['id']+json.dumps(sorted(plan['keys']))).encode()).hexdigest()
-            packed=repack(sources[0]['path'],work/'packed',identity,progress,manager.stopped,compression_level=compression,compression_threads=threads,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress,release_images=sorted(image_paths))
+            packed=repack(sources[0]['path'],work/'packed',identity,progress,manager.stopped,compression_level=compression,compression_threads=threads,metadata_privacy=metadata_privacy,metadata_progress=metadata_progress,volume_bytes=volume_bytes,sources=sources,release_name=plan['title'],stl_cleaner=cleaner,cotton_level=cotton_level,cotton_directory=cotton_directory,cleaner_progress=cleaning_progress,release_images=sorted(image_paths))
         for record in manager.get('prepared_images:'+plan['release_key'],{}).get('images',[]):
             images.setdefault(record['path'],record)
         fallback=[]
@@ -497,7 +501,7 @@ def execute(manager,plan):
         for path in fallback:
             deliver(path,plan['base'],plan['folder'],plan['release_folder'],path.name,moving,subdirectories=('release_images',),release_directory=plan['release_folder'])
         require_release_collage(release_archive,action='making the release')
-        plan.update(state='complete',stl_cleaner=cleaner,cotton_level=cotton_level,compression_level=compression,volume_bytes=volume_bytes,outputs=outputs,directory=str(Path(plan['base'])/plan['folder']/plan['release_folder']/Path(*sub)),completed_at=time.time(),collage_included=True)
+        plan.update(state='complete',metadata_privacy=metadata_privacy,stl_cleaner=cleaner,cotton_level=cotton_level,compression_level=compression,volume_bytes=volume_bytes,outputs=outputs,directory=str(Path(plan['base'])/plan['folder']/plan['release_folder']/Path(*sub)),completed_at=time.time(),collage_included=True)
         save(manager,plan)
         manager.progress(phase='complete',message=plan['title']+' prepared',bytes=100,expected=100)
 

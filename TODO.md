@@ -7,7 +7,7 @@ to remove it from the upcoming list on the next page build.
 
 - [ ] **STL ↔ DRC conversion** — Optional conversion in both directions while organizing releases, with configurable compression and precision.
 - [ ] **PDF washer in the organizer** — Optional cleaning of supported PDF stamps, using the RC-based cleaner and preserving original archives.
-- [ ] **PDF and image timestamp privacy** — During reprocessing of downloads from MMF and other platforms, remove embedded creation and modification timestamps from PDFs and images (including EXIF/XMP and format-specific metadata). Normalize filesystem and archive-entry timestamps where removal is not supported. Preserve file contents and rendering, and verify the resulting metadata to reduce timestamp-based user tracking.
+- [x] **PDF and image timestamp privacy** — Configurable, default-on cleanup of known date fields in PDF/JPEG/PNG/WebP staged contents during Make release, with file progress, lossless image handling and normalized staged times. Generated archives omit member times; original downloads and existing prepared archives remain unchanged. Other formats and arbitrary identifying marks are outside this feature's scope.
 - [ ] **Linux and Docker updates** — Install updates from the app while keeping accounts, settings and download history.
 - [ ] **Packaging on another device** — Optionally run archive preparation, compression and verification on a more powerful computer, with shared-storage access, progress reporting and recovery after connection interruptions. Keep release management and uploads in the main app.
 

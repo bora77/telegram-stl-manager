@@ -86,7 +86,7 @@ class Handler(SimpleHTTPRequestHandler):
         served_path=urlsplit(self.path).path
         if served_path.endswith('.html'):
             try:
-                content=(self.root/served_path.lstrip('/')).read_text()
+                content=(self.root/'data/pages'/served_path.lstrip('/')).read_text()
                 enabled=self.store.config().get('mmf_beta_enabled') is True
                 if self.store.config().get('gumroad_beta_enabled'):content=content.replace('id="gumroad-nav-group" hidden','id="gumroad-nav-group"')
                 if enabled:content=content.replace('id="mmf-nav-group" hidden','id="mmf-nav-group"')
@@ -98,6 +98,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header('Content-Length',str(len(body)))
             self.end_headers()
             return io.BytesIO(body)
+        if served_path=='/favicon.svg':self.path='/assets/favicon.svg'
         return super().send_head()
 
     def reply_json(self, data, code=200):
@@ -181,7 +182,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         with UPDATER.gate:
-            if UPDATER.reserved and self.path not in ('/api/stop','/api/mmf/stop','/api/gumroad/stop','/api/organizer/stop'):
+            if UPDATER.reserved and self.path not in ('/api/updates/docker','/api/stop','/api/mmf/stop','/api/gumroad/stop','/api/organizer/stop'):
                 self.reply_json({'error':'An update is pending. Wait for it to finish before starting new tasks.'},409);return
             self.handle_post()
 
@@ -189,6 +190,15 @@ class Handler(SimpleHTTPRequestHandler):
         host=self.headers.get('Host')
         if not self.valid_host() or self.headers.get('Origin') != 'http://'+host:
             self.reply_json({'error':'This action must come from the local catalog.'},403);return
+        if self.path=='/api/updates/docker':
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=4096 or self.headers.get('Content-Type')!='application/json':raise ValueError('Invalid Docker update request.')
+                payload=json.loads(self.rfile.read(length))
+                if not isinstance(payload,dict):raise ValueError('Expected an object.')
+                self.reply_json(UPDATER.docker_guard(payload))
+            except (ValueError,OSError) as error:self.reply_json({'error':str(error)},400)
+            return
         if SETUP.consent_required() and self.path != '/api/setup/acknowledge':
             self.reply_json({'error':'Read and acknowledge the usage notice before continuing.'},403);return
         if SETUP.setup_required and not self.path.startswith('/api/updates/') and self.path not in ('/api/setup/acknowledge','/api/setup/complete','/api/setup/login','/api/setup/answer','/api/setup/source','/api/setup/share','/api/config','/api/mmf/login','/api/gumroad/login','/api/release-pad/destinations','/api/servers/refresh','/api/servers/retest'):

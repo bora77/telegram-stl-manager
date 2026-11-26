@@ -8,13 +8,17 @@ uploads manually and review partially sent attempts before separately re-uploadi
 them. Closing the browser does not stop an active upload worker. Do not resume or
 upload content as an installation test without explicit authorization.
 
-Checked against the **v0.1.14** installer and updater on **2026-09-18**.
+Reviewed against the current source and Docker update workflow on **2026-11-26**.
+Always use the instructions bundled with the selected release; a source checkout
+can contain newer work than the latest downloadable package.
 
 Copy the prompt below into an agent with terminal/filesystem access on the
 **destination machine**. Supply the release package or repository and its
 `INSTALL.md`; Docker users also need `docker/README.md` (the Docker package's
 `README.md`). Leave unknown preferences blank. Never include passwords, login
 codes, QR tokens, session files or private account data in the prompt.
+`AGENTS.md` contains contributor rules for source-code work; it is not a substitute
+for this installation prompt or the selected package's installation guide.
 
 Project: https://github.com/bora77/telegram-stl-manager
 Latest release: https://github.com/bora77/telegram-stl-manager/releases/latest
@@ -71,19 +75,13 @@ state to fix an installation error.
   `Telegram-STL-Manager-Update.zip` and `Update.cmd`, as described below. Do not
   run a reset or treat an update as a fresh installation.
 
-**Linux x86-64 — bundled runtime or Docker**
+**Linux and macOS — Docker package**
 
-- If supplied the Linux runtime archive, verify its checksum, extract it into a
-  writable folder and run `bash start.sh`. Use its bundled Python, SQLite,
-  Pillow, pypdf, Telegram CLI and 7-Zip/RAR runtime. Do not install duplicate
-  Python, database, web-server or Go packages. Follow `INSTALL.md` for host Linux
-  utilities and optional network mounts.
-- Docker is also supported on Linux. Follow the Docker package guide and keep
-  its persistent volume, rather than running source-install commands on the host.
-- Start in the foreground unless I request another startup method. Do not add
-  a system service or scheduled task merely to check for available downloads.
-
-**macOS / Docker**
+- Use `Telegram-STL-Manager-Docker.zip` for both platforms. There is no separate
+  user-facing native Linux installer. The Linux runtime tarball is an internal
+  Windows/WSL payload or maintainer tool, not the default Linux installation.
+- Use Update.command for guided updates after initial installation. Never expose the host Docker socket
+  or enable privileged mode to implement updates.
 
 - Use the Docker tester package and its guide. macOS uses Docker Desktop;
   Linux uses Docker Engine with Compose. Obtain missing releases from the
@@ -92,13 +90,14 @@ state to fix an installation error.
   and allow required Docker folder access. Keep `/downloads` as the app's base;
   it maps to that chosen host folder. The package builds the required runtime.
 - Keep build output visible. Closing the attached log window does not stop the
-  container; use `Stop.command`. Preserve `telegram-stl-manager-data` during
-  updates. Never use `docker compose down --volumes` for a routine update.
+  container; use `Stop.command`. Preserve the active named volume recorded in
+  `support/data-volume.txt` (initially `telegram-stl-manager-data`) and retained
+  rollback volumes. Never use `docker compose down --volumes` for an update.
 - Mount network shares on the host before passing them to Docker. Confirm the
   share is actually connected. Do not represent Mac/ARM or NAS behavior as
   tested on this machine unless it has been verified here.
 
-**Source installation — only when requested or needed for the platform**
+**Source installation — only when explicitly requested for development**
 
 Follow the source-build sections of `INSTALL.md`, including the matching Python,
 Pillow, pinned pypdf, Go, custom Telegram CLI and 7-Zip/RAR requirements. Preserve
@@ -183,9 +182,11 @@ membership takes precedence over a duplicate Frontier entry for unrecorded files
 
 ## 4. Updates, recovery and diagnostics
 
-Windows updates are optional. The red Update available link beside the footer
-version opens Configuration; it does not install automatically. Check for
-updates and Install update are available there on managed Windows installations.
+Updates are optional. The app shows a modal once per new version containing all
+release notes newer than the installed version, with Close and Remind me tomorrow.
+The red Update available footer link reopens those notes; Update instructions
+links to Configuration. Nothing installs automatically. Check for updates and
+Install update are available in Configuration on managed Windows installations.
 Public GitHub releases require no GitHub login or shared access token.
 
 For an older version without the updater, download the official Update ZIP,
@@ -206,8 +207,9 @@ logs opens its startup log folder. After rollback, include both the failed
 startup and restored startup logs when diagnosing. Keep private logs local;
 share only relevant, reviewed excerpts, never backup archives or sessions.
 
-On Linux/Docker, follow the documented manual update route and preserve local
-state/volumes; do not claim the Windows in-app installer applies there. Restore
+On Linux/macOS Docker, use the host-side Update.command launcher and preserve
+state/volumes; older packages need the documented one-time manual upgrade. Do not
+claim the Windows in-app installer applies there. Restore
 user-supplied history backups only with the app stopped and existing state
 backed up. Do not transplant unfinished jobs with machine-specific paths and
 file identities onto another machine without the documented migration process.
@@ -348,7 +350,7 @@ expose the purchased library. No additional Python dependency is required.
 ### Required usage acknowledgment
 
 Before installation changes begin, read the usage notice and explicitly acknowledge
-it (Windows: choose **Yes** in the dialog; Linux installer and Docker launcher:
+it (Windows: choose **Yes** in the dialog; Docker launcher (Linux/macOS) or maintainer install helper:
 type **I AGREE**). Declining stops installation. Windows may ask again when it
 starts elevated prerequisite setup or resumes after a restart. Docker remembers
 the installation acknowledgment for that extracted package.
@@ -475,3 +477,9 @@ month, then **Append to release**. Older monthly releases are supported for this
 append flow. The tool verifies the existing release and additional-files prompt
 before forwarding; it stops if the original release is not found. Welcome Pack
 addenda use the Welcome Pack category instead of a month.
+
+## Docker updates on Linux and macOS
+
+Use **Update.command** from the installed Docker package folder (Linux: `bash Update.command`). Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use `bash Update.command --recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
+
+Older packages without the launcher/reservation endpoint need one manual package update first, after finishing tasks and stopping the app. Reuse the existing named volume and download folder. After guided updates, preserve `support/data-volume.txt` and `support/download-folder.txt` during manual replacement. See [the Docker guide](docker/README.md) for full recovery instructions. The app shows all release notes newer than the installed version, once per new version, with optional reminders.

@@ -23,9 +23,9 @@ def main():
             target = support/'app'/rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT/rel, target)
-        for name in ('Dockerfile', 'entrypoint.sh', '.dockerignore'):
+        for name in ('Dockerfile', 'entrypoint.sh', '.dockerignore','update-helper.py'):
             shutil.copy2(ROOT/'docker'/name, support/name)
-        for name in ('Start.command', 'Stop.command', 'compose.yaml', 'README.md'):
+        for name in ('Start.command', 'Stop.command', 'Update.command', 'compose.yaml', 'README.md'):
             shutil.copy2(ROOT/'docker'/name, package/name)
         with zipfile.ZipFile(output.with_suffix('.tmp'), 'w', zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(package.rglob('*')):

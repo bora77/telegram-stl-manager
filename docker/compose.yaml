@@ -20,4 +20,4 @@ services:
     stop_grace_period: 60s
 volumes:
   app-data:
-    name: telegram-stl-manager-data
+    name: "${STL_DATA_VOLUME:-telegram-stl-manager-data}"

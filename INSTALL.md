@@ -1,3 +1,11 @@
+# Installation routes
+
+- **Windows:** use the guided Windows/WSL package below.
+- **Linux and macOS:** use **Docker for Linux and macOS**, distributed as
+  `Telegram-STL-Manager-Docker.zip`. Follow [the Docker guide](docker/README.md).
+- Source checkouts and the internal Linux runtime are maintainer/development
+  routes, not a separate user-facing Linux installer. The Docker update launcher updates the existing package while preserving state.
+
 ## Windows guided test package
 
 MMF and Gumroad uploads share a persistent queue and run one at a time. Waiting
@@ -92,13 +100,13 @@ The uninstaller verifies the registered environment's storage path before remova
 Build with `python3 tools/package-runtime.py` followed by
 `python3 tools/package-windows.py`.
 
-## Bundled application package (Linux x64 / Windows WSL2)
+## Internal Linux runtime bundle (maintainers / Windows WSL2)
 
-Download `telegram-stl-linux-x64.tar.gz` and verify its accompanying SHA-256 file. Extract it into a writable directory, then run `./start.sh` (or `bash start.sh`). Open `http://localhost:6093`. Optional: `./install.sh` copies it into your per-user application directory without installing a service. Existing installations are never overwritten.
+This is the internal payload used by the Windows/WSL package, not the recommended Linux installation. Linux users should use the Docker ZIP. Maintainers can build `telegram-stl-linux-x64.tar.gz`, verify its accompanying SHA-256 file, extract it into a writable directory and run `bash start.sh`. Open `http://localhost:6093`. The optional `install.sh` is a maintainer helper, not a separately tested public Linux installer.
 
 This package includes a relocatable CPython 3.12 runtime, Python's HTTP web server and SQLite database engine, Pillow, pypdf, the compiled Telegram CLI, and 7-Zip with the RAR codec. No separate Python, pip, Go compiler, database server, or web server installation is needed. SQLite databases are created locally on first use; no existing user's database, account session or Telegram source configuration is included. The package uses the [Astral standalone Python distribution](https://github.com/astral-sh/python-build-standalone), with its download SHA-256 pinned in the runtime builder.
 
-Supported runtime target: Linux x86-64 with glibc, tested on Ubuntu/Zorin 24.04. The OS still provides normal Linux utilities (`bash`, `findmnt`) and any required network-share mount support. On Windows, install WSL2 with Ubuntu 24.04 (`wsl --install -d Ubuntu-24.04`), then use `Start-Windows.cmd`, or run `bash start.sh` inside that distribution. For the tested guided Windows installer, use the Windows ZIP described above; this is not a native Windows executable. ARM and macOS packages are not provided.
+Supported runtime target: Linux x86-64 with glibc, tested on Ubuntu/Zorin 24.04. The OS still provides normal Linux utilities (`bash`, `findmnt`) and any required network-share mount support. On Windows, install WSL2 with Ubuntu 24.04 (`wsl --install -d Ubuntu-24.04`), then use `Start-Windows.cmd`, or run `bash start.sh` inside that distribution. For the tested guided Windows installer, use the Windows ZIP described above; this is not a native Windows executable. This internal runtime is x86-64 Linux only; the separate Docker package targets Linux/macOS hosts on x86-64 and ARM64.
 
 First launch creates blank local configuration and a local `downloads` directory. Configure your own Telegram login, approved source/TOC, artist catalog and destination using the setup steps below. The bundled CLI is `.tools/tdl-stl/tdl`; substitute `runtime/python/bin/python3` for `python3` in those steps. You can skip dependency installation and CLI compilation. Keep the application folder writable; private settings and SQLite files live in its `data` directory. Do not replace this directory when upgrading. The CLI's per-user authentication location is described below and must never be distributed.
 
@@ -108,7 +116,7 @@ Maintainers: `python3 tools/package-runtime.py` builds the bundled archive from 
 
 ---
 
-# Install Telegram STL manager on another machine
+# Advanced source installation (maintainers)
 
 This guide installs the current application: the web interface, customized
 Telegram CLI, manual download queue, download history, image extraction and
@@ -429,7 +437,7 @@ Optional JavaScript scope tests:
 
 ```bash
 sudo apt-get install -y nodejs
-node --test selection-rules.test.js
+node --test tests/selection-rules.test.js
 ```
 
 These exercise scope defaults, calendar boundaries and folder matching. Browser automation/Playwright is not required
@@ -1109,7 +1117,7 @@ expose the purchased library. No additional Python dependency is required.
 ### Required usage acknowledgment
 
 Before installation changes begin, read the usage notice and explicitly acknowledge
-it (Windows: choose **Yes** in the dialog; Linux installer and Docker launcher:
+it (Windows: choose **Yes** in the dialog; Docker launcher (Linux/macOS) or maintainer install helper:
 type **I AGREE**). Declining stops installation. Windows may ask again when it
 starts elevated prerequisite setup or resumes after a restart. Docker remembers
 the installation acknowledgment for that extracted package.
@@ -1236,3 +1244,9 @@ month, then **Append to release**. Older monthly releases are supported for this
 append flow. The tool verifies the existing release and additional-files prompt
 before forwarding; it stops if the original release is not found. Welcome Pack
 addenda use the Welcome Pack category instead of a month.
+
+## Docker updates on Linux and macOS
+
+Use **Update.command** from the installed Docker package folder (Linux: `bash Update.command`). Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use `bash Update.command --recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
+
+Older packages without the launcher/reservation endpoint need one manual package update first, after finishing tasks and stopping the app. Reuse the existing named volume and download folder. After guided updates, preserve `support/data-volume.txt` and `support/download-folder.txt` during manual replacement. See [the Docker guide](docker/README.md) for full recovery instructions. The app shows all release notes newer than the installed version, once per new version, with optional reminders.

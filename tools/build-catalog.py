@@ -94,10 +94,10 @@ def app_layout(page):
     layout = (root / 'templates/app-layout.html').read_text()
     layout = layout.replace('__QUEUE_HREF__', '#queue' if page == 'queue' else '/')
     layout = layout.replace('__ARTISTS_HREF__', '#artists' if page == 'queue' else '/#artists')
-    layout = layout.replace('__TASK_NOTIFICATIONS__', (root / 'task-notifications.js').read_text())
+    layout = layout.replace('__TASK_NOTIFICATIONS__', (root / 'web/task-notifications.js').read_text())
     library=root/'assets/artist-profiles/index.json'
     revision=str(library.stat().st_mtime_ns) if library.exists() else '0'
-    layout = layout.replace('__ARTIST_PROFILES__', (root / 'artist-profiles.js').read_text().replace('__ARTIST_LIBRARY_REVISION__',revision))
+    layout = layout.replace('__ARTIST_PROFILES__', (root / 'web/artist-profiles.js').read_text().replace('__ARTIST_LIBRARY_REVISION__',revision))
     for name in ('queue', 'artists', 'organize', 'collages', 'config', 'mmf', 'gumroad'):
         layout = layout.replace('__CURRENT_' + name.upper() + '__', 'aria-current="page"' if name == page else '')
     return layout
@@ -106,16 +106,17 @@ def app_layout(page):
 def write_page(name, content):
     content=content.replace('</main>', f'<footer class="app-copyright">v{version} '+(root/'templates/update-footer.html').read_text()+' · <a href="/whats-new">What’s new &amp; upcoming</a> · Copyright © 2026 trumphater77</footer></div></main>')
     # The running server always sees a complete page; no restart is needed.
-    temporary = root / (name + '.tmp')
+    pages=root/'data/pages';pages.mkdir(parents=True,exist_ok=True)
+    temporary = pages / (name + '.tmp')
     temporary.write_text(content)
-    temporary.replace(root / name)
+    temporary.replace(pages / name)
 
 
 def gumroad_page():
     template=(root/'templates/mmf.html').read_text()
     template=re.sub(r'<button[^>]*data-auto-download="mmf".*?</button>','',template)
     template=re.sub(r'<small[^>]*data-auto-download-status="mmf".*?</small>','',template)
-    view=(root/'mmf-view.js').read_text()
+    view=(root/'web/mmf-view.js').read_text()
     # Provider-specific strings are rendered before the shared navigation is inserted.
     def adapt(value):
         return (value.replace('MyMiniFactory · Shared with me, Tribes and Frontiers','Gumroad · Purchased library')
@@ -128,21 +129,21 @@ pages = {
     'gumroad.html': gumroad_page(),
     'catalog.html': template.replace("__DATA__", json.dumps(catalog, ensure_ascii=False).replace("<", "\\u003c"))
         .replace("__FOLDERS__", json.dumps(inventory, ensure_ascii=False).replace("<", "\\u003c"))
-        .replace("__RULES__", (root / "selection-rules.js").read_text())
-        .replace("__QUEUE__", (root / "queue-panel.html").read_text())
-        .replace("__DASHBOARD__", (root / "dashboard.js").read_text())
-        .replace("__CREATORVIEW__", (root / "creator-view.js").read_text())
-        .replace("__TABS__", (root / "tabs.js").read_text())
+        .replace("__RULES__", (root / "web/selection-rules.js").read_text())
+        .replace("__QUEUE__", (root / "templates/queue-panel.html").read_text())
+        .replace("__DASHBOARD__", (root / "web/dashboard.js").read_text())
+        .replace("__CREATORVIEW__", (root / "web/creator-view.js").read_text())
+        .replace("__TABS__", (root / "web/tabs.js").read_text())
         .replace("__APP_LAYOUT__", app_layout('queue')),
-    'mmf.html': (root / 'templates/mmf.html').read_text().replace('__APP_LAYOUT__', app_layout('mmf')).replace('__MMF_VIEW__', (root / 'mmf-view.js').read_text()),
+    'mmf.html': (root / 'templates/mmf.html').read_text().replace('__APP_LAYOUT__', app_layout('mmf')).replace('__MMF_VIEW__', (root / 'web/mmf-view.js').read_text()),
     'configuration.html': (root / 'templates/configuration.html').read_text().replace('__APP_LAYOUT__', app_layout('config')),
     'whats-new.html': (root / 'templates/whats-new.html').read_text().replace('__APP_LAYOUT__', app_layout('news')).replace('__UPCOMING_FEATURES__', upcoming).replace('__VERSION_HISTORY__', ''.join(history)),
-    'organizer.html': (root / 'templates/organizer.html').read_text().replace('__APP_LAYOUT__', app_layout('organize')).replace('__RULES__', (root / 'selection-rules.js').read_text()),
-    'collages.html': (root / 'templates/collages.html').read_text().replace('__APP_LAYOUT__', app_layout('collages')).replace('__COLLAGE_VIEW__', (root / 'collage-view.js').read_text()),
+    'organizer.html': (root / 'templates/organizer.html').read_text().replace('__APP_LAYOUT__', app_layout('organize')).replace('__RULES__', (root / 'web/selection-rules.js').read_text()),
+    'collages.html': (root / 'templates/collages.html').read_text().replace('__APP_LAYOUT__', app_layout('collages')).replace('__COLLAGE_VIEW__', (root / 'web/collage-view.js').read_text()),
 }
 for name, content in pages.items():
     write_page(name, content)
 print(f"Built {len(pages)} pages with shared navigation and data/creators.csv with {len(catalog['creators'])} records.")
 
-configuration=root/'configuration.html'
-configuration.write_text(configuration.read_text().replace('__FIRST_RUN__',(root/'templates/first-run.html').read_text().replace('__SETUP_VIEW__',(root/'setup-view.js').read_text())))
+configuration=root/'data/pages/configuration.html'
+configuration.write_text(configuration.read_text().replace('__FIRST_RUN__',(root/'templates/first-run.html').read_text().replace('__SETUP_VIEW__',(root/'web/setup-view.js').read_text())))

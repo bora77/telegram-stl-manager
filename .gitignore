@@ -24,6 +24,12 @@
 !/tabs.js
 !/task-notifications.js
 !/templates/
+!/web/
+!/docs/
+/docs/*
+!/docs/CATALOG.md
+!/docs/IMAGE-WORKFLOW.md
+!/assets/favicon.svg
 !/tools/
 !/examples/
 !/.tools/
@@ -64,6 +70,8 @@
 !/assets/artist-profiles/
 !/assets/artist-profiles/*.json
 !/assets/artist-profiles/*.png
+!/assets/screenshots/
+!/assets/screenshots/*.png
 
 
 
@@ -71,3 +79,4 @@
 
 !/app/
 !/tests/
+**/__pycache__/

@@ -14,6 +14,7 @@ import tarfile
 import zipfile
 
 ASSET='Telegram-STL-Manager-Update.zip'
+DOCKER_ASSET='Telegram-STL-Manager-Docker.zip'
 DEFAULT_REPOSITORY='bora77/telegram-stl-manager'
 
 def version(value):
@@ -48,7 +49,31 @@ class Updater:
     def status(self):
         if self.reserved and not self.working and not (self.root/'data/update-installing').exists():self.reserved=False
         settings=self.settings()
-        return {**self.state,'current':(self.root/'VERSION').read_text().strip(),'repository':settings['repository'],'has_token':bool(settings.get('token')),'working':self.working,'reserved':self.reserved,'supported':Path('/etc/telegram-stl-managed').exists(),'available':self.release is not None,'last_checked':self.state.get('last_checked',0)}
+        return {**self.state,'current':(self.root/'VERSION').read_text().strip(),'repository':settings['repository'],'has_token':bool(settings.get('token')),'working':self.working,'reserved':self.reserved,'platform':'docker' if os.environ.get('TELEGRAM_STL_DOCKER')=='1' else 'windows' if Path('/etc/telegram-stl-managed').exists() else 'development','supported':Path('/etc/telegram-stl-managed').exists(),'available':self.release is not None,'latest':self.release.get('version') if self.release else None,'changes':self.release.get('changes',[]) if self.release else [],'last_checked':self.state.get('last_checked',0)}
+
+    def docker_guard(self,payload):
+        if os.environ.get('TELEGRAM_STL_DOCKER')!='1':raise ValueError('Docker update reservation is only available inside the Docker package.')
+        action=payload.get('action');token=payload.get('token','')
+        if action not in ('reserve','release') or not re.fullmatch('[a-f0-9]{32}',token):raise ValueError('Invalid Docker update request.')
+        marker=self.root/'data/update-installing'
+        with self.gate:
+            existing=None
+            if marker.exists():
+                try:existing=json.loads(marker.read_text()).get('token')
+                except (ValueError,AttributeError):raise ValueError('A different update is pending.')
+                if not isinstance(existing,str) or not re.fullmatch('[a-f0-9]{32}',existing):raise ValueError('A different update is pending.')
+            if existing and existing!=token:raise ValueError('A different host updater owns this reservation.')
+            if action=='reserve':
+                if self.reserved and not existing:raise ValueError('Another update operation is running.')
+                temporary=marker.with_suffix('.tmp');temporary.write_text(json.dumps({'token':token,'kind':'docker'}));temporary.chmod(0o600);temporary.replace(marker)
+                self.reserved=True
+                self.state={'phase':'waiting','message':'Host Docker updater is waiting for active work. New tasks are paused.'}
+                return {'reserved':True,'busy':self.working or self.busy()}
+            if existing is None and not self.reserved:return {'reserved':False,'busy':False}
+            if existing!=token:raise ValueError('No matching Docker update reservation.')
+            marker.unlink();self.reserved=False
+            self.state={'phase':'idle','message':'Docker update reservation released.'}
+            return {'reserved':False,'busy':False}
     def request(self,url,binary=False):
         if not url.startswith('https://api.github.com/'):raise ValueError('Invalid GitHub asset URL.')
         headers={'User-Agent':'Telegram-STL-Manager-Updater','Accept':'application/octet-stream' if binary else 'application/vnd.github+json','X-GitHub-Api-Version':'2026-03-10'}
@@ -66,16 +91,32 @@ class Updater:
         latest=release['tag_name'].removeprefix('v');version(latest)
         self.release=None
         if version(latest)>version((self.root/'VERSION').read_text().strip()):
-            asset=next((a for a in release.get('assets',[]) if a['name']==ASSET),None)
-            if not asset or not re.fullmatch(r'sha256:[a-f0-9]{64}',asset.get('digest') or ''):raise ValueError('This release has no verified Windows update package.')
+            asset_name=DOCKER_ASSET if os.environ.get('TELEGRAM_STL_DOCKER')=='1' else ASSET
+            asset=next((a for a in release.get('assets',[]) if a['name']==asset_name),None)
+            if not asset or not re.fullmatch(r'sha256:[a-f0-9]{64}',asset.get('digest') or ''):raise ValueError('This release has no verified update package for this platform.')
             if not str(asset['url']).startswith(f'https://api.github.com/repos/{repo}/releases/assets/'):raise ValueError('Unexpected update asset.')
-            self.release={'version':latest,'url':asset['url'],'sha256':asset['digest'][7:],'size':asset['size']}
+            changes=[];page=1
+            while True:
+                with self.request(f'https://api.github.com/repos/{repo}/releases?per_page=100&page={page}') as response:rows=json.loads(response.read(8_000_001))
+                if not isinstance(rows,list):raise ValueError('Invalid release history.')
+                for row in rows:
+                    if row.get('draft') or row.get('prerelease'):continue
+                    tag=str(row.get('tag_name','')).removeprefix('v')
+                    try:parsed=version(tag)
+                    except ValueError:continue
+                    if version((self.root/'VERSION').read_text().strip())<parsed<=version(latest):changes.append({'version':tag,'body':str(row.get('body') or 'No release notes provided.')[:100000]})
+                if len(rows)<100:break
+                page+=1
+                if page>20:raise ValueError('Release history is too large; open GitHub to review updates.')
+            if not any(row['version']==latest for row in changes):changes.append({'version':latest,'body':str(release.get('body') or 'No release notes provided.')[:100000]})
+            changes.sort(key=lambda row:version(row['version']),reverse=True)
+            self.release={'version':latest,'url':asset['url'],'sha256':asset['digest'][7:],'size':asset['size'],'changes':changes}
         self.state={'phase':'available' if self.release else 'current','message':f'Update {latest} available.' if self.release else 'You have the latest version.','last_checked':time.time()}
     def start(self,action):
         with self.gate:
             if self.working:raise FileExistsError('An update operation is already running.')
             if action=='install':
-                if not self.status()['supported']:raise ValueError('In-app installation currently supports managed Windows/WSL installations. Use the documented runtime or Docker update procedure on other platforms.')
+                if not self.status()['supported']:raise ValueError('Use Update.command on the host for Docker installations. Development checkouts must be updated from source; in-app installation supports managed Windows/WSL only.')
                 if not self.release:raise ValueError('Check for an update first.')
                 self.reserved=True
             self.working=True

@@ -1,4 +1,8 @@
-# Telegram STL Manager — Docker test package
+# Telegram STL Manager — Docker for Linux and macOS
+
+This is the user-facing Linux/macOS installation package. No separate native
+Linux installer is needed. **Update.command** runs Docker updates from the host;
+the application container never receives the host Docker socket.
 
 Copyright © 2026 trumphater77
 
@@ -61,10 +65,37 @@ host groups are not passed into the container. Do not start this launcher as roo
 or pressing Ctrl+C detaches the logs; the app stays running. Start.command starts
 it again. It does not automatically start after a computer restart.
 
-For an update, stop the old package, extract the new one and start it. Select the
-same download folder. The named Docker volume `telegram-stl-manager-data` retains
-settings, account sessions, history and local staging across image/container
-replacement. Do not run two copies against this volume at once.
+For an update, leave the app running and double-click **Update.command** on macOS,
+or run **`bash Update.command`** on Linux from the same package folder. The launcher
+downloads the latest stable Docker release, verifies its GitHub SHA-256 digest
+and version, and builds its image before stopping the current app. Build and
+download progress remain visible. It pauses new tasks and waits for running work
+to finish, then copies application state to a new named volume and starts the new
+container. Settings, sessions, history, user IDs, timezone and the download-folder
+mapping are retained. The external download folder is never copied or removed.
+
+The previous image, original state volume and package are retained for recovery.
+A failed startup automatically restores them. After a failed or interrupted attempt,
+run **`bash Update.command --recover`** to finish recovery/archive the transaction
+before starting another update. Do not
+delete `.updates/current`, its lock or any saved Docker volumes to bypass recovery.
+State copies need enough disk space for another copy of application data, including
+unfinished local downloads. They do not duplicate the external download folder.
+No host Python installation, Docker socket mount or privileged container is needed.
+
+**One-time upgrade for older packages without Update.command/update reservation:**
+finish active work, use Stop.command, extract the new package and start it with
+the same download folder. Keep the named volume. After using the guided updater,
+the active volume name is saved in `support/data-volume.txt`; carry this file and
+`support/download-folder.txt` across any later manual package replacement. Never
+run two packages against the same data volume. The first installation defaults to
+`telegram-stl-manager-data`; guided updates retain that original as a backup and
+switch to a copied volume with a transaction-specific name.
+
+The app announces new versions with the changelog for every stable release newer
+than your installed version. It shows the modal once per version, with a reminder
+option; the footer link can reopen it. Updates remain optional and are launched
+from the host package folder, not automatically by the container.
 
 To change your host download folder later, stop the app and run Start.command
 with the new folder path as shown above. This changes the mapping only; it does
@@ -194,7 +225,7 @@ expose the purchased library. No additional Python dependency is required.
 ### Required usage acknowledgment
 
 Before installation changes begin, read the usage notice and explicitly acknowledge
-it (Windows: choose **Yes** in the dialog; Linux installer and Docker launcher:
+it (Windows: choose **Yes** in the dialog; Docker launcher (Linux/macOS) or maintainer install helper:
 type **I AGREE**). Declining stops installation. Windows may ask again when it
 starts elevated prerequisite setup or resumes after a restart. Docker remembers
 the installation acknowledgment for that extracted package.

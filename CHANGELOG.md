@@ -1,5 +1,12 @@
 # Version history
 
+## 0.2.9
+
+- Add a host-side Docker update launcher for Linux and macOS with verified downloads, preserved state volumes, automatic rollback and interrupted-update recovery. Older Docker packages need one manual upgrade to obtain the launcher.
+- Show new-release notifications with all changes since the installed version, optional reminders and a link to update instructions.
+- Group browser code, templates and supporting guides into dedicated folders; keep generated pages in private application data.
+- Add demonstration screenshots, contributor credits and clearer guidance about later additions to older artist releases.
+
 ## 0.2.8
 
 - Clarify the project's purpose: subscription downloads, release organization and optional personal archiving in a private Telegram channel. Documentation-only change; downloadable application packages remain at 0.2.7.

@@ -2,7 +2,7 @@
 
 The start page is the manual download queue. Artists, Organize folders, Collages and
 Configuration share the same navigation and logo. Installation and required
-libraries are documented in [INSTALL.md](INSTALL.md).
+libraries are documented in [INSTALL.md](../INSTALL.md).
 
 ## Private source and creator catalog
 

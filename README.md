@@ -15,6 +15,12 @@ and organize everything by artist and release. It also supports downloading from
 your configured Telegram artist catalog. Archives, extracted images, collages and
 download history stay together on your local disk or network storage.
 
+It also helps you **avoid missing later additions to releases you already own**.
+Artists may add supported versions, bonus models, corrected files or other extras
+to an older MMF release long after its original publication. Checks track newly
+added and updated files within your selected scope, so those additions can be
+downloaded and included in an addendum rather than overlooked.
+
 The same tool can prepare releases and upload them to **your own private Telegram
 channel** for personal archiving, using Telegram's free, unlimited cloud storage.
 Per-file upload limits still apply; the manager splits large releases into parts.
@@ -26,7 +32,21 @@ no AI service, OCR, Telegram Desktop or VNC session. Downloads and folder change
 start when you request them; saving a subscription does not start a background
 schedule.
 
+## App screenshots
+
+These screenshots show the real interface with demonstration data, not private accounts.
+
+![Download queue with progress and combined transfer speed](assets/screenshots/download-queue.png)
+
+![MMF releases and the download-to-release workflow](assets/screenshots/release-workflow.png)
+
+![Artist subscriptions, destination folders and release scopes](assets/screenshots/artist-subscriptions.png)
+
 ## Software components and how they work together
+
+Repository layout: Python application code is in `app/`, browser code in `web/`,
+HTML in `templates/`, supporting guides in `docs/`, and maintenance tools in
+`tools/`. Generated pages and private state stay in `data/`.
 
 The manager runs on your own machine. Your normal browser displays the interface
 and talks to a local Python web server; that server starts workers for downloads,
@@ -43,7 +63,7 @@ being delivered to your chosen local folder or mounted network share.
 | Pillow | Processes images, creates previews and renders the final JPEG collages. |
 | pypdf | Processes recognized PDF footer stamps during MMF repackaging, without rasterizing pages. |
 | Direct MMF HTTP client | Python's HTTP and cookie libraries authenticate to MyMiniFactory, read the supported library collections and fetch files. Checks and downloads do not require a separate MMF browser window or Tampermonkey. |
-| WSL2, Ubuntu and PowerShell on Windows | The installer prepares a dedicated Linux environment and the launcher starts the app inside it. You use the interface in your normal Windows browser. Linux installations run directly. |
+| WSL2, Ubuntu and PowerShell on Windows | The installer prepares a dedicated Linux environment and the launcher starts the app inside it. You use the interface in your normal Windows browser. Linux and macOS users run the Docker package. |
 
 The runtime package bundles Python, the application web server, SQLite, Pillow, pypdf,
 the compiled Telegram CLI and 7-Zip. Go is needed to build the CLI from source,
@@ -236,22 +256,22 @@ and prepares its own WSL environment; no manual WSL configuration is needed.
 Existing users should use the optional in-app updater or the separate
 **Telegram-STL-Manager-Update.zip**, preserving their configuration and history.
 
-For macOS and Linux Docker testing, use the separate
+For Linux and macOS, use **Docker for Linux and macOS**, distributed as the
 **Telegram-STL-Manager-Docker.zip** package. It includes a launcher, persistent
 application storage and a host download-folder mapping. See the
 [Docker setup guide](docker/README.md). Docker Desktop is required on macOS;
 Linux can use Docker Engine with Compose. The Docker build targets x86-64 and
 ARM64; real Mac validation is still pending.
 
-Supported setup: **Linux**, or **Windows through WSL2**. Windows installation
+Supported user installation routes: **Docker on Linux/macOS**, or **Windows through WSL2**. Windows installation
 instructions use Ubuntu inside WSL2; this is not a native Windows application.
 
 - [Installation guide](INSTALL.md): dependencies, CLI build and login, local/NAS
   storage, configuration, startup and migration.
 - [AI installation prompt](AI-INSTALL-PROMPT.md): instructions for an agent that
   can help set up a machine. An agent is optional, not a runtime dependency.
-- [Application workflow](CATALOG.md): subscriptions, scopes, queue and organizer.
-- [Images and collages](IMAGE-WORKFLOW.md): extraction, layouts, saved versions
+- [Application workflow](docs/CATALOG.md): subscriptions, scopes, queue and organizer.
+- [Images and collages](docs/IMAGE-WORKFLOW.md): extraction, layouts, saved versions
   and recovery behavior.
 
 Follow the installation guide before starting the app. Once configured, the web
@@ -293,7 +313,7 @@ During organizer Preview, loose files whose names and sizes match an existing mo
 
 Split archives with mixed names such as `release.7z.001`, `release.002`, and `release.003` are grouped together. Extraction uses temporary consistent names while preserving the original filenames; retrying an older organizer job also repairs this grouping.
 
-The browser checks subscribed creators for available downloads at the interval saved in Configuration (four hours by default) while the tool is open; downloads stay manual unless Auto-download is enabled on that provider’s queue. The Linux x64 runtime package includes Python, the web server, SQLite, Pillow, Telegram CLI and 7-Zip. Run `start.sh`; Windows uses WSL2. See INSTALL.md for first-time account/source setup and supported platforms.
+The browser checks subscribed creators for available downloads at the interval saved in Configuration (four hours by default) while the tool is open; downloads stay manual unless Auto-download is enabled on that provider’s queue. Linux and macOS use the Docker ZIP; Windows uses its guided WSL2 package. The Linux runtime tarball is an internal Windows payload and maintainer tool, not a separate public Linux installer. See INSTALL.md for first-time account/source setup and supported platforms.
 
 ## Network interruptions and recovery
 
@@ -690,7 +710,7 @@ Keep the updater open until **Update complete** appears. WSL's **The operation
 completed successfully** is only an intermediate message. Update logs are under
 `%LOCALAPPDATA%\TelegramSTLManager\logs\update-*\update.log`.
 
-Linux and Docker use their documented manual update procedures, preserving
+Linux and macOS Docker installations use the host-side Update.command launcher, preserving
 application state and volumes. See
 [Updating an existing installation](INSTALL.md#updating-an-existing-installation).
 
@@ -774,5 +794,14 @@ free-of-charge software supplied **AS IS**, warranty exclusions and liability
 limits subject to applicable law. Read [USAGE-NOTICE.txt](USAGE-NOTICE.txt).
 
 PDFCleaner adaptation: original tool and footer-stamp profiles by **RC**.
+STL washers: **Anne O'Nymous**. Cotton uses supplied binaries; our Delicates-style
+implementation is independently adapted from the original approach.
+Testing: **Quartz**.
 
 Copyright © 2026 trumphater77
+
+## Docker updates on Linux and macOS
+
+Use **Update.command** from the installed Docker package folder (Linux: `bash Update.command`). Keep the app running while it downloads and verifies the release and builds the image. It then blocks new tasks, waits for active work, retains the original data volume and starts the update using a copied volume. Failed startup rolls back; if interrupted, use `bash Update.command --recover`. Settings, accounts, history and the external download-folder mapping are preserved. No Docker socket or privileged host access is given to the app. Keep the previous volumes and `.updates` recovery files; allow space for a state copy.
+
+Older packages without the launcher/reservation endpoint need one manual package update first, after finishing tasks and stopping the app. Reuse the existing named volume and download folder. After guided updates, preserve `support/data-volume.txt` and `support/download-folder.txt` during manual replacement. See [the Docker guide](docker/README.md) for full recovery instructions. The app shows all release notes newer than the installed version, once per new version, with optional reminders.

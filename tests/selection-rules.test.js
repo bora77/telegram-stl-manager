@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const rules = require('./selection-rules.js');
+const rules = require('../web/selection-rules.js');
 const url = 'https://t.me/c/123456789/200';
 const record = {creator:'Atlan Forge',topic_url:url,creator_folder:'- Atlan Forge',layout:'monthly',download_scope:'from_month',start_month:'2026-08'};
 

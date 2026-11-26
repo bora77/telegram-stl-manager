@@ -12,6 +12,7 @@ class LauncherTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root/'support').mkdir(); (self.root/'bin').mkdir()
+        (self.root/'support/installation-acknowledged').write_text('fixture')
         for name in ('Start.command','Stop.command'):
             shutil.copy2(Path(__file__).parent/name, self.root/name)
         fake = self.root/'bin/docker'
@@ -38,5 +39,15 @@ class LauncherTests(unittest.TestCase):
         self.assertNotEqual(self.run_script('Start.command',str(folder)).returncode,0)
         self.assertFalse(folder.exists())
         self.assertFalse(any('up' in c['args'] for c in self.calls()))
+
+    def test_updated_image_is_reused_without_rebuilding_old_code(self):
+        folder=self.root/'downloads';folder.mkdir()
+        (self.root/'support/image.txt').write_text('telegram-stl-manager-update:'+'a'*32+'\n')
+        (self.root/'support/data-volume.txt').write_text('telegram-stl-manager-data-test\n')
+        self.assertEqual(self.run_script('Start.command',str(folder)).returncode,0)
+        up=next(c for c in self.calls() if 'up' in c['args'])
+        self.assertIn('--no-build',up['args']);self.assertNotIn('--build',up['args'])
+        (self.root/'.updates/current').mkdir(parents=True)
+        self.assertNotEqual(self.run_script('Start.command').returncode,0)
 
 if __name__=='__main__': unittest.main()

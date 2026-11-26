@@ -22,13 +22,15 @@ RUN case "$TARGETARCH" in \
     && ln -s /opt/7zip/7zz /usr/local/bin/7zz && rm /tmp/7zip.tar.xz
 RUN pip install --no-cache-dir Pillow==11.3.0 pypdf==6.14.2
 WORKDIR /opt/app
-COPY app/ ./
+# Public application files must be readable by the configured runtime UID.
+# Set modes at copy time, avoiding a slow overlay copy-up of the source tree.
+COPY --chmod=0755 app/ ./
 COPY --from=cli /tdl .tools/tdl-stl/tdl
 RUN python -c 'import hashlib,json,pathlib; p=pathlib.Path(".tools/tdl-stl"); (p/"build.json").write_text(json.dumps({"service_protocol":1,"binary_sha256":hashlib.sha256((p/"tdl").read_bytes()).hexdigest()}))' \
     && ln -s /state/data data && ln -s /downloads downloads
 COPY entrypoint.sh /usr/local/bin/stl-entrypoint
 RUN chmod +x /usr/local/bin/stl-entrypoint
-ENV HOME=/state/home PYTHONUNBUFFERED=1 PYTHONNOUSERSITE=1 TELEGRAM_STL_BIND=0.0.0.0
+ENV HOME=/state/home PYTHONUNBUFFERED=1 PYTHONNOUSERSITE=1 TELEGRAM_STL_BIND=0.0.0.0 TELEGRAM_STL_DOCKER=1
 EXPOSE 6093
 HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=12 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6093/api/setup',timeout=2).close()"

@@ -1,5 +1,9 @@
 # Project instructions
 
+Keep `TODO.md` current as work changes: record new tasks, scope changes,
+implementation status, verification and outstanding release work. Do not leave
+completed work described as unstarted, or mark unverified/unreleased work as shipped.
+
 Keep `README.md`, `INSTALL.md` and `AI-INSTALL-PROMPT.md` in sync whenever changing
 installation routes, supported platforms, dependencies, initial configuration,
 startup, updates, recovery or uninstall behavior. Update every affected document

@@ -155,6 +155,12 @@ class Worker:
         sub=records[0]['sub'];month=records[0]['month'];key=lambda name:self.archive_key(name,sub,month)
         records=sorted(records,key=lambda r:key(r['filename'])[1]);first=records[0]['filename']
         try:
+            present={r['source_message_id'] for r in records}
+            missing=[item for owner,item,m in self.planned if owner['topic_url']==sub['topic_url'] and m==month
+                     and self.archive_key(item['filename'],sub,month)[0]==key(first)[0]
+                     and item['source_message_id'] not in present and not self.history.was_downloaded(item['source_message_id'])]
+            if missing:
+                raise ExtractionError('Archive is incomplete because a download did not finish: '+', '.join(i['filename'] for i in missing)+'. Local parts retained; Resume downloads the missing parts before extraction.')
             if len({r['filename'] for r in records})!=len(records):
                 raise ExtractionError('Multiple uploads contain the same archive part name. Resume to select one complete upload; local files retained.')
             # A companion may have completed before image extraction was added.
@@ -408,7 +414,8 @@ class Worker:
             self.cleanup_completed()
             self.telegram=TelegramCLI(root=ROOT,config=self.run.get('config',self.store.config()))
             if self.run.get('resume_requested'):self.plan.seed_legacy()
-            self.run.update(plan_version=1,creator_results=[],creators_done=0,creators_checked=0,warnings=self.run.get('scan_warnings',[]) if self.run.get('availability_checked_at') else [],scan_warnings=self.run.get('scan_warnings',[]) if self.run.get('availability_checked_at') else [])
+            scans=list(self.run.get('scan_warnings',[])) if self.run.get('availability_checked_at') else []
+            self.run.update(plan_version=1,creator_results=[],creators_done=0,creators_checked=0,warnings=list(scans),scan_warnings=list(scans))
             self.prepare_plan()
             if getattr(self.telegram,'use_service',False):self.execute_adaptive()
             else:self.execute_sequential()
@@ -450,6 +457,11 @@ class Worker:
                     for _,item,_ in monthly:
                         next_group=self.archive_key(item['filename'],sub,month)[0]
                         if group is not None and group!=next_group:self.finish_pending(sub)
+                        if group!=next_group:
+                            from app.disk_space import check_capacity
+                            size=sum(i['bytes_total'] for _,i,m in planned if m==month and self.archive_key(i['filename'],sub,month)[0]==next_group)
+                            error=check_capacity(getattr(self.telegram,'state',STATE),self.run['download_directory'],size,size,filename=item['filename'])
+                            if error:raise WorkerError(error)
                         # transfer checks history again after acquiring the
                         # month: the organizer may have completed it meanwhile.
                         self.transfer(sub,item,month)

@@ -350,6 +350,17 @@ class MMFTests(unittest.TestCase):
         self.assertEqual(len(self.manager.get('job')['errors']),1)
         self.assertEqual(self.manager.get('job')['phase'],'error')
         self.assertIn('run incomplete',self.manager.get('job')['message'])
+
+    def test_destination_capacity_stops_before_network_download(self):
+        from unittest.mock import Mock
+        self.manager.put('queue',[dict(self.item)]);self.manager.put('run_base',str(self.root))
+        client=Mock()
+        message='Not enough space on the final destination drive. Free space, then press Resume.'
+        with patch.object(self.manager,'client',return_value=client),patch('app.disk_space.check_capacity',return_value=message):
+            self.manager.download()
+        client.download.assert_not_called();client.downloadables.assert_not_called()
+        self.assertEqual(self.manager.get('job')['phase'],'error')
+        self.assertEqual(self.manager.get('job')['message'],message)
         self.assertIn('Resume',self.manager.get('job')['message'])
         self.assertFalse(list((self.manager.directory/'staging').glob('**/*.zip')))
 

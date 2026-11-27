@@ -221,7 +221,7 @@ to change order, and the oldest pending work retains a download lane.
 Completed files are extracted and moved while other downloads continue. Parts
 of one archive wait for their companions. Failed items remain available for
 review while unrelated releases continue. The scheduler reserves remaining
-space for active transfers plus a 2 GiB margin and limits completed files
+space for active transfers and remaining split-archive parts plus a 2 GiB margin and limits completed files
 waiting for processing to about 8 GiB (the final file may exceed that limit).
 
 The target is not a rate cap. Target and adaptive-mode changes apply within
@@ -334,6 +334,15 @@ Changed-file, authentication and storage-capacity errors require review rather
 than repeated retries. If recovery fails, the queue reports an error and retains
 staged files for **Resume**. A failed Telegram availability check retains the
 previous detections for affected artists and reports the check as incomplete.
+
+Queue pages show a prominent warning when the local staging drive or final
+destination is nearly full (below 5%, with a minimum warning threshold of 10 GiB
+and maximum of 50 GiB). Before downloading, both drives are checked for the next
+archive set/release; a shared drive must also hold the temporary destination copy.
+Insufficient space stops the run with free/required space and **Resume** guidance.
+Completed files and staged data are retained; missing archive parts are downloaded
+before extraction. Destination warning checks run in the background, at most every
+30 seconds; transfer checks use current space. This applies to Telegram, MMF and Gumroad.
 
 Storage outages do not discard local staged originals or mark an unfinished
 transfer complete. Restore the configured share, then Resume. The app does not

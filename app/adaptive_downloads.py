@@ -15,6 +15,7 @@ from app.file_delivery import release_lock
 from app.release_images import volume_key
 from app.telegram_cli import CLIError, TelegramCLI, CLI_STATE, completed_transfer_receipt
 from app.transfer_metrics import TransferMeter
+from app.disk_space import space_error, check_capacity, is_space_error
 
 WINDOW = 30
 MAX_TRANSFERS = 3
@@ -160,7 +161,7 @@ class AdaptiveDownloads:
     def _coordinate(self):
         pool = ThreadPoolExecutor(max_workers=MAX_TRANSFERS, thread_name_prefix='telegram-file')
         try:
-            saved = settings_read = float('-inf')
+            saved = settings_read = capacity_checked = float('-inf')
             while not self.stopped():
                 now = self.clock()
                 if now - settings_read >= 5:
@@ -173,10 +174,28 @@ class AdaptiveDownloads:
                     if all(j.state == 'handled' for j in self.jobs): break
                     job = choose_job(self.jobs, now, self.target * 1e6, self.last_start, self.dc_rates,
                                      MAX_TRANSFERS if self.enabled else 1)
+                    if now-capacity_checked<1:job=None
                     if job:
-                        reserved = sum(max(0, j.size - j.done) for j in self.jobs if j.state == 'running')
+                        capacity_checked=now
+                        # Reserve the rest of each open split archive as well:
+                        # earlier volumes cannot be delivered until its last part arrives.
+                        held = {j.archive_key for j in self.jobs if j.state in ('running','ready','processing','handled')}
+                        needed = sum(j.size for j in self.jobs if j.state=='pending' and j.archive_key==job.archive_key
+                                     and not self.reuse_staged(j) and not completed_transfer_receipt(j.item,self.state))
+                        reserved = sum(max(0,j.size-j.done) for j in self.jobs if j.state=='running')
+                        reserved += sum(j.size for j in self.jobs if j.state=='pending' and j.archive_key in held and j.archive_key!=job.archive_key)
                         free = shutil.disk_usage(self.state).free
-                        if free >= reserved + job.size + DISK_RESERVE or self.reuse_staged(job) or completed_transfer_receipt(job.item,self.state):
+                        destination_needed=sum(j.size for j in self.jobs if j.archive_key==job.archive_key and not self.history.was_downloaded(j.item['source_message_id']))
+                        destination_needed+=sum(j.size for j in self.jobs if j.state in ('running','ready','processing') and j.archive_key!=job.archive_key)
+                        capacity_error=check_capacity(self.state,self.run['download_directory'],reserved+needed,destination_needed,DISK_RESERVE,job.item['filename'])
+                        if capacity_error and not any(j.state in ('running','ready','processing') for j in self.jobs):
+                            self._failure(job,capacity_error)
+                            raise CLIError(capacity_error)
+                        if capacity_error:
+                            self.message='Waiting for active transfers and file delivery to free space.'
+                            job=None
+                    if job:
+                        if free >= reserved + needed + DISK_RESERVE or self.reuse_staged(job) or completed_transfer_receipt(job.item,self.state):
                             job.state, job.phase, job.started = 'running', 'starting', now
                             self.last_start = now
                             self.message = ('Using spare bandwidth for ' if job.role == 'look_ahead' else 'Downloading ') + job.item['filename']
@@ -184,7 +203,11 @@ class AdaptiveDownloads:
                         elif any(j.state in ('running', 'ready', 'processing') for j in self.jobs):
                             self.message = 'Waiting for local files to be processed before reserving more disk space.'
                         else:
-                            self._failure(job, 'Not enough local staging space for this file plus the download reserve.')
+                            message=space_error(free,needed,DISK_RESERVE,job.item['filename'])
+                            self._failure(job,message)
+                            # Stop this run before the consumer tries to extract
+                            # a split archive whose remaining volumes cannot fit.
+                            raise CLIError(message)
                     if now - saved >= 1:
                         snapshot = self._snapshot(now)
                         self.store.atomic_write(self.status_path, snapshot)
@@ -298,6 +321,9 @@ class AdaptiveDownloads:
                 self.message = 'Organization is using ' + job.sub['creator'] + ' · ' + job.month + '; checking other releases.'
                 self.condition.notify_all()
         except BaseException as error:
-            with self.condition: self._failure(job, error)
+            with self.condition:
+                self._failure(job, error)
+                if is_space_error(str(error)):
+                    self.fatal=error;self.cancel.set();self.condition.notify_all()
         finally:
             if cli: cli.close()

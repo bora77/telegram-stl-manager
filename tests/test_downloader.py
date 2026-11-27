@@ -12,6 +12,25 @@ from app.file_delivery import deliver, DeliveryError, release_lock
 from app.subscription_store import SubscriptionStore
 
 class DownloaderTests(unittest.TestCase):
+    def test_resumed_success_removes_transfer_errors_from_legacy_scan_warnings(self):
+        from app.run_manager import current_run_warnings,update_run_outcome
+        with tempfile.TemporaryDirectory() as tmp:
+            store=SubscriptionStore(configure_source(Path(tmp)))
+            row=store.history.register(source_message_id=201,creator='Example',topic_url='https://t.me/c/123456789/200',filename='Example.7z',bytes_total=10,release_month='2026-01',batch_id='resume')
+            old='Example · Example.7z: Not enough local staging space.'
+            run={'id':'resume','plan_version':1,'state':'needs_review','resume_requested':True,'warnings':[old],'scan_warnings':[old]}
+            with store.history.connect() as db:db.execute("UPDATE downloads SET state='paused',error='Not enough local staging space.' WHERE id=?",(row['id'],))
+            current_run_warnings(run,store.history)
+            self.assertEqual(run['warnings'],[old]);self.assertEqual(run['scan_warnings'],[])
+            store.history.complete(row['id'],destination=Path(tmp)/'done.7z',verified_size=10,sha256='a'*64)
+            run['scan_warnings']=[old]
+            current_run_warnings(run,store.history);update_run_outcome(run,store.history)
+            self.assertEqual(run['warnings'],[]);self.assertEqual(run['state'],'completed')
+            genuine='Another artist: connection failed during checking.'
+            run['scan_warnings']=[old,genuine]
+            current_run_warnings(run,store.history)
+            self.assertEqual(run['warnings'],[genuine])
+
     def test_kronos_accepts_exact_short_or_full_host_only(self):
         import os
         from types import SimpleNamespace

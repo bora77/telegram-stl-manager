@@ -59,6 +59,14 @@ launcher; restarting the computer does not automatically start this package.
 
 ## Updates and recovery
 
+Download queues warn when local staging storage or the final destination is
+nearly full. Both are checked before downloading an archive set/release, with
+extra room for verified copying when they share a drive. If space is insufficient,
+free space on the named drive and use **Resume**; staged data is retained.
+For Docker, staging is in the application data volume; the destination is the
+configured download-folder mount. Docker Desktop disk capacity can therefore
+differ from free space on your host or NAS.
+
 Leave the app running and use the OS-specific Update launcher. It downloads the
 latest stable release, verifies its GitHub SHA-256 digest and version, and builds
 before stopping the app. It blocks new tasks and waits for active work to finish,

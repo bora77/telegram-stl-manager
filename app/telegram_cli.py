@@ -424,8 +424,10 @@ class TelegramCLI:
             if result.get('bytes') == size and output.stat().st_size == size and digest(output) == result.get('sha256'):
                 progress(size, size); return output
             raise CLIError('Previously completed local transfer failed verification.')
-        if shutil.disk_usage(self.state).free < (0 if probe_only else size) + 1024**3:
-            raise CLIError('Not enough local staging space for this file plus 1 GiB reserve.')
+        free=shutil.disk_usage(self.state).free
+        if free < (0 if probe_only else size) + 1024**3:
+            from app.disk_space import space_error
+            raise CLIError(space_error(free,0 if probe_only else size,1024**3,item['filename']))
         if not marker.exists() and any(directory.iterdir()):
             raise CLIError('Unrecognized local transfer files need review.')
         store.atomic_write(marker, item)

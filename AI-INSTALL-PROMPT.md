@@ -304,6 +304,14 @@ than repeated retries. If recovery fails, the queue reports an error and retains
 staged files for **Resume**. A failed Telegram availability check retains the
 previous detections for affected artists and reports the check as incomplete.
 
+Queue pages warn when either the local staging drive or final destination is
+nearly full (5% free, bounded between 10 and 50 GiB). Downloads check both drives
+before starting an archive set/release, including temporary copy space when they
+share a drive. A space shortage stops the run with free/required space; free space
+on the named drive, then use **Resume**. Staged data and completed files are kept.
+Destination warning checks are cached for up to 30 seconds; transfer checks are
+fresh. This applies to Telegram, MMF and Gumroad.
+
 Storage outages do not discard local staged originals or mark an unfinished
 transfer complete. Restore the configured share, then Resume. The app does not
 force-remount system shares. Uploads, forwarding and bot commands are not blindly

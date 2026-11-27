@@ -17,6 +17,8 @@
     "app/download_history.py",
     "app/download_worker.py",
     "app/download_plan.py",
+    "app/disk_space.py",
+    "tests/test_disk_space.py",
     "assets/favicon.svg",
     "app/file_delivery.py",
     "app/file_size.py",

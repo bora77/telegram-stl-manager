@@ -40,6 +40,14 @@ def current_run_warnings(data,history):
     scans=data.get('scan_warnings')
     if scans is None:
         scans=[] if data.get('resume_requested') else [w for w in data.get('warnings',[]) if ': release month needs review for ' in w or ': unsafe attachment filename needs review.' in w]
+    # Older workers shared the warnings and scan_warnings list in memory.
+    # Transfer errors accidentally persisted as scan errors, even after Resume
+    # completed those files. Rebuild file warnings from current history only.
+    with history.connect() as db:
+        prefixes=tuple(r['creator']+' · '+r['filename']+': ' for r in db.execute(
+            'SELECT creator,filename FROM downloads WHERE batch_id=?',(data['id'],)))
+    scans=[w for w in scans if not prefixes or not w.startswith(prefixes)]
+    data['scan_warnings']=list(scans)
     problems=[] if data.get('state') in ('starting','scanning') else history.run_warnings(data['id'])
     data['warnings']=list(dict.fromkeys(scans+problems))
 

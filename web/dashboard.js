@@ -92,6 +92,13 @@ let availabilityDisplayKey=null;
 async function refreshQueue(){
   try{
     const [queue,availability]=await Promise.all([api('/api/queue'),api('/api/availability').catch(()=>({files:0}))]);
+    const disk=queue.storage, diskWarning=document.getElementById('disk-space-warning');
+    const diskMessages=[];
+    if(disk?.error)diskMessages.push(`Download stopped because there was insufficient disk space. ${disk.error} Resume checks both drives again.`);
+    if(disk?.low||disk?.error)diskMessages.push(`Local staging drive: ${bytes(disk.free)} free.${disk.low?' Nearly full.':''}`);
+    if(disk?.destination?.error)diskMessages.push(disk.destination.error);
+    else if(disk?.destination?.low||disk?.error&&disk?.destination?.free!=null)diskMessages.push(`Final destination: ${bytes(disk.destination.free)} free.${disk.destination.low?' Nearly full.':''}`);
+    diskWarning.hidden=!diskMessages.length;diskWarning.textContent=diskMessages.join(' ');
     const availabilityKey=JSON.stringify([availability.checking,availability.checked_at,availability.files,availability.claimed]);
     if(availabilityKey!==availabilityDisplayKey){availabilityDisplayKey=availabilityKey;window.dispatchEvent(new Event('telegram-availability-updated'))}
     const checkButton=document.getElementById('download-all');checkButton.querySelector('.button-label').textContent=availability.checking?'Scanning…':'Scan for new downloads';checkButton.classList.toggle('checking',!!availability.checking);checkButton.setAttribute('aria-busy',String(!!availability.checking));

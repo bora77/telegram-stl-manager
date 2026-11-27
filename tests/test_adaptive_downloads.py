@@ -11,6 +11,7 @@ import time
 import unittest
 from unittest.mock import patch
 import zipfile
+import errno
 
 from app import adaptive_downloads as ad
 from app import download_worker
@@ -74,6 +75,78 @@ class PolicyTests(unittest.TestCase):
 
 
 class CoordinatorTests(unittest.TestCase):
+    def simulate_drive_filling_during_download(self, destination_full):
+        """Inject ENOSPC after real fixture bytes, never fill a real drive."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);entry=planned(1);sub,item,month=entry
+            store,state,run=self.fixture(root,[entry])
+            fixture=root/'fixture.zip'
+            with zipfile.ZipFile(fixture,'w',compression=zipfile.ZIP_STORED) as archive:
+                archive.writestr('model.stl',b'fixture\n'*(1024*1024))
+            payload=fixture.read_bytes();item['bytes_total']=len(payload)
+            store.atomic_write(store.runs.path,run)
+            full=[False];calls=[];partial=state/'payload.part';injected=[False]
+            class CLI:
+                use_service=True
+                def __init__(self,**kwargs):self.state=state
+                def list_files(self,*args,**kwargs):return [item]
+                def download(self,item,progress,stopped,status):
+                    calls.append(item['source_message_id']);status({'event':'download_start'})
+                    if not destination_full and not injected[0]:
+                        partial.write_bytes(payload[:131072]);progress(131072,len(payload))
+                        injected[0]=True;full[0]=True
+                        raise OSError(errno.ENOSPC,'No space left on device')
+                    partial.write_bytes(payload);progress(len(payload),len(payload))
+                    status({'event':'download_finished'});return partial
+                def close(self):pass
+            original_fdopen=os.fdopen
+            class FullDestination:
+                def __init__(self,stream):self.stream=stream;self.written=0
+                def __getattr__(self,name):return getattr(self.stream,name)
+                def __enter__(self):return self
+                def __exit__(self,*args):self.stream.close()
+                def write(self,data):
+                    if self.written:
+                        injected[0]=True;full[0]=True
+                        raise OSError(errno.ENOSPC,'No space left on device')
+                    self.written+=len(data);return self.stream.write(data)
+            def fdopen(fd,mode,*args,**kwargs):
+                stream=original_fdopen(fd,mode,*args,**kwargs)
+                return FullDestination(stream) if destination_full and mode=='wb' and not injected[0] else stream
+            real_usage=ad.shutil.disk_usage
+            def usage(path):
+                result=real_usage(path)
+                affected=Path(path)==(Path(run['download_directory']) if destination_full else state)
+                return result._replace(free=0) if full[0] and affected else result
+            with patch.object(download_worker,'ROOT',root),patch.object(download_worker,'STATE',state),patch.object(download_worker,'TelegramCLI',CLI),patch('app.telegram_cli.CLI_STATE',state),patch.object(ad.shutil,'disk_usage',side_effect=usage),patch('app.file_delivery.os.fdopen',side_effect=fdopen):
+                worker=download_worker.Worker(run['id']);worker.execute()
+                self.assertTrue(injected[0]);self.assertEqual(worker.run['state'],'failed')
+                self.assertFalse(store.history.was_downloaded(1))
+                queue=store.queue();self.assertTrue(queue['can_resume']);self.assertIsNotNone(queue['storage']['error'])
+                target=Path(run['download_directory'])/'Example/Example 2026-01'/item['filename']
+                self.assertFalse(target.exists(),'A partial destination must not be published')
+                self.assertFalse(list(Path(run['download_directory']).rglob('*.partial')))
+                if destination_full:
+                    kept=list((state/'staging').glob('*/'+item['filename']))
+                    self.assertEqual(len(kept),1);self.assertEqual(kept[0].read_bytes(),payload)
+                else:self.assertEqual(partial.read_bytes(),payload[:131072])
+                # Use the real Resume action and worker, but suppress process launch.
+                full[0]=False
+                with patch('app.run_manager.subprocess.Popen'):
+                    store.runs.resume({'run_id':run['id']})
+                resumed=download_worker.Worker(run['id']);resumed.execute()
+                self.assertEqual(resumed.run['state'],'completed',resumed.run['message'])
+                self.assertEqual(target.read_bytes(),payload)
+                queue=store.queue();self.assertEqual(queue['completed_files'],1)
+                self.assertEqual(queue['run']['warnings'],[]);self.assertIsNone(queue['storage']['error'])
+                self.assertEqual(len(calls),1 if destination_full else 2)
+
+    def test_staging_drive_fills_mid_download_then_resume_recovers(self):
+        self.simulate_drive_filling_during_download(False)
+
+    def test_destination_fills_mid_copy_then_resume_reuses_staged_download(self):
+        self.simulate_drive_filling_during_download(True)
+
     def fixture(self, root, entries):
         store = SubscriptionStore(configure_source(root))
         state = root / 'telegram'; state.mkdir()
@@ -186,10 +259,23 @@ class CoordinatorTests(unittest.TestCase):
                     raise RuntimeError('Stopped fixture')
                 def close(self): pass
             usage = type('Usage', (), {'free': 150_000_000})()
-            with patch.object(ad.shutil, 'disk_usage', return_value=usage), ad.AdaptiveDownloads(
+            remote_usage=type('Usage',(),{'free':10*1024**3})()
+            with patch.object(ad.shutil, 'disk_usage', side_effect=lambda p:usage if Path(p)==state else remote_usage), patch('app.file_delivery.mount_identity',return_value=('mount','source','fs',-1)), ad.AdaptiveDownloads(
                     store, run, entries, lambda: False, lambda j: False, cli_factory=CLI, state=state, interval=.005):
                 self.assertTrue(started.wait(2)); time.sleep(.12)
                 self.assertEqual(calls, [1])
+
+    def test_split_archive_does_not_start_if_final_part_will_not_fit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);entries=[planned(1),planned(2)]
+            for index,(_,item,_) in enumerate(entries,1):item['filename']=f'Example.7z.{index:03}'
+            store,state,run=self.fixture(root,entries)
+            usage=type('Usage',(),{'free':ad.DISK_RESERVE+150_000_000})()
+            with patch.object(ad.shutil,'disk_usage',return_value=usage),patch('app.file_delivery.mount_identity',return_value=('m','s','fs',-1)),patch.object(ad,'TelegramCLI') as cli:
+                with ad.AdaptiveDownloads(store,run,entries,lambda:False,lambda j:False,cli_factory=cli,state=state,interval=.005) as scheduler:
+                    with self.assertRaisesRegex(ad.CLIError,'Not enough space.*Example'):
+                        scheduler.next_ready()
+                cli.assert_not_called()
 
     def test_worker_moves_fast_release_before_slow_one_and_keeps_failed_item_for_review(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(ad, 'WINDOW', .05):
@@ -227,7 +313,7 @@ class CoordinatorTests(unittest.TestCase):
                     while not store.history.was_downloaded(2) and time.monotonic() < deadline: time.sleep(.02)
                     self.assertTrue(store.history.was_downloaded(2), worker.run)
                     self.assertFalse(store.history.was_downloaded(1))
-                    self.assertEqual((Path(run['download_directory'])/'Example'/'2026-02'/entries[1][1]['filename']).read_bytes(), data)
+                    self.assertEqual((Path(run['download_directory'])/'Example'/'Example 2026-02'/entries[1][1]['filename']).read_bytes(), data)
                 finally: release_slow.set()
                 future.result(timeout=5)
             self.assertTrue(store.history.was_downloaded(1))
@@ -267,7 +353,7 @@ class CoordinatorTests(unittest.TestCase):
             self.assertEqual(worker.run['state'], 'completed', worker.run['message'])
             self.assertEqual(calls, sorted(calls))
             self.assertTrue(all(store.history.was_downloaded(i) for i in range(1, 4)))
-            images = list((Path(run['download_directory'])/'Example/2026-01/release_images').iterdir())
+            images = list((Path(run['download_directory'])/'Example/Example 2026-01/release_images').iterdir())
             self.assertEqual(len(images), 1)
             self.assertEqual(images[0].read_bytes(), image.read_bytes())
 

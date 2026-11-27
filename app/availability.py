@@ -92,7 +92,7 @@ class Availability:
             plan.load(sub) # Validate identities and scope before starting any worker.
         run.update(availability_checked_at=saved['checked_at'],
                    message='Downloading known available files.',
-                   scan_warnings=saved.get('errors',[]),warnings=saved.get('errors',[]))
+                   scan_warnings=list(saved.get('errors',[])),warnings=list(saved.get('errors',[])))
         return True
 
     def start(self,force=False):

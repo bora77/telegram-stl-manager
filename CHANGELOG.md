@@ -1,5 +1,12 @@
 # Version history
 
+## 0.2.13
+
+- Show prominent low-space warnings for both the local staging drive and final download destination in Telegram, MyMiniFactory and Gumroad queues.
+- Check space before downloading archive sets, allowing for split parts, active transfers and temporary copies when staging and destination share a drive. Space errors explain what is needed and retain unfinished work for Resume.
+- Keep incomplete archive sets until missing downloads finish, avoiding misleading archive-damage errors.
+- Clear stale disk-space and archive warnings after a successful Resume while preserving genuine unresolved errors.
+
 ## 0.2.12
 
 - Fix first-time Docker installation to display the renamed Markdown usage notice. OS-specific Install launchers can now complete acknowledgment and continue startup.

@@ -228,6 +228,12 @@ function render(reset=false){$('connection').hidden=data.connected;$('sub-count'
  $('resume').disabled ||= !data.resumable;
  $('download').disabled ||= !data.counts.available||!data.checked_at;$('stop').disabled=!data.active;$('save').disabled=!dirty||data.active;changed();
  const checking=data.active&&data.job.action==='check';
+ const diskMessages=[],disk=data.storage;
+ if(disk?.low)diskMessages.push(`Local staging drive nearly full: ${(disk.free/1024**3).toFixed(1)} GiB free.`);
+ if(disk?.destination?.error)diskMessages.push(disk.destination.error);
+ else if(disk?.destination?.low)diskMessages.push(`Final destination nearly full: ${(disk.destination.free/1024**3).toFixed(1)} GiB free.`);
+ if(/not enough (?:space|local|destination)|no space left/i.test(data.job?.message||''))diskMessages.push(data.job.message);
+ $('disk-space-warning').hidden=!diskMessages.length||document.documentElement.dataset.artistView==='true';$('disk-space-warning').textContent=diskMessages.join(' ');
  const pending=data.availability_claimed?[]:data.items.filter(i=>!i.completed);
  window.renderDownloadAvailability($('availability'),{
   files:pending.length,releases:new Set(pending.map(i=>i.release_key)).size,creators:new Set(pending.map(i=>i.creator_id)).size,

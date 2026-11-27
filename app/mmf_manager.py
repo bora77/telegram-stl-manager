@@ -255,7 +255,9 @@ class MMFManager:
             if entry.get('managed'):managed[key]=entry['managed']
         folders_cache=self.get('view_folders',{})
         folders=folders_cache.get('folders',[]) if folders_cache.get('base')==base else sorted({i['folder'] for i in history if i.get('folder')}|{s['folder'] for s in settings.get('subscriptions',[]) if s.get('folder')})
-        return {'file_status_tokens':tokens,'existing_releases':existing_releases,'managed_releases':managed,'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':collages,'release_lifecycle':lifecycle,'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':next_check_at(max(checked,attempt),interval),'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':folders}
+        from app.disk_space import local_status, destination_status
+        storage={**local_status(self.directory),'destination':destination_status(base)}
+        return {'storage':storage,'file_status_tokens':tokens,'existing_releases':existing_releases,'managed_releases':managed,'release_bot_settings':self.get('release_bot_settings',{}),'availability_claimed':bool(checked and self.get('download_checked_at',0)==checked),'collages':collages,'release_lifecycle':lifecycle,'preparations':prepared,'resumable':resumable,'connected':self.session.exists() and not self.get('auth_required',False),'settings':settings,'creators':self.get('creators',[]),'active':active,'job':job,'counts':counts,'checked_at':checked,'next_check_at':next_check_at(max(checked,attempt),interval),'interval_hours':interval/3600,'items':[{**i,'completed':i['key'] in known} for i in items],'folders':folders}
     def login(self,payload):
         with self.idle():
             groups=self.client().login(payload.get('username'),payload.get('password'))
@@ -498,6 +500,10 @@ class MMFManager:
             try:
                 current={};paths={};units=[unit for unit in source_units(group) if any(i['key'] not in known for i in unit)]
                 transfer_group=[i for unit in units for i in unit]
+                from app.disk_space import check_capacity
+                size=sum(i['size'] for i in transfer_group)
+                capacity_error=check_capacity(work,base,size,size,filename=first['release_folder'])
+                if capacity_error:raise DeliveryError(capacity_error)
                 for unit in units:
                     unit_dir=work/safe_component('source-'+str(unit[0]['object_id'])+'-'+str(unit[0]['archive_id']));unit_dir.mkdir(exist_ok=True)
                     for item in unit:paths[item['key']]=unit_dir/safe_component(item['filename'])
@@ -517,9 +523,13 @@ class MMFManager:
             except Exception as error:
                 errors.append({'creator':first['creator'],'release':first['release'],'error':str(error) if isinstance(error,(ValueError,OSError,ExtractionError,DeliveryError)) else type(error).__name__})
                 self.progress(errors=errors)
+                from app.disk_space import is_space_error
+                if is_space_error(str(error)):break
         phase='stopped' if self.stopped() else 'error' if errors or done<len(queue) else 'complete'
         message=('Download error — run incomplete. ' if phase=='error' else '')+f'{done}/{len(queue)} files completed.'
         if done<len(queue):message+=' Saved progress is retained. Restore the connection if needed, then Resume to retry unfinished files.'
+        from app.disk_space import is_space_error
+        if errors and is_space_error(errors[-1]['error']):message=errors[-1]['error']
         self.progress(phase=phase,message=message,done=done,total=len(queue),errors=errors,bytes=0,expected=0,speed_mbps=0)
         client.save()
 

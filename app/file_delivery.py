@@ -97,7 +97,10 @@ def deliver(source,base,folder,month,filename,progress=lambda done,total:None,ph
     except OSError as error:raise DeliveryError('Download destination is unavailable or disconnected; local files retained.') from error
     identity=mount_identity(base)
     source=Path(source);size=source.stat().st_size
-    if shutil.disk_usage(base).free<size+64*1024*1024:raise DeliveryError('Not enough destination space.')
+    free=shutil.disk_usage(base).free
+    if free<size+64*1024*1024:
+        from app.disk_space import space_error
+        raise DeliveryError(space_error(free,size,64*1024*1024,filename,'final destination drive'))
     destination=base.joinpath(folder,month,*subdirectories,filename)
     # Refuse symlinks both before creating and immediately before opening.
     for part in (*destination.relative_to(base).parents,):

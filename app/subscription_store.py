@@ -248,7 +248,12 @@ class SubscriptionStore:
                     live=[t for t in saved['transfers'] if t['phase']=='downloading']
                     bandwidth.update(speed_bps=sum(t['speed_bps'] for t in live),active_files=len(live),target_mbps=saved['target_mbps'])
             except (OSError,ValueError,KeyError,TypeError):pass
-        return {**queue,'bandwidth':bandwidth,'scheduler':scheduler,'worker_state':run['state'],
+        from app.disk_space import local_status, destination_status, is_space_error
+        from app.telegram_cli import CLI_STATE
+        storage=local_status(CLI_STATE)
+        storage['destination']=destination_status(run.get('download_directory') or self.config()['download_directory'])
+        storage['error']=next((m for m in [run.get('message',''),*run.get('warnings',[])] if is_space_error(m)),None) if run['state'] in ('failed','stopped','interrupted','needs_review') else None
+        return {**queue,'storage':storage,'bandwidth':bandwidth,'scheduler':scheduler,'worker_state':run['state'],
                 'trigger_mode':'manual','can_start':not active and count>0,'active':active,'organizer_active':organizer_active,
                 'can_resume':not active and (run['state'] in ('failed','stopped','interrupted') or run['state']=='needs_review' and run.get('unfinished_files',0)>0) and bool(run.get('id') and run.get('subscriptions')),
                 'run':run,'subscriptions_saved':count}

@@ -70,9 +70,9 @@ class LayoutTests(unittest.TestCase):
                 with Image.open(output) as result:
                     self.assertEqual(result.size,(1280,720) if preview else (3840,2160))
                     scale=result.width/3840
-                    for n,rect in geometry([(s['width'],s['height']) for s in sources],'grid'):
+                    for n,rect in geometry([(s['width'],s['height']) for s in sources],'grid',shape=settings['shape']):
                         # Obtain the geometry with the same optional-title setting.
-                        rect=dict(geometry([(s['width'],s['height']) for s in sources],'grid',title=False))[n]
+                        rect=dict(geometry([(s['width'],s['height']) for s in sources],'grid',shape=settings['shape'],title=False))[n]
                         x0,y0,x1,y1=[round(v*scale) for v in rect];sw,sh=sources[n]['width'],sources[n]['height']
                         fit=min((x1-x0)/sw,(y1-y0)/sh);left=x0+((x1-x0)-sw*fit)/2;top=y0+((y1-y0)-sh*fit)/2
                         colors=[(255,0,0),(0,0,255),(255,255,0),(255,255,255)]

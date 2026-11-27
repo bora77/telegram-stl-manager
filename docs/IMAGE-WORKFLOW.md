@@ -4,6 +4,15 @@ Updated 2026-09-14. Image extraction is implemented for downloads and the
 organizer's separate manual Apply action.
 The Collages page arranges extracted images and saves a full-resolution JPEG on demand.
 
+Auto-fill prefers an explicit group/overview filename for the featured image.
+Otherwise it estimates the composition from a small image using the existing
+Pillow dependency. Several sizeable foreground shapes against a consistent
+background can suggest a group image; fragmented parts sheets are deprioritized.
+Uncertain backgrounds or overlapping figures fall back to image quality and a
+review prompt. Multiple views of one figure can resemble a group. The suggestion
+explains whether it came from a filename, visual composition, or quality fallback.
+Cached image analysis refreshes automatically when the analysis version changes.
+
 ## Extract images when organizing
 
 **Extract images** is checked by default beside **Apply ready files**. The

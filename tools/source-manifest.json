@@ -75,6 +75,7 @@
     "tests/test_check_schedule.py",
     "app/auto_downloads.py",
     "app/collage_auto.py",
+    "app/collage_composition.py",
     "app/collage_sets.py",
     "tests/test_collage_sets.py",
     "tests/test_collage_auto.py",

@@ -918,7 +918,10 @@ overview cards. Each collage contains at most nine images. No AI service,
 model download or additional dependency is
 used. Analysis runs in a background worker with progress; repeated runs reuse
 cached image measurements. Source archive/folder evidence and filenames guide
-grouping. Quality and group-shot preferences are heuristics, so review uncertain
+grouping. Group-shot filename hints take precedence for the featured image.
+Without one, visual composition estimates several sizeable subjects and
+deprioritizes fragmented parts sheets. If the evidence is weak, image quality
+provides the fallback. These are heuristics, so review uncertain
 choices under **Why these images?**. **Shuffle** changes alternatives and fallback
 choices; **Undo auto-fill** restores the previous grid. The saved JPG changes only
 when the user clicks **Save collage** or **Save selected collages**. Source files are not modified.

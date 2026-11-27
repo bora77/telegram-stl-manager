@@ -38,7 +38,7 @@ def _rows(ratios, indices, area, gap):
     return cells
 
 
-def geometry(sizes, layout='rows', shape='landscape', title=True):
+def geometry(sizes, layout='rows', shape='square', title=True):
     if not 1 <= len(sizes) <= 9 or any(w<=0 or h<=0 for w,h in sizes):raise ValueError('A collage needs 1–9 valid image slots.')
     width, height = FORMATS[shape]
     margin = min(width, height)/30

@@ -1,5 +1,11 @@
 # Version history
 
+## 0.2.14
+
+- Default new and Auto-fill collage cards to square output, including featured layouts.
+- Prefer group-shot filename clues for the featured image, then use visual composition to find plausible overviews and deprioritize parts sheets.
+- Explain why a featured image was selected and flag uncertain suggestions for review. Refresh cached image analysis for the improved selection method.
+
 ## 0.2.13
 
 - Show prominent low-space warnings for both the local staging drive and final download destination in Telegram, MyMiniFactory and Gumroad queues.

@@ -19,6 +19,33 @@ def candidate(i,group,confidence=3,name=None):
 
 
 class SelectionTests(unittest.TestCase):
+    def test_filename_group_hint_wins_over_visual_estimate(self):
+        cover=candidate(1,'set',name='cover.jpg')
+        cover['composition']={'group_candidate':False,'detail_sheet':True}
+        visual=candidate(2,'set',name='image2.jpg')
+        visual['composition']={'group_candidate':True,'score':8}
+        result=choose([visual,cover])
+        self.assertEqual(result['cards'][0]['images'][0],cover['id'])
+        self.assertEqual(result['cards'][0]['feature_basis'],'Group-shot filename hint')
+
+    def test_pixels_promote_unnamed_overview_and_demote_parts_sheet(self):
+        from PIL import ImageDraw
+        images=[]
+        for i,kind in enumerate(('single','parts','group')):
+            im=Image.new('RGB',(500,500),'black');draw=ImageDraw.Draw(im)
+            if kind=='single':draw.ellipse((145,75,355,425),fill='#aabbcc')
+            elif kind=='parts':
+                for y in range(80,420,45):
+                    for x in range(45,455,45):draw.ellipse((x,y,x+16,y+16),fill='#aabbcc')
+            else:
+                for x in (40,190,340):draw.ellipse((x,110,x+100,370),fill='#aabbcc')
+            stream=io.BytesIO();im.save(stream,format='PNG')
+            images.append({**candidate(i,'set',name=f'{i}.png'),**features(stream.getvalue())})
+        result=choose(images)
+        self.assertEqual(result['cards'][0]['images'][0],'2')
+        self.assertNotIn('1',result['cards'][0]['images'])
+        self.assertEqual(result['cards'][0]['feature_basis'],'Visual group-shot candidate')
+
     def test_hybrid_collects_singletons_and_features_group_shot(self):
         inputs=[candidate(i,'set',name='combo.png' if i==3 else 'view.png') for i in range(5)]
         inputs.extend(candidate(i,'model-'+str(i)) for i in range(5,11))

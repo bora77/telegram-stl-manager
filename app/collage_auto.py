@@ -16,6 +16,9 @@ import sys
 import uuid
 import zipfile
 from PIL import Image,ImageOps,ImageStat,ImageFilter
+from app.collage_composition import composition
+
+FEATURE_VERSION=3
 
 VARIANTS={'supported','unsupported','presupported','pre','parts','part','single','lychee','renders','render','stl','zip','rar','7z','scale','copy'}
 GENERIC={'untitled','main','camera','full','quality','fullquality','image','img','photo','render','renders','preview','layout','jpg','png'}
@@ -128,13 +131,14 @@ def grouping(record,source,models):
 def features(data):
     with Image.open(io.BytesIO(data)) as im:
         im=ImageOps.exif_transpose(im).convert('RGB');width,height=im.size
+        visual=composition(im)
         im.thumbnail((128,128));pixels=list(im.getdata())
         color=sum(max(p)-min(p)>25 for p in pixels)/max(1,len(pixels))
         small=im.resize((64,64));raw=small.tobytes()
         gray=list(im.convert('L').resize((9,8)).getdata())
         dhash=sum((gray[y*9+x]>gray[y*9+x+1])<<(y*8+x) for y in range(8) for x in range(8))
         sharpness=ImageStat.Stat(im.convert('L').filter(ImageFilter.FIND_EDGES)).var[0]
-    return {'version':2,'width':width,'height':height,'color':color,'dhash':dhash,'pixels':base64.b64encode(raw).decode(),'sharpness':sharpness}
+    return {'version':FEATURE_VERSION,'width':width,'height':height,'color':color,'dhash':dhash,'pixels':base64.b64encode(raw).decode(),'sharpness':sharpness,'composition':visual}
 
 def near_duplicate(a,b):
     if abs(a['width']/a['height']-b['width']/b['height'])>.025:return False
@@ -147,12 +151,18 @@ def choose(candidates,seed=0):
     for item in ordered:
         name=set(words(item.get('ranking_name',item['name'].split('--')[-1])))
         group_shot=bool(name&{'combo','group','overview','all','collection','cover'})
+        visual=item.get('composition',{})
         diagram=bool(name&{'scale','recipe','instructions','instruction','layout','heads','components','supports'})
+        diagram=diagram or (bool(visual.get('detail_sheet')) and not group_shot)
+        visual_group=bool(visual.get('group_candidate')) and not diagram
+        item['feature_rank']=2 if group_shot and not diagram else 1 if visual_group else 0
+        item['feature_basis']=('Group-shot filename hint' if item['feature_rank']==2 else 'Visual group-shot candidate' if item['feature_rank']==1 else 'Quality fallback; review featured image')
         item['group_shot_hint']=group_shot;item['diagram_hint']=diagram
         item['score']=math.log2(max(1,item['width']*item['height']))+min(item['color']*15,10)+min(item['sharpness']/1000,3)+(20 if group_shot else 0)-(35 if diagram else 0)
+        if visual_group:item['score']+=12+min(8,visual.get('score',0))*2
         item['_tie']=rng.random();item['_pixels']=base64.b64decode(item['pixels'])
     # Prefer quality before deduplication, so the retained copy is representative.
-    ordered.sort(key=lambda i:(-i['score'],i['_tie'] if seed else i['id']))
+    ordered.sort(key=lambda i:(-i['feature_rank'],-i['score'],i['_tie'] if seed else i['id']))
     unique=[];duplicates=[];hashes=set()
     for item in ordered:
         if item['sha256'] in hashes or any(near_duplicate(item,other) for other in unique):duplicates.append(item['id']);continue
@@ -166,7 +176,7 @@ def choose(candidates,seed=0):
         if not good:fallback.extend(items);continue
         winner=good[0]
         if seed:
-            alternatives=[i for i in good if i['score']>=winner['score']-3 and i['group_shot_hint']==winner['group_shot_hint']]
+            alternatives=[i for i in good if i['score']>=winner['score']-3 and i['feature_rank']==winner['feature_rank']]
             winner=rng.choice(alternatives)
         (primary if winner['confidence']>=2 else fallback).append(winner)
     primary.sort(key=lambda i:(-i['score'],i['_tie']))
@@ -187,17 +197,18 @@ def choose(candidates,seed=0):
         useful=[i for i in items if not i['diagram_hint'] and min(i['width'],i['height'])>=256] or items[:1]
         name=re.sub(r'\bV (\d+)\b',r'V\1',group.title()) if not group.startswith('unknown:') else 'Unidentified model'
         if len(useful)<2:singles.append((useful[0],name));continue
-        useful=sorted(useful,key=lambda i:(not i['group_shot_hint'],-i['score'],i['_tie']))[:9]
+        useful=sorted(useful,key=lambda i:(-i['feature_rank'],-i['score'],i['_tie']))[:9]
         cards.append({'id':hashlib.sha256(('set:'+group).encode()).hexdigest()[:32],'name':name[:80],'kind':'model','enabled':True,'layout':'featured',
-                      'images':[i['id'] for i in useful],'labels':{},'uncertain':any(i['uncertain'] for i in useful)})
+                      'images':[i['id'] for i in useful],'labels':{},'feature_basis':useful[0]['feature_basis'],
+                      'uncertain':any(i['uncertain'] for i in useful) or useful[0]['feature_rank']==0})
     for offset in range(0,len(singles),9):
         chunk=singles[offset:offset+9];name='Release Overview'+(' '+str(offset//9+1) if len(singles)>9 else '')
         cards.append({'id':hashlib.sha256(('overview:'+str(offset//9)).encode()).hexdigest()[:32],'name':name,'kind':'overview','enabled':True,'layout':'rows',
                       'images':[i['id'] for i,n in chunk],'labels':{i['id']:n[:80] for i,n in chunk},'uncertain':any(i['uncertain'] for i,n in chunk)})
     card_ids={i for card in cards for i in card['images']}
-    card_selected=[{'id':i['id'],'name':i['name'],'group':i['group'],'reason':i['reason'],'uncertain':i['uncertain'] or i['diagram_hint'],'quality':('Group-shot filename hint; ' if i['group_shot_hint'] else '')+('diagram fallback' if i['diagram_hint'] else 'resolution and color preference')} for i in unique if i['id'] in card_ids]
+    card_selected=[{'id':i['id'],'name':i['name'],'group':i['group'],'reason':i['reason'],'uncertain':i['uncertain'] or i['diagram_hint'],'quality':i['feature_basis']+'; '+('diagram fallback' if i['diagram_hint'] else 'resolution and color preference')} for i in unique if i['id'] in card_ids]
     return {'cards':cards,'card_selected':card_selected,'images':[i['id'] for i in selected],'selected':[{'id':i['id'],'name':i['name'],'group':i['group'],'reason':i['reason'],'uncertain':i['uncertain'] or i['diagram_hint'],
-            'quality':('Group-shot filename hint; ' if i['group_shot_hint'] else '')+('diagram fallback' if i['diagram_hint'] else 'resolution and color preference')} for i in selected],
+            'quality':i['feature_basis']+'; '+('diagram fallback' if i['diagram_hint'] else 'resolution and color preference')} for i in selected],
             'duplicates_removed':len(duplicates),'groups_found':len(groups),'candidates':len(candidates),'uncertain':sum(i['uncertain'] or i['diagram_hint'] for i in selected)}
 
 def start(collages,payload):
@@ -242,7 +253,7 @@ def execute(collages,job):
                     if pinned.info(release['month']+'/release_images/'+record['relative'])!=json.loads(record['identity']):raise ValueError('Image changed; reopen the release.')
                 with collages.db() as db:cached=db.execute('SELECT data FROM auto_features WHERE id=?',(record['id'],)).fetchone()
                 feature=json.loads(cached[0]) if cached else None
-                if not feature or feature.get('version')!=2:
+                if not feature or feature.get('version')!=FEATURE_VERSION:
                     data,checksum=collages.source(record);feature={**features(data),'sha256':checksum}
                     with collages.db() as db:db.execute('INSERT OR REPLACE INTO auto_features VALUES (?,?)',(record['id'],json.dumps(feature)))
                 group,confidence,reason,uncertain=grouping(record,origin[record['relative']],models)

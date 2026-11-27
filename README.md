@@ -490,7 +490,10 @@ externally made release as finished does not require one.
 
 The collage editor's **Auto-fill** creates an editable set of collage cards.
 Models/sets with several useful images get a dedicated collage, with the group
-shot featured when a filename hint identifies one. Models with one useful image
+shot featured when a filename hint identifies one. Otherwise, visual composition
+analysis looks for several sizeable subjects and deprioritizes parts sheets.
+Filename hints take precedence. Uncertain scenes use image quality and flag the
+featured-image suggestion for review. Models with one useful image
 are combined into shared overview collages. Each collage contains up to nine
 images. Analysis runs locally without AI models or services.
 Exact and near-duplicates are removed; resolution, color and group-shot filename
